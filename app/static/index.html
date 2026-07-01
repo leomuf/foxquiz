@@ -1,0 +1,1530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz Buddy — Your Playful Exam Prep Companion!</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary-de: #ff7b00; /* Fox Orange */
+            --primary-pt: #00b4d8; /* Dragon Teal */
+            --primary-en: #7209b7; /* Owl Purple */
+            
+            --bg-dark: #0f172a;
+            --bg-card: rgba(30, 41, 59, 0.7);
+            --border-card: rgba(255, 255, 255, 0.1);
+            
+            --fox-color: #ff6b35;
+            --dragon-color: #4ecdc4;
+            --owl-color: #a29bfe;
+            
+            --active-theme: var(--fox-color);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(255, 107, 53, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(78, 205, 196, 0.15) 0px, transparent 50%),
+                radial-gradient(at 50% 50%, rgba(162, 155, 254, 0.1) 0px, transparent 60%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-x: hidden;
+        }
+
+        header {
+            width: 100%;
+            max-width: 1000px;
+            padding: 2rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .logo {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.8rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #ff6b35, #4ecdc4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .language-toggle {
+            display: flex;
+            gap: 0.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.3rem;
+            border-radius: 99px;
+            border: 1px solid var(--border-card);
+        }
+
+        .lang-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            padding: 0.4rem 0.8rem;
+            border-radius: 99px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .lang-btn.active {
+            background: var(--active-theme);
+            color: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        main {
+            width: 100%;
+            max-width: 800px;
+            padding: 0 1.5rem 3rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            flex-grow: 1;
+        }
+
+        /* Glassmorphism Card */
+        .glass-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-card);
+            border-radius: 24px;
+            padding: 2.5rem;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease, border-color 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Mascot Selection Grid */
+        .mascot-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .mascot-option {
+            background: rgba(255, 255, 255, 0.03);
+            border: 2px solid transparent;
+            border-radius: 20px;
+            padding: 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .mascot-option:hover {
+            transform: translateY(-8px);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .mascot-option.active {
+            border-color: var(--active-theme);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        }
+
+        .mascot-emoji {
+            font-size: 3.5rem;
+            filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.2));
+            animation: bounce 3s infinite ease-in-out;
+        }
+
+        .mascot-option:nth-child(2) .mascot-emoji {
+            animation-delay: 0.5s;
+        }
+        .mascot-option:nth-child(3) .mascot-emoji {
+            animation-delay: 1s;
+        }
+
+        .mascot-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.15rem;
+            font-weight: 700;
+        }
+
+        .mascot-desc {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.3;
+        }
+
+        /* Chat / Input Setup styling */
+        .chat-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .chat-bubble {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1.25rem 1.75rem;
+            border-radius: 20px;
+            border-bottom-left-radius: 4px;
+            max-width: 85%;
+            line-height: 1.5;
+            align-self: flex-start;
+            position: relative;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .chat-bubble::after {
+            content: '';
+            position: absolute;
+            left: -8px;
+            bottom: 0;
+            width: 0;
+            height: 0;
+            border-top: 10px solid transparent;
+            border-right: 10px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .quick-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+            margin-top: 1rem;
+            animation: slideUp 0.4s ease;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+
+        @media (min-width: 600px) {
+            .form-row {
+                grid-template-columns: 120px 1fr;
+                align-items: center;
+            }
+        }
+
+        label {
+            font-weight: 600;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        input, select {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border-card);
+            padding: 1rem 1.25rem;
+            border-radius: 12px;
+            color: var(--text-main);
+            font-size: 1rem;
+            width: 100%;
+            transition: all 0.3s ease;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--active-theme);
+            box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.25);
+        }
+
+        .btn-primary {
+            background: var(--active-theme);
+            color: white;
+            font-weight: 700;
+            font-size: 1.1rem;
+            padding: 1.1rem 2rem;
+            border: none;
+            border-radius: 16px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
+            width: 100%;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.25);
+            filter: brightness(1.1);
+        }
+
+        .btn-primary:active {
+            transform: translateY(1px);
+        }
+
+        /* Loading / Wikipedia factual search animation styling */
+        .loading-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 4rem 2rem;
+            text-align: center;
+            gap: 2rem;
+        }
+
+        .loader-ring {
+            width: 90px;
+            height: 90px;
+            border-radius: 50%;
+            border: 6px solid rgba(255, 255, 255, 0.05);
+            border-top-color: var(--active-theme);
+            animation: spin 1s infinite linear;
+            position: relative;
+        }
+
+        .loader-mascot {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2.2rem;
+        }
+
+        .wiki-ticker {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            font-style: italic;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 0.75rem 1.5rem;
+            border-radius: 99px;
+            border: 1px solid var(--border-card);
+            animation: pulse 2s infinite;
+        }
+
+        /* Quiz Step Wizard */
+        .quiz-wizard {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .progress-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .progress-bar-bg {
+            background: rgba(255, 255, 255, 0.05);
+            height: 10px;
+            border-radius: 99px;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            background: var(--active-theme);
+            width: 0%;
+            height: 100%;
+            border-radius: 99px;
+            transition: width 0.5s ease-out;
+        }
+
+        .question-counter {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            min-width: 50px;
+        }
+
+        .question-text {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            line-height: 1.4;
+            margin-bottom: 1.5rem;
+        }
+
+        .options-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .option-btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-card);
+            border-radius: 16px;
+            padding: 1.25rem 1.75rem;
+            text-align: left;
+            color: var(--text-main);
+            font-size: 1.05rem;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .option-btn:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.25);
+            transform: translateX(4px);
+        }
+
+        .option-btn:disabled {
+            cursor: default;
+        }
+
+        /* Success & Failure states on answer select */
+        .option-btn.correct {
+            background: rgba(16, 185, 129, 0.15) !important;
+            border-color: rgb(16, 185, 129) !important;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            font-weight: 600;
+        }
+
+        .option-btn.incorrect {
+            background: rgba(239, 68, 68, 0.15) !important;
+            border-color: rgb(239, 68, 68) !important;
+            color: #ef4444;
+        }
+
+        .option-indicator {
+            font-weight: 800;
+            font-size: 1.3rem;
+        }
+
+        /* Explanation Bubble */
+        .explanation-card {
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 4px solid var(--active-theme);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-top: 1.5rem;
+            line-height: 1.6;
+            font-size: 0.95rem;
+            display: none;
+            animation: slideDown 0.4s ease;
+        }
+
+        .explanation-mascot {
+            font-weight: 700;
+            font-family: 'Outfit', sans-serif;
+            margin-bottom: 0.5rem;
+            color: var(--active-theme);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        /* Summary Dashboard */
+        .summary-screen {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            align-items: center;
+            padding: 1rem 0;
+        }
+
+        .score-circle {
+            width: 160px;
+            height: 160px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.03);
+            border: 8px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 15px 30px rgba(0,0,0,0.15);
+            animation: scaleIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .score-num {
+            font-family: 'Outfit', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .score-label {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+
+        .summary-actions {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        @media (min-width: 600px) {
+            .summary-actions {
+                grid-template-columns: 1fr 1fr;
+            }
+            .summary-actions .full-width-btn {
+                grid-column: span 2;
+            }
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-card);
+            color: var(--text-main);
+            font-weight: 600;
+            font-size: 0.95rem;
+            padding: 1rem 1.5rem;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        /* Feedback Section */
+        .feedback-section {
+            border-top: 1px solid var(--border-card);
+            padding-top: 2rem;
+            margin-top: 1rem;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .feedback-title {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .feedback-btns {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+        }
+
+        .fb-thumb {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-card);
+            color: var(--text-muted);
+            font-size: 1.5rem;
+            width: 54px;
+            height: 54px;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .fb-thumb:hover {
+            transform: scale(1.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .fb-thumb.liked:hover, .fb-thumb.liked {
+            background: rgba(16, 185, 129, 0.15);
+            border-color: #10b981;
+            color: #10b981;
+        }
+
+        .fb-thumb.disliked:hover, .fb-thumb.disliked {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: #ef4444;
+            color: #ef4444;
+        }
+
+        /* Inline safety message handler formatting */
+        .safety-block-screen {
+            text-align: center;
+            padding: 3rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .safety-block-icon {
+            font-size: 4rem;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Toast Alert styling */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: #10b981;
+            color: white;
+            font-weight: 600;
+            padding: 1rem 2rem;
+            border-radius: 99px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* Animations */
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes scaleIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .hide {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">
+            <span>🎓</span> Quiz Buddy
+        </div>
+        <div class="language-toggle">
+            <button class="lang-btn active" onclick="setLanguage('de')">DE</button>
+            <button class="lang-btn" onclick="setLanguage('en')">EN</button>
+            <button class="lang-btn" onclick="setLanguage('pt')">PT</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- Card 1: Mascot Selection & Quiz Config (Setup Screen) -->
+        <div id="setup-screen" class="glass-card">
+            <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.6rem; text-align: center; margin-bottom: 0.5rem;" data-translate="choose_buddy">Wähle deinen Quiz-Buddy!</h2>
+            <p style="color: var(--text-muted); text-align: center; font-size: 0.95rem; margin-bottom: 2rem;" data-translate="buddy_subtitle">Such dir einen coolen Lernbegleiter aus, der dich unterstützt!</p>
+            
+            <div class="mascot-grid">
+                <div class="mascot-option active" onclick="selectMascot('fox', '#ff6b35')">
+                    <span class="mascot-emoji">🦊</span>
+                    <span class="mascot-title">Felix der Fuchs</span>
+                    <span class="mascot-desc" data-translate="fox_desc">Verspielt, lustig und immer gut gelaunt!</span>
+                </div>
+                <div class="mascot-option" onclick="selectMascot('owl', '#a29bfe')">
+                    <span class="mascot-emoji">🦉</span>
+                    <span class="mascot-title">Olivia die Eule</span>
+                    <span class="mascot-desc" data-translate="owl_desc">Schlau, weise und super geduldig!</span>
+                </div>
+                <div class="mascot-option" onclick="selectMascot('dragon', '#4ecdc4')">
+                    <span class="mascot-emoji">🐉</span>
+                    <span class="mascot-title">Dino der Drache</span>
+                    <span class="mascot-desc" data-translate="dragon_desc">Abenteuerlustig, mutig und extrem cool!</span>
+                </div>
+            </div>
+
+            <div class="chat-section">
+                <div id="welcome-bubble" class="chat-bubble">
+                    Hallo! 🦊 Ich bin Felix der Fuchs. Lass uns zusammen für deine nächste Prüfung lernen! Für welches Fach und welches Thema soll ich dein Quiz erstellen?
+                </div>
+                
+                <div class="quick-form">
+                    <div class="form-row">
+                        <label for="input-grade" data-translate="label_grade">Klasse/Schuljahr</label>
+                        <select id="input-grade">
+                            <option value="Klasse 5" data-translate="grade_5">Klasse 5 (Gymnasium/Realschule)</option>
+                            <option value="Klasse 6" data-translate="grade_6">Klasse 6</option>
+                            <option value="Klasse 7" data-translate="grade_7">Klasse 7</option>
+                            <option value="Klasse 8" data-translate="grade_8">Klasse 8</option>
+                            <option value="Klasse 9" data-translate="grade_9">Klasse 9</option>
+                            <option value="Klasse 10" data-translate="grade_10">Klasse 10</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-row">
+                        <label for="input-subject" data-translate="label_subject">Schulfach</label>
+                        <input type="text" id="input-subject" placeholder="z.B. Biologie, Mathematik, Geschichte" required>
+                    </div>
+                    
+                    <div class="form-row">
+                        <label for="input-topic" data-translate="label_topic">Thema</label>
+                        <input type="text" id="input-topic" placeholder="z.B. Photosynthese, Bruchrechnen, Weimarer Republik" required>
+                    </div>
+
+                    <button class="btn-primary" style="margin-top: 1rem;" onclick="generateQuiz()" id="start-btn">
+                        <span>🚀</span> <span data-translate="btn_start">Quiz erstellen!</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 2: Generating Quiz Screen -->
+        <div id="loading-screen" class="glass-card hide">
+            <div class="loading-screen">
+                <div class="loader-ring">
+                    <div id="loader-mascot" class="loader-mascot">🦊</div>
+                </div>
+                <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.5rem;" id="loading-title">Lernstoff wird zusammengestellt...</h3>
+                <p style="color: var(--text-muted); max-width: 450px;" id="loading-subtitle">Ich suche gerade auf Wikipedia und in Lehrplänen nach passenden Inhalten, um dir das perfekte Quiz zu bauen!</p>
+                <div class="wiki-ticker" id="wiki-ticker">Recherche läuft... 🌐</div>
+            </div>
+        </div>
+
+        <!-- Card 3: Interactive Quiz Step Wizard Screen -->
+        <div id="quiz-screen" class="glass-card hide">
+            <div class="quiz-wizard">
+                <div class="progress-container">
+                    <div class="progress-bar-bg">
+                        <div id="quiz-progress-bar" class="progress-bar-fill"></div>
+                    </div>
+                    <div id="quiz-progress-counter" class="question-counter">1 / 10</div>
+                </div>
+
+                <div id="question-text" class="question-text">
+                    Lade Frage...
+                </div>
+
+                <div id="options-container" class="options-list">
+                    <!-- Dynamic option buttons go here -->
+                </div>
+
+                <!-- Mascot explanation after choosing -->
+                <div id="explanation-card" class="explanation-card">
+                    <div class="explanation-mascot">
+                        <span id="explanation-emoji">🦊</span> <span id="explanation-buddy-name">Felix der Fuchs</span>
+                    </div>
+                    <div id="explanation-text" style="color: var(--text-main);">
+                        Erklärung
+                    </div>
+                </div>
+
+                <button id="next-btn" class="btn-primary hide" onclick="nextQuestion()" style="margin-top: 1.5rem;">
+                    <span data-translate="btn_next">Nächste Frage</span> <span>➡️</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Card 4: Summary Screen -->
+        <div id="summary-screen" class="glass-card hide">
+            <div class="summary-screen">
+                <span id="summary-emoji" style="font-size: 4rem;">🎉</span>
+                <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.8rem;" id="summary-title">Hervorragend gemacht!</h2>
+                <p id="summary-subtitle" style="color: var(--text-muted); margin-top: -1rem;">Du hast alle Fragen beantwortet. Hier ist dein Ergebnis:</p>
+                
+                <div class="score-circle">
+                    <span id="score-text" class="score-num">8/10</span>
+                    <span class="score-label" data-translate="score">Ergebnis</span>
+                </div>
+
+                <div class="summary-actions">
+                    <button class="btn-secondary" onclick="shareCurrentQuiz()">
+                        <span>🔗</span> <span data-translate="btn_share">Quiz teilen</span>
+                    </button>
+                    <button class="btn-secondary" onclick="exportOfflineQuiz()">
+                        <span>💾</span> <span data-translate="btn_export">Offline speichern</span>
+                    </button>
+                    <button class="btn-primary full-width-btn" onclick="resetQuizState()" style="margin-top: 1rem;">
+                        <span>🔄</span> <span data-translate="btn_restart">Neues Quiz spielen</span>
+                    </button>
+                </div>
+
+                <!-- Thumbs satisfaction feedback -->
+                <div class="feedback-section">
+                    <div class="feedback-title" data-translate="feedback_title">Wie gefällt dir das Quiz?</div>
+                    <div class="feedback-btns">
+                        <button id="fb-up" class="fb-thumb" onclick="sendFeedback(1)">
+                            👍
+                        </button>
+                        <button id="fb-down" class="fb-thumb" onclick="sendFeedback(0)">
+                            👎
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 5: Safety block / Error handling page -->
+        <div id="block-screen" class="glass-card hide">
+            <div class="safety-block-screen">
+                <div id="block-icon" class="safety-block-icon">🛑</div>
+                <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.8rem; color: #ef4444;" id="block-title">Sicherheitshinweis</h2>
+                <p style="color: var(--text-main); font-size: 1.1rem; max-width: 500px; line-height: 1.5; margin-top: 0.5rem;" id="block-message">
+                    Leider wurde der Zugriff blockiert.
+                </p>
+                <button class="btn-primary" onclick="resetQuizState()" style="margin-top: 1.5rem; max-width: 300px;">
+                    <span>🏠</span> <span data-translate="btn_home">Zur Startseite</span>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">
+        <span>✅</span> <span id="toast-text">Link kopiert!</span>
+    </div>
+
+    <script>
+        // Translations Dictionary
+        const translations = {
+            de: {
+                choose_buddy: "Wähle deinen Quiz-Buddy!",
+                buddy_subtitle: "Such dir einen coolen Lernbegleiter aus, der dich unterstützt!",
+                fox_desc: "Verspielt, lustig und immer gut gelaunt!",
+                owl_desc: "Schlau, weise und super geduldig!",
+                dragon_desc: "Abenteuerlustig, mutig und extrem cool!",
+                label_grade: "Klasse/Schuljahr",
+                label_subject: "Schulfach",
+                label_topic: "Thema",
+                btn_start: "Quiz erstellen!",
+                btn_next: "Nächste Frage",
+                btn_share: "Quiz teilen",
+                btn_export: "Offline speichern",
+                btn_restart: "Neues Quiz spielen",
+                btn_home: "Zur Startseite",
+                feedback_title: "Wie gefällt dir das Quiz?",
+                score: "Ergebnis",
+                grade_5: "Klasse 5 (Gymnasium/Realschule)",
+                grade_6: "Klasse 6",
+                grade_7: "Klasse 7",
+                grade_8: "Klasse 8",
+                grade_9: "Klasse 9",
+                grade_10: "Klasse 10",
+                search_ticker: ["Wikipedia-Recherche läuft...", "Lehrpläne werden abgeglichen...", "Fragen werden altersgerecht verpackt...", "Sicherheits-Check läuft..."],
+                congrats: ["Super gemacht!", "Unglaublich!", "Pfotenstark!", "Wunderbar!"],
+                congrats_desc: "Du hast alle 10 Fragen gemeistert! Hier ist dein Ergebnis:",
+                not_found: "Teilen-Link ist ungültig oder abgelaufen."
+            },
+            en: {
+                choose_buddy: "Choose your Quiz Buddy!",
+                buddy_subtitle: "Choose a cool learning companion to guide you!",
+                fox_desc: "Playful, funny, and always cheerful!",
+                owl_desc: "Smart, wise, and super patient!",
+                dragon_desc: "Adventurous, brave, and extremely cool!",
+                label_grade: "Grade / Year",
+                label_subject: "School Subject",
+                label_topic: "Exam Topic",
+                btn_start: "Generate Quiz!",
+                btn_next: "Next Question",
+                btn_share: "Share Quiz",
+                btn_export: "Save Offline",
+                btn_restart: "Play New Quiz",
+                btn_home: "Go to Home",
+                feedback_title: "How did you like this quiz?",
+                score: "Score",
+                grade_5: "Grade 5 (Middle School)",
+                grade_6: "Grade 6",
+                grade_7: "Grade 7",
+                grade_8: "Grade 8",
+                grade_9: "Grade 9",
+                grade_10: "Grade 10",
+                search_ticker: ["Searching Wikipedia...", "Analyzing curricula...", "Tailoring kid-friendly phrasing...", "Performing safety checks..."],
+                congrats: ["Outstanding job!", "Magnificent!", "Awesome work!", "Great effort!"],
+                congrats_desc: "You successfully completed all 10 questions! Here is your score:",
+                not_found: "Share link is invalid or expired."
+            },
+            pt: {
+                choose_buddy: "Escolha seu Quiz Buddy!",
+                buddy_subtitle: "Escolha um companheiro de aprendizado super legal para te guiar!",
+                fox_desc: "Brincalhão, divertido e sempre alegre!",
+                owl_desc: "Inteligente, sábia e super paciente!",
+                dragon_desc: "Aventureiro, corajoso e extremamente descolado!",
+                label_grade: "Ano Escolar",
+                label_subject: "Matéria Escolar",
+                label_topic: "Assunto / Tema",
+                btn_start: "Criar Quiz!",
+                btn_next: "Próxima Pergunta",
+                btn_share: "Compartilhar",
+                btn_export: "Salvar Offline",
+                btn_restart: "Jogar Novamente",
+                btn_home: "Voltar ao Início",
+                feedback_title: "O que achou deste quiz?",
+                score: "Pontuação",
+                grade_5: "5º Ano (Ensino Fundamental)",
+                grade_6: "6º Ano",
+                grade_7: "7º Ano",
+                grade_8: "8º Ano",
+                grade_9: "9º Ano",
+                grade_10: "1º Ano do Ensino Médio",
+                search_ticker: ["Pesquisando na Wikipédia...", "Verificando currículos acadêmicos...", "Formatando perguntas divertidas...", "Fazendo checagens de segurança..."],
+                congrats: ["Excelente trabalho!", "Incrível!", "Espetacular!", "Muito bem!"],
+                congrats_desc: "Você completou todas as 10 perguntas! Aqui está o seu resultado:",
+                not_found: "O link de compartilhamento é inválido ou expirou."
+            }
+        };
+
+        // Current App State
+        let currentLanguage = "de";
+        let activeMascot = "fox";
+        let mascotColor = "#ff6b35";
+        let currentSessionId = "";
+        let currentQuizData = null;
+        let currentQuestionIndex = 0;
+        let userAnswers = []; // stores index of answers selected by user
+        let score = 0;
+        let tickerInterval = null;
+        let currentQuizId = ""; // stored once sharing is triggered
+
+        const mascotNames = {
+            de: { fox: "Felix der Fuchs", owl: "Olivia die Eule", dragon: "Dino der Drache" },
+            en: { fox: "Felix the Fox", owl: "Olivia the Owl", dragon: "Dino the Dragon" },
+            pt: { fox: "Felix, o Raposo", owl: "Olivia, a Coruja", dragon: "Dino, o Dragão" }
+        };
+
+        const greetings = {
+            de: {
+                fox: "Hallo! 🦊 Ich bin Felix der Fuchs. Lass uns zusammen für deine nächste Prüfung lernen! Für welches Fach und welches Thema soll ich dein Quiz erstellen?",
+                owl: "Grüß dich! 🦉 Ich bin Olivia die Eule. Ich helfe dir, dich klug auf deine Prüfungen vorzubereiten. Verrate mir einfach deine Klasse, dein Schulfach und dein Thema!",
+                dragon: "Hey! 🐉 Dino hier! Bist du bereit für ein episches Lernabenteuer? Schreib mir deine Klasse, dein Fach und dein Wunschthema und wir legen direkt los!"
+            },
+            en: {
+                fox: "Hello! 🦊 I'm Felix the Fox. Let's study for your exam together! Which grade, subject, and topic should we prepare a quiz for?",
+                owl: "Greetings! 🦉 I'm Olivia the Owl. I'm here to help you study wisely. Just tell me your grade, subject, and topic to get started!",
+                dragon: "Hey! 🐉 Dino here! Ready for an epic learning adventure? Tell me your grade, school subject, and topic, and let's go!"
+            },
+            pt: {
+                fox: "Olá! 🦊 Eu sou o Felix, o Raposo. Vamos estudar juntos para sua prova! Me conta de qual ano escolar, matéria e assunto você precisa do quiz?",
+                owl: "Saudações! 🦉 Eu sou a Olivia, a Coruja. Estou aqui para ajudar você a estudar com sabedoria. Me conte qual é seu ano, matéria e tema!",
+                dragon: "E aí! 🐉 Dino na área! Pronto para uma aventura épica de aprendizado? Digite seu ano, matéria e assunto e começamos agora!"
+            }
+        };
+
+        // On Page Load
+        window.addEventListener("DOMContentLoaded", () => {
+            detectLanguage();
+            setupMascotThemes();
+            checkForSharedQuiz();
+        });
+
+        // 1. Language Detection & Handling
+        function detectLanguage() {
+            // Auto-detect browser language or fallback
+            const lang = navigator.language || navigator.userLanguage;
+            if (lang.startsWith("pt")) {
+                setLanguage("pt");
+            } else if (lang.startsWith("en")) {
+                setLanguage("en");
+            } else {
+                setLanguage("de");
+            }
+        }
+
+        function setLanguage(lang) {
+            currentLanguage = lang;
+            
+            // Highlight button
+            document.querySelectorAll(".lang-btn").forEach(btn => {
+                btn.classList.remove("active");
+                if (btn.innerText.toLowerCase() === lang) {
+                    btn.classList.add("active");
+                }
+            });
+
+            // Translate static elements
+            document.querySelectorAll("[data-translate]").forEach(elem => {
+                const key = elem.getAttribute("data-translate");
+                if (translations[lang][key]) {
+                    elem.innerText = translations[lang][key];
+                }
+            });
+
+            // Update mascot selectors placeholders & descriptions
+            const t = translations[lang];
+            document.getElementById("input-subject").placeholder = lang === "de" ? "z.B. Biologie, Geschichte" : lang === "pt" ? "ex: Biologia, História" : "e.g., Biology, History";
+            document.getElementById("input-topic").placeholder = lang === "de" ? "z.B. Photosynthese" : lang === "pt" ? "ex: Fotossíntese" : "e.g., Photosynthesis";
+
+            // Update welcome speech bubble with translations
+            updateMascotWelcome();
+        }
+
+        // 2. Mascot Theme Selection
+        function selectMascot(mascot, color) {
+            activeMascot = mascot;
+            mascotColor = color;
+            document.documentElement.style.setProperty("--active-theme", color);
+
+            // Toggle active classes
+            document.querySelectorAll(".mascot-option").forEach(opt => {
+                opt.classList.remove("active");
+                if (opt.querySelector(".mascot-emoji").innerText === getMascotEmoji(mascot)) {
+                    opt.classList.add("active");
+                }
+            });
+
+            // Update welcomes
+            updateMascotWelcome();
+            document.getElementById("loader-mascot").innerText = getMascotEmoji(mascot);
+        }
+
+        function getMascotEmoji(mascot) {
+            return mascot === "fox" ? "🦊" : mascot === "owl" ? "🦉" : "🐉";
+        }
+
+        function updateMascotWelcome() {
+            const welcomeBubble = document.getElementById("welcome-bubble");
+            if (greetings[currentLanguage] && greetings[currentLanguage][activeMascot]) {
+                welcomeBubble.innerHTML = greetings[currentLanguage][activeMascot];
+            }
+        }
+
+        function setupMascotThemes() {
+            // Setup defaults
+            selectMascot("fox", "#ff6b35");
+        }
+
+        // 3. Cloud / URL Shared Quiz Loading (Zero-Token Loading)
+        function checkForSharedQuiz() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const quizId = urlParams.get("quiz_id");
+            if (quizId) {
+                loadSharedQuiz(quizId);
+            }
+        }
+
+        async function loadSharedQuiz(quizId) {
+            showScreen("loading-screen");
+            document.getElementById("loading-title").innerText = currentLanguage === "de" ? "Lade geteiltes Quiz..." : currentLanguage === "pt" ? "Carregando quiz..." : "Loading shared quiz...";
+            document.getElementById("loading-subtitle").innerText = currentLanguage === "de" ? "Gleich geht's los! Hol dir die Bestnote! 🎓" : currentLanguage === "pt" ? "Prepare-se! Lá vem as perguntas! 🎓" : "Get ready! Starting soon! 🎓";
+            
+            try {
+                const response = await fetch(`/quiz/${quizId}`);
+                if (!response.ok) {
+                    throw new Error("Quiz not found");
+                }
+                const data = await response.json();
+                if (data.status === "success" && data.quiz_data) {
+                    currentQuizData = data.quiz_data;
+                    currentQuizId = quizId;
+                    startQuizWizard();
+                } else {
+                    throw new Error("Invalid response schema");
+                }
+            } catch (e) {
+                console.error(e);
+                showBlockScreen("🛑", translations[currentLanguage].not_found);
+            }
+        }
+
+        // 4. Generate Quiz via Agent Workflow
+        async function generateQuiz() {
+            const grade = document.getElementById("input-grade").value;
+            const subject = document.getElementById("input-subject").value.trim();
+            const topic = document.getElementById("input-topic").value.trim();
+
+            if (!subject || !topic) {
+                alert(currentLanguage === "de" ? "Bitte fülle alle Felder aus!" : currentLanguage === "pt" ? "Por favor preencha todos os campos!" : "Please fill out all fields!");
+                return;
+            }
+
+            showScreen("loading-screen");
+            startTicker();
+
+            // Set up a clean UUID for the session
+            currentSessionId = "sess_" + Math.random().toString(36).substring(2, 15);
+            
+            // Format prompt for ADK agent
+            const userPrompt = `Grade: ${grade}, Subject: ${subject}, Topic: ${topic}, Language: ${currentLanguage}. Please generate my quiz!`;
+            
+            try {
+                // Call standard stream route of FastAPI App (get_fast_api_app setup /run_sse)
+                const response = await fetch("/run_sse", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept-Language": currentLanguage
+                    },
+                    body: JSON.stringify({
+                        app_name: "app",
+                        user_id: "anonymous_student",
+                        session_id: currentSessionId,
+                        new_message: {
+                            role: "user",
+                            parts: [{ text: userPrompt }]
+                        },
+                        streaming: false // Get full block at once for robust JSON parsing
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error("HTTP error " + response.status);
+                }
+
+                // If blocked by Safety Checkpoint Middleware
+                const data = await response.json();
+                
+                // Server response checks
+                if (data.status === "blocked") {
+                    showBlockScreen("🛑", data.message);
+                    return;
+                }
+
+                // Parse terminal output containing the structured Quiz object
+                let quiz = null;
+                
+                // In SSE, the runner logs array of events. Under streaming: false, it returns full response with output
+                if (data.output) {
+                    quiz = data.output;
+                } else if (data.events) {
+                    // Search in chronological events for output
+                    for (const ev of data.events) {
+                        if (ev.output && ev.output.questions) {
+                            quiz = ev.output;
+                            break;
+                        }
+                    }
+                }
+
+                if (quiz && quiz.questions && quiz.questions.length === 10) {
+                    currentQuizData = quiz;
+                    startQuizWizard();
+                } else {
+                    throw new Error("Failed to extract 10 questions from response output.");
+                }
+
+            } catch (e) {
+                console.error("Quiz creation error: ", e);
+                showBlockScreen("⚠️", currentLanguage === "de" ? "Etwas ist schiefgelaufen beim Erstellen des Quiz. Bitte versuche es noch einmal!" : "Something went wrong while building your quiz. Please try again!");
+            } finally {
+                stopTicker();
+            }
+        }
+
+        // 5. Quiz Wizard Logic
+        function startQuizWizard() {
+            currentQuestionIndex = 0;
+            userAnswers = [];
+            score = 0;
+            showScreen("quiz-screen");
+            renderQuestion();
+        }
+
+        function renderQuestion() {
+            const q = currentQuizData.questions[currentQuestionIndex];
+            
+            // Update Progress bar
+            const percent = ((currentQuestionIndex + 1) / 10) * 100;
+            document.getElementById("quiz-progress-bar").style.width = percent + "%";
+            document.getElementById("quiz-progress-counter").innerText = `${currentQuestionIndex + 1} / 10`;
+
+            // Display question
+            document.getElementById("question-text").innerText = q.question;
+
+            // Display options
+            const optContainer = document.getElementById("options-container");
+            optContainer.innerHTML = "";
+            document.getElementById("explanation-card").style.display = "none";
+            document.getElementById("next-btn").classList.add("hide");
+
+            const optionLabels = ["A", "B", "C", "D", "E"];
+
+            q.options.forEach((opt, idx) => {
+                const btn = document.createElement("button");
+                btn.className = "option-btn";
+                btn.innerHTML = `<span>${optionLabels[idx]}. ${opt}</span> <span class="option-indicator" id="indicator-${idx}"></span>`;
+                btn.onclick = () => selectOption(idx);
+                optContainer.appendChild(btn);
+            });
+        }
+
+        function selectOption(selectedIndex) {
+            const q = currentQuizData.questions[currentQuestionIndex];
+            const correctIndex = q.correct_option_index;
+            const optContainer = document.getElementById("options-container");
+            
+            // Record answer
+            userAnswers.push(selectedIndex);
+
+            // Disable all buttons
+            optContainer.querySelectorAll(".option-btn").forEach((btn, idx) => {
+                btn.disabled = true;
+                
+                // Color choices
+                if (idx === correctIndex) {
+                    btn.classList.add("correct");
+                    document.getElementById(`indicator-${idx}`).innerText = "✅";
+                } else if (idx === selectedIndex) {
+                    btn.classList.add("incorrect");
+                    document.getElementById(`indicator-${idx}`).innerText = "❌";
+                }
+            });
+
+            // Adjust score
+            if (selectedIndex === correctIndex) {
+                score++;
+            }
+
+            // Show mascot explanation
+            const explCard = document.getElementById("explanation-card");
+            document.getElementById("explanation-emoji").innerText = getMascotEmoji(activeMascot);
+            document.getElementById("explanation-buddy-name").innerText = mascotNames[currentLanguage][activeMascot];
+            
+            // Prepend a funny buddy statement on performance
+            let encouragement = "";
+            if (selectedIndex === correctIndex) {
+                encouragement = activeMascot === "fox" ? "🦊 Pfotenstark! Das ist absolut richtig!" : activeMascot === "owl" ? "🦉 Fantastisch! Haargenau erfasst!" : "🐉 Drachenstark! Du bist genial!";
+            } else {
+                encouragement = activeMascot === "fox" ? "🦊 Fast geschafft! Fehler sind Helfer beim Lernen!" : activeMascot === "owl" ? "🦉 Kopf hoch! Wir lernen das zusammen!" : "🐉 Lass dich nicht entmutigen! Das nächste Mal klappt's!";
+            }
+
+            document.getElementById("explanation-text").innerHTML = `<strong style="display: block; margin-bottom: 0.5rem; font-size: 1rem;">${encouragement}</strong>${q.explanation}`;
+            explCard.style.display = "block";
+
+            // Show Next Button
+            document.getElementById("next-btn").classList.remove("hide");
+        }
+
+        function nextQuestion() {
+            currentQuestionIndex++;
+            if (currentQuestionIndex < 10) {
+                renderQuestion();
+            } else {
+                showSummaryScreen();
+            }
+        }
+
+        // 6. Summary and Metrics Panel
+        function showSummaryScreen() {
+            showScreen("summary-screen");
+            
+            // Set Score Text
+            document.getElementById("score-text").innerText = `${score} / 10`;
+
+            // Reset thumbs styles
+            document.getElementById("fb-up").className = "fb-thumb";
+            document.getElementById("fb-down").className = "fb-thumb";
+
+            // Mascot Congrats
+            const t = translations[currentLanguage];
+            const mascotCong = t.congrats[score % t.congrats.length];
+            document.getElementById("summary-emoji").innerText = score >= 8 ? "🏆" : score >= 5 ? "🌟" : "💪";
+            document.getElementById("summary-title").innerText = `${mascotCong}`;
+            document.getElementById("summary-subtitle").innerText = t.congrats_desc;
+        }
+
+        // 7. Sharing & Freezing Quiz (Zero-Token Shared Access)
+        async function shareCurrentQuiz() {
+            if (currentQuizId) {
+                copyShareLink(currentQuizId);
+                return;
+            }
+
+            try {
+                const response = await fetch("/share", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        quiz_data: currentQuizData
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.status === "success" && data.quiz_id) {
+                        currentQuizId = data.quiz_id;
+                        copyShareLink(data.quiz_id);
+                    }
+                } else {
+                    throw new Error("Share request failed");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Sharing failed. Please check internet connections.");
+            }
+        }
+
+        function copyShareLink(quizId) {
+            const shareUrl = `${window.location.origin}/?quiz_id=${quizId}`;
+            navigator.clipboard.writeText(shareUrl).then(() => {
+                showToast(currentLanguage === "de" ? "Einladungs-Link in die Zwischenablage kopiert! 🦊" : "Shareable invitation link copied to clipboard!");
+            });
+        }
+
+        // 8. Offline HTML Exporter
+        function exportOfflineQuiz() {
+            if (!currentQuizData) return;
+
+            const t = translations[currentLanguage];
+            const questionsHtml = currentQuizData.questions.map((q, qIdx) => `
+                <div class="question-box">
+                    <h3>Frage ${qIdx + 1}: ${q.question}</h3>
+                    <ul class="options-list">
+                        ${q.options.map((opt, oIdx) => `
+                            <li>
+                                <span class="bullet">${String.fromCharCode(65 + oIdx)}</span>
+                                ${opt}
+                                ${oIdx === q.correct_option_index ? '<span class="correct-badge" style="display:none;">(Korrekt)</span>' : ''}
+                            </li>
+                        `).join('')}
+                    </ul>
+                    <details>
+                        <summary>Lösung und Erklärung anzeigen 🦊</summary>
+                        <div class="explanation">
+                            <strong>Richtige Option: ${String.fromCharCode(65 + q.correct_option_index)}</strong>
+                            <p>${q.explanation}</p>
+                        </div>
+                    </details>
+                </div>
+            `).join('');
+
+            const offlineTemplate = `
+<!DOCTYPE html>
+<html lang="${currentLanguage}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${currentQuizData.title} — Offline Quiz</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #f8fafc;
+            color: #0f172a;
+            max-width: 700px;
+            margin: 2rem auto;
+            padding: 0 1.5rem;
+        }
+        .header {
+            background: linear-gradient(135deg, #ff6b35, #4ecdc4);
+            padding: 2.5rem;
+            border-radius: 20px;
+            color: white;
+            text-align: center;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+        }
+        .question-box {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 16px;
+            border: 1px solid #e2e8f0;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+        }
+        ul { list-style: none; padding: 0; }
+        li {
+            padding: 0.75rem 1rem;
+            background: #f1f5f9;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .bullet {
+            font-weight: bold;
+            background: #cbd5e1;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+        }
+        details {
+            margin-top: 1rem;
+            cursor: pointer;
+        }
+        summary {
+            font-weight: 600;
+            color: #ff6b35;
+        }
+        .explanation {
+            background: #fff8f5;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 0.5rem;
+            border-left: 4px solid #ff6b35;
+            line-height: 1.5;
+        }
+        .btn-print {
+            background: #0f172a;
+            color: white;
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>${currentQuizData.title}</h1>
+        <p>Altersgruppe: ${getMascotEmoji(activeMascot)} Offline Quiz Buddy</p>
+    </div>
+    <button class="btn-print" onclick="window.print()">Drucken / Als PDF speichern</button>
+    ${questionsHtml}
+</body>
+</html>`;
+
+            // Trigger Download
+            const blob = new Blob([offlineTemplate], { type: "text/html" });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `${currentQuizData.title.replace(/\s+/g, '_')}_offline.html`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 9. Collect Feedback
+        async function sendFeedback(scoreValue) {
+            // Apply style highlights instantly
+            const upBtn = document.getElementById("fb-up");
+            const downBtn = document.getElementById("fb-down");
+
+            if (scoreValue === 1) {
+                upBtn.classList.add("liked");
+                downBtn.classList.remove("disliked");
+            } else {
+                downBtn.classList.add("disliked");
+                upBtn.classList.remove("liked");
+            }
+
+            try {
+                await fetch("/feedback", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        score: scoreValue,
+                        user_id: "anonymous_student",
+                        session_id: currentSessionId || "sess_none",
+                        text: `Quiz theme: ${currentQuizData?.title || "none"}`
+                    })
+                });
+                showToast(currentLanguage === "de" ? "Vielen Dank für dein Feedback! ❤️" : "Thank you for your rating! ❤️");
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        // Helpers
+        function showScreen(screenId) {
+            const screens = ["setup-screen", "loading-screen", "quiz-screen", "summary-screen", "block-screen"];
+            screens.forEach(id => {
+                const elem = document.getElementById(id);
+                if (id === screenId) {
+                    elem.classList.remove("hide");
+                } else {
+                    elem.classList.add("hide");
+                }
+            });
+        }
+
+        function showBlockScreen(icon, msg) {
+            showScreen("block-screen");
+            document.getElementById("block-icon").innerText = icon;
+            document.getElementById("block-message").innerHTML = msg;
+        }
+
+        function resetQuizState() {
+            // Clear location parameters so they aren't stuck on share reload
+            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.pushState({ path: cleanUrl }, '', cleanUrl);
+
+            currentQuizData = null;
+            currentQuizId = "";
+            showScreen("setup-screen");
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById("toast");
+            document.getElementById("toast-text").innerText = msg;
+            toast.classList.add("show");
+            setTimeout(() => {
+                toast.classList.remove("show");
+            }, 3500);
+        }
+
+        function startTicker() {
+            const ticker = document.getElementById("wiki-ticker");
+            const phrases = translations[currentLanguage].search_ticker;
+            let idx = 0;
+            ticker.innerText = phrases[0];
+            tickerInterval = setInterval(() => {
+                idx = (idx + 1) % phrases.length;
+                ticker.innerText = phrases[idx];
+            }, 2500);
+        }
+
+        function stopTicker() {
+            if (tickerInterval) {
+                clearInterval(tickerInterval);
+                tickerInterval = null;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -11,20 +11,57 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os
 
-import google.auth
-from fastapi import FastAPI
+import os
+import uuid
+import logging as python_logging
+from typing import Any
+from fastapi import FastAPI, Request, HTTPException, status
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from google.adk.cli.fast_api import get_fast_api_app
 from google.cloud import logging as google_cloud_logging
 
 from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
+from app.app_utils.request_context import (
+    client_ip_ctx,
+    client_locale_ctx,
+    anonymous_id_ctx,
+)
+from app.app_utils.callbacks import SecurityBlockException
+from app.database.firestore_repo import FirestoreRepository
 
 setup_telemetry()
-_, project_id = google.auth.default()
-logging_client = google_cloud_logging.Client()
-logger = logging_client.logger(__name__)
+
+# Configure standard python logging
+python_logging.basicConfig(level=python_logging.INFO)
+
+try:
+    if os.getenv("INTEGRATION_TEST") == "TRUE":
+        raise ValueError("Mock mode requested for integration tests")
+    logging_client = google_cloud_logging.Client()
+    logger = logging_client.logger(__name__)
+except Exception as e:
+    class FallbackLogger:
+        def __init__(self):
+            self._logger = python_logging.getLogger(__name__)
+        def log_struct(self, info: dict, severity: str = "INFO"):
+            msg = f"[{severity}] {info}"
+            if severity in ("WARNING", "ERROR", "CRITICAL"):
+                self._logger.warning(msg)
+            else:
+                self._logger.info(msg)
+        def info(self, msg: str, *args, **kwargs):
+            self._logger.info(msg, *args, **kwargs)
+        def error(self, msg: str, *args, **kwargs):
+            self._logger.error(msg, *args, **kwargs)
+        def warning(self, msg: str, *args, **kwargs):
+            self._logger.warning(msg, *args, **kwargs)
+
+    logger = FallbackLogger()
+    python_logging.warning(f"Using FallbackLogger due to: {e}")
+
 allow_origins = (
     os.getenv("ALLOW_ORIGINS", "").split(",") if os.getenv("ALLOW_ORIGINS") else None
 )
@@ -49,19 +86,150 @@ app: FastAPI = get_fast_api_app(
 app.title = "quiz-buddy"
 app.description = "API for interacting with the Agent quiz-buddy"
 
+# Mount static files and serve SPA frontend
+static_dir = os.path.join(AGENT_DIR, "app", "static")
+if not os.path.exists(static_dir):
+    os.makedirs(static_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+@app.get("/")
+def read_root():
+    return FileResponse(os.path.join(static_dir, "index.html"))
+
+
+# --- ContextVar Injection Middleware ---
+@app.middleware("http")
+async def inject_request_metadata(request: Request, call_next):
+    """Middleware to securely capture client IP, anonymous ID, and locale into ContextVars."""
+    # 1. Resolve client IP (supporting standard proxy headers)
+    client_ip = "127.0.0.1"
+    x_forwarded_for = request.headers.get("X-Forwarded-For")
+    if x_forwarded_for:
+        client_ip = x_forwarded_for.split(",")[0].strip()
+    elif request.client:
+        client_ip = request.client.host
+
+    # 2. Resolve Anonymous Visitor ID
+    anon_id = request.headers.get("X-Anonymous-ID")
+    if not anon_id:
+        # Fallback to cookie or generate a transient one
+        anon_id = request.cookies.get("anon_id") or f"transient_{uuid.uuid4().hex[:12]}"
+
+    # 3. Resolve Locale / Preferred Language
+    accept_language = request.headers.get("Accept-Language", "de")
+    locale = "de"
+    if "pt" in accept_language.lower() or request.headers.get("X-Locale") == "pt":
+        locale = "pt"
+    elif "en" in accept_language.lower() or request.headers.get("X-Locale") == "en":
+        locale = "en"
+
+    # Token bounds: Bind these values to the current async context
+    t1 = client_ip_ctx.set(client_ip)
+    t2 = anonymous_id_ctx.set(anon_id)
+    t3 = client_locale_ctx.set(locale)
+
+    try:
+        response = await call_next(request)
+        # If client does not have an anon_id cookie, set it
+        if not request.cookies.get("anon_id") and not request.headers.get("X-Anonymous-ID"):
+            response.set_cookie("anon_id", anon_id, max_age=365 * 24 * 3600)
+        return response
+    finally:
+        # Clean up ContextVars to avoid memory leaks
+        client_ip_ctx.reset(t1)
+        anonymous_id_ctx.reset(t2)
+        client_locale_ctx.reset(t3)
+
+
+# --- Custom Exception Handlers ---
+@app.exception_handler(SecurityBlockException)
+async def handle_security_block(request: Request, exc: SecurityBlockException):
+    """Exception handler to catch Safety Checkpoint blocks and return friendly responses."""
+    logger.log_struct(
+        {
+            "event": "security_block",
+            "message": exc.message,
+            "block_type": exc.block_type,
+            "anonymous_id": anonymous_id_ctx.get(),
+            "client_ip": client_ip_ctx.get(),
+        },
+        severity="WARNING"
+    )
+    # Return 200 OK with a block status. This allows the child-friendly chat UI
+    # to render the safety message inline without throwing technical error states.
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "status": "blocked",
+            "block_type": exc.block_type,
+            "message": exc.message
+        }
+    )
+
+
+# --- Database-Backed API Endpoints ---
 
 @app.post("/feedback")
 def collect_feedback(feedback: Feedback) -> dict[str, str]:
-    """Collect and log feedback.
+    """Collect, persist, and aggregate user feedback in Firestore."""
+    repo = FirestoreRepository()
+    # Save the detailed log in Firestore
+    log_id = repo.save_feedback_log(
+        score=feedback.score,
+        text=feedback.text or "",
+        session_id=feedback.session_id,
+        anonymous_id=feedback.user_id
+    )
 
-    Args:
-        feedback: The feedback data to log
+    logger.log_struct(
+        {
+            "event": "feedback_saved",
+            "log_id": log_id,
+            "score": feedback.score,
+            "session_id": feedback.session_id,
+        },
+        severity="INFO"
+    )
+    return {"status": "success", "log_id": log_id}
 
-    Returns:
-        Success message
-    """
-    logger.log_struct(feedback.model_dump(), severity="INFO")
-    return {"status": "success"}
+
+@app.post("/share")
+def share_quiz(payload: dict) -> dict[str, Any]:
+    """Freeze a generated quiz and persist it in the cloud for sharing."""
+    quiz_data = payload.get("quiz_data")
+    if not quiz_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing required quiz_data payload."
+        )
+
+    # Generate a secure, unique sharing identifier
+    quiz_id = payload.get("quiz_id") or str(uuid.uuid4())
+    repo = FirestoreRepository()
+    success = repo.save_shared_quiz(quiz_id, quiz_data)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist shared quiz in storage."
+        )
+
+    return {"status": "success", "quiz_id": quiz_id}
+
+
+@app.get("/quiz/{quiz_id}")
+def get_shared_quiz(quiz_id: str) -> dict[str, Any]:
+    """Retrieve a frozen, pre-generated shared quiz by its ID (Zero-Token Cost)."""
+    repo = FirestoreRepository()
+    quiz_data = repo.get_shared_quiz(quiz_id)
+
+    if not quiz_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Shared quiz not found, or it has expired under GDPR cleanup policies."
+        )
+
+    return {"status": "success", "quiz_data": quiz_data}
 
 
 # Main execution
