@@ -63,7 +63,7 @@ production child-facing web UI. Two layers are therefore kept separate:
 ┌───────────────────────────┴─────────────────────────────┐
 │  PERSISTENCE / CLOUD                                      │
 │  - Quiz store (frozen quizzes for share links)           │
-│  - Admin log (thumbs-down feedback, security events)     │
+│  - Admin log (thumbs-down, thumbs-up counter, security)  │
 │  - Usage counters (per-anonymous-user + global)          │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -155,8 +155,8 @@ languages:
       countries: ["BR", "PT"]
     - code: "en"
       label: "English"
-      flag: "🇬🇧"
-      countries: ["GB", "US", "*"]   # fallback
+      flag: "🇺🇸"
+      countries: ["US", "GB", "*"]   # fallback
   default_fallback: "en"
   detection:
     method: "ip_geolocation"
@@ -344,7 +344,7 @@ There is **no manual curriculum toggle on the UI**. Instead, the ADK Agent is eq
 # curriculum-skill-config.yaml
 curriculum_skill:
   decision_logic:
-    criteria: "Is the internal knowledge sufficient and up-to-date for country-specific (DE/BR) school curriculum?"
+    criteria: "Is the internal knowledge sufficient and up-to-date for country-specific (DE/BR/US) school curriculum?"
     threshold_on_uncertainty: "invoke_search_skill"
   behavior:
     internal_only:
@@ -376,6 +376,22 @@ Feature: Autonomous Curriculum Search Skill Decision
     And the workflow queries the external search/MCP tools for Germany (DE)
     And the quiz is generated using the retrieved curriculum data
 
+  Scenario: Agent dynamically invokes the search skill for US curriculum
+    Given the user requests a quiz with US-specific topics (e.g., Grade 8, History, American Civil War in the US)
+    When the workflow starts
+    Then the agent decides it needs to verify or gather localized US curriculum standards (Common Core or State standards)
+    And the agent invokes the "Curriculum Search Skill"
+    And the workflow queries the external search/MCP tools for the United States (US)
+    And the quiz is generated using the retrieved US curriculum data
+
+  Scenario: Agent dynamically invokes the search skill for Brazilian curriculum (Sambaquis)
+    Given the user requests a quiz with Brazilian-specific archaeological topics (e.g., Grade 6, History, Sambaquis no Brasil)
+    When the workflow starts
+    Then the agent decides it needs to verify or gather localized Brazilian BNCC curriculum standards
+    And the agent invokes the "Curriculum Search Skill"
+    And the workflow queries the external search/MCP tools (including pt.wikipedia.org/wiki/Sambaquis_no_Brasil) for Brazil (BR)
+    And the quiz is generated using the retrieved Brazilian historical curriculum data
+
   Scenario: Search skill fallback
     Given the agent decides to invoke the search skill
     When the search or MCP tools return no relevant data or fail
@@ -390,17 +406,17 @@ Feature: Autonomous Curriculum Search Skill Decision
 ```gherkin
 Feature: Quiz feedback
 
-  Scenario: Positive feedback
+  Scenario: Positive feedback increments a satisfaction counter
     Given the user has finished a quiz
     When the user selects "thumbs up"
-    Then the feedback is recorded
-    And no separate evaluation log entry is created
+    Then the aggregated satisfaction count in the database is incremented by 1
+    And no individual quiz or user logs are stored for positive feedback
 
   Scenario: Negative feedback is stored for review
     Given the user has finished a quiz
     When the user selects "thumbs down"
-    Then the quiz, its questions, and answers are written to a log
-    And this log is accessible to an administrator only
+    Then the quiz, its questions, and answers are written to a log for admin review
+    And the aggregated feedback counts are updated
 ```
 
 ---
@@ -447,35 +463,62 @@ Feature: Share and freeze a quiz
 
 ---
 
-## 10. Security checkpoint
+## 10. Security checkpoint & Dynamic Security Configuration
 
-Every user prompt is screened **before** it reaches the LLM. In ADK 2.0
-this is implemented as an upstream guard node and/or via the
-`BeforeAgentCallback` interface — not by overriding internal execution
-methods.
+Every user prompt is screened **before** it reaches the LLM. In ADK 2.0, this is implemented as an upstream guard node and/or via the `BeforeAgentCallback` interface — not by overriding internal execution methods.
+
+To support making the GitHub repository **public** without exposing defensive configurations (heuristics, classification prompts, system instructions, regexes, and sensitive keyword list), the application uses a **Private Firestore Security Configuration**.
+
+### 10.1 Firestore Configuration Schema
+
+All security rules, prompts, regexes, and keywords are stored in a private Firestore document: `system_config/security`. The codebase loads this document dynamically at runtime, keeping the public code clean and safe from reverse-engineering by potential attackers.
 
 ```yaml
-# security-config.yaml
-checkpoint:
-  checks:
-    - id: "relevance"
-      rule: "Prompt must relate to exam preparation"
-    - id: "pii_protection"
-      rule: "No personal data or credit card numbers to LLM or logs"
-    - id: "prompt_injection"
-      rule: "No instructions that divert the LLM from its task"
-  on_violation:
-    block_prompt: true
-    friendly_response: true
-    log_security_event: true   # for prompt_injection and relevant cases
-  responses:
-    # USER-FACING — DO NOT TRANSLATE. Provide per locale.
-    off_topic_de: "Dieser Assistent kann Ihnen leider keine Auskunft zum Wetter geben"
-    injection_de: "Dieser Assistent kann Ihnen nur für die Vorbereitung auf eine Prüfung unterstützen"
+# Firestore Document: system_config/security
+# (Schema reference only. All actual classification prompts, regexes, and sensitive blocklist keywords are stored exclusively inside the private Firestore database)
+classification_prompt: |
+  <SYSTEM_CLASSIFICATION_PROMPT_TEMPLATE>
+  # Private system instructions directing a fast classifier model to categorize input as SAFE, OFF_TOPIC, or MALICIOUS.
+
+blocklist_keywords:
+  - "<SENSITIVE_KEYWORD_A>"
+  - "<SENSITIVE_KEYWORD_B>"
+  - "<SENSITIVE_KEYWORD_C>"
+  - "..." # Real keywords are stored safely in Firestore and loaded at runtime.
+
+injection_regexes:
+  - "<SECURE_REGEX_PATTERN_A>"
+  - "<SECURE_REGEX_PATTERN_B>"
+  - "..." # Real regex patterns are stored safely in Firestore and loaded at runtime.
+
+responses:
+  off_topic_de: "Dieser Assistent kann dir leider nur bei der Vorbereitung auf Prüfungen helfen!"
+  off_topic_pt: "Este assistente infelizmente só pode ajudar na preparação para exames!"
+  off_topic_en: "This assistant can only help you prepare for exams!"
+  injection_de: "Dieser Assistent kann dich nur bei der Vorbereitung auf deine Prüfungen unterstützen."
+  injection_pt: "Este assistente só pode apoiar você na preparação para seus exames."
+  injection_en: "This assistant can only support you in preparing for your exams."
 ```
 
+### 10.2 Guardrail Execution Workflow
+
+The security checkpoint executes in a multi-stage fashion within `BeforeAgentCallback`:
+
+1. **Lazy Loading & Caching**: The callback fetches `system_config/security` from Firestore. To avoid sub-second latency overhead on every user message, it caches the configuration in memory with a short TTL (e.g., 5 minutes) or simple in-memory session lifetime.
+2. **Stage 1: Local Regex & Keyword Scanning (Fast Filter)**:
+   - Perform case-insensitive checks of the user's prompt against `blocklist_keywords`.
+   - Evaluate the prompt against `injection_regexes`.
+   - If a match is found, immediately classify as `MALICIOUS` and short-circuit.
+3. **Stage 2: LLM Classification (Semantic Filter)**:
+   - If Stage 1 passes, send the prompt to a fast, cost-effective classifier model using the `classification_prompt` template fetched from Firestore.
+   - If the classifier returns `MALICIOUS` or `OFF_TOPIC`, block and short-circuit.
+4. **Action on Violation**:
+   - **Block Prompt**: The prompt is not sent to the main Quiz Generator.
+   - **Log Security Event**: If classified as `MALICIOUS`, write a log entry to the `security_events` Firestore collection (storing timestamp, blocked input, violation type, e.g. `RegexMatch`, `KeywordMatch`, `ClassifierBlock`, and anonymous ID).
+   - **Friendly Blocked Response**: Return the corresponding localized message from the dynamic `responses` config.
+
 ```gherkin
-Feature: Security checkpoint
+Feature: Security checkpoint & Malicious prompt detection
 
   Scenario: Off-topic question (weather)
     Given the user has opened the chat
@@ -494,7 +537,16 @@ Feature: Security checkpoint
     Then the prompt is not forwarded to the LLM
     And the user receives the friendly injection response
     And a security entry is written to the log
+
+  Scenario: Administrative deletion prompts are blocked and logged
+    Given the user has opened the chat
+    When the user enters a blocked administrative command or destructive prompt
+    Then the system checks the dynamic Firestore blocklist and regexes
+    And the prompt is identified as malicious and blocked
+    And the user receives the friendly injection response
+    And a security entry is written to the security_events collection in Firestore
 ```
+
 
 ---
 
