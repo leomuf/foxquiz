@@ -77,7 +77,7 @@ graph TD
 ### Phase 1: Database Setup & Callbacks (Backend Foundation)
 - [ ] Install `google-cloud-firestore` dependency.
 - [ ] Implement Firestore repository classes with explicit schema mappings for:
-  - **Shared Quizzes**: Storing and retrieving frozen JSON quiz objects at path `quizzes/{quiz_id}`.
+  - **Shared Quizzes**: Storing and retrieving frozen JSON quiz objects at path `quizzes/{quiz_id}`. Each document includes an `expires_at` timestamp (default: 30 days from creation) enabling Firestore's native Time To Live (TTL) policy to auto-delete expired quizzes, reducing storage costs and complying with GDPR data minimization guidelines.
   - **Token Budgets**: Managing daily reading/writing of token counters at paths `budgets/{anonymous_id}` and `budgets/global`.
   - **Feedback Logs**: Storing detailed logs of thumbs-down responses under `feedback_logs/{log_id}` and atomically incrementing the global positive feedback count at `feedback_metrics/satisfaction`.
   - **Dynamic Security Configuration**: Fetching dynamic parameters from the private configuration document `system_config/security`. Document schema must map to:
