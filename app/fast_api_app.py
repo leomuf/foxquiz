@@ -92,6 +92,12 @@ app: FastAPI = get_fast_api_app(
 app.title = "quiz-buddy"
 app.description = "API for interacting with the Agent quiz-buddy"
 
+# Dynamically remove the default "/" route registered by ADK to expose our own UI
+# Modify app.routes list in-place because it has no setter in newer FastAPI/Starlette versions.
+for r in list(app.routes):
+    if getattr(r, "path", None) == "/":
+        app.routes.remove(r)
+
 # Mount static files and serve SPA frontend
 static_dir = os.path.join(AGENT_DIR, "app", "static")
 if not os.path.exists(static_dir):
