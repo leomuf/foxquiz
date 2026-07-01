@@ -12,24 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging as python_logging
 import os
 import uuid
-import logging as python_logging
 from typing import Any
-from fastapi import FastAPI, Request, HTTPException, status
-from fastapi.responses import JSONResponse, FileResponse
+
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk.cli.fast_api import get_fast_api_app
 from google.cloud import logging as google_cloud_logging
 
-from app.app_utils.telemetry import setup_telemetry
-from app.app_utils.typing import Feedback
+from app.app_utils.callbacks import SecurityBlockException
 from app.app_utils.request_context import (
+    anonymous_id_ctx,
     client_ip_ctx,
     client_locale_ctx,
-    anonymous_id_ctx,
 )
-from app.app_utils.callbacks import SecurityBlockException
+from app.app_utils.telemetry import setup_telemetry
+from app.app_utils.typing import Feedback
 from app.database.firestore_repo import FirestoreRepository
 
 setup_telemetry()
@@ -43,19 +44,24 @@ try:
     logging_client = google_cloud_logging.Client()
     logger = logging_client.logger(__name__)
 except Exception as e:
+
     class FallbackLogger:
         def __init__(self):
             self._logger = python_logging.getLogger(__name__)
+
         def log_struct(self, info: dict, severity: str = "INFO"):
             msg = f"[{severity}] {info}"
             if severity in ("WARNING", "ERROR", "CRITICAL"):
                 self._logger.warning(msg)
             else:
                 self._logger.info(msg)
+
         def info(self, msg: str, *args, **kwargs):
             self._logger.info(msg, *args, **kwargs)
+
         def error(self, msg: str, *args, **kwargs):
             self._logger.error(msg, *args, **kwargs)
+
         def warning(self, msg: str, *args, **kwargs):
             self._logger.warning(msg, *args, **kwargs)
 
@@ -91,6 +97,7 @@ static_dir = os.path.join(AGENT_DIR, "app", "static")
 if not os.path.exists(static_dir):
     os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
 
 @app.get("/")
 def read_root():
@@ -131,7 +138,9 @@ async def inject_request_metadata(request: Request, call_next):
     try:
         response = await call_next(request)
         # If client does not have an anon_id cookie, set it
-        if not request.cookies.get("anon_id") and not request.headers.get("X-Anonymous-ID"):
+        if not request.cookies.get("anon_id") and not request.headers.get(
+            "X-Anonymous-ID"
+        ):
             response.set_cookie("anon_id", anon_id, max_age=365 * 24 * 3600)
         return response
     finally:
@@ -153,7 +162,7 @@ async def handle_security_block(request: Request, exc: SecurityBlockException):
             "anonymous_id": anonymous_id_ctx.get(),
             "client_ip": client_ip_ctx.get(),
         },
-        severity="WARNING"
+        severity="WARNING",
     )
     # Return 200 OK with a block status. This allows the child-friendly chat UI
     # to render the safety message inline without throwing technical error states.
@@ -162,12 +171,13 @@ async def handle_security_block(request: Request, exc: SecurityBlockException):
         content={
             "status": "blocked",
             "block_type": exc.block_type,
-            "message": exc.message
-        }
+            "message": exc.message,
+        },
     )
 
 
 # --- Database-Backed API Endpoints ---
+
 
 @app.post("/feedback")
 def collect_feedback(feedback: Feedback) -> dict[str, str]:
@@ -178,7 +188,7 @@ def collect_feedback(feedback: Feedback) -> dict[str, str]:
         score=feedback.score,
         text=feedback.text or "",
         session_id=feedback.session_id,
-        anonymous_id=feedback.user_id
+        anonymous_id=feedback.user_id,
     )
 
     logger.log_struct(
@@ -188,7 +198,7 @@ def collect_feedback(feedback: Feedback) -> dict[str, str]:
             "score": feedback.score,
             "session_id": feedback.session_id,
         },
-        severity="INFO"
+        severity="INFO",
     )
     return {"status": "success", "log_id": log_id}
 
@@ -200,7 +210,7 @@ def share_quiz(payload: dict) -> dict[str, Any]:
     if not quiz_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing required quiz_data payload."
+            detail="Missing required quiz_data payload.",
         )
 
     # Generate a secure, unique sharing identifier
@@ -211,7 +221,7 @@ def share_quiz(payload: dict) -> dict[str, Any]:
     if not success:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to persist shared quiz in storage."
+            detail="Failed to persist shared quiz in storage.",
         )
 
     return {"status": "success", "quiz_id": quiz_id}
@@ -226,7 +236,7 @@ def get_shared_quiz(quiz_id: str) -> dict[str, Any]:
     if not quiz_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Shared quiz not found, or it has expired under GDPR cleanup policies."
+            detail="Shared quiz not found, or it has expired under GDPR cleanup policies.",
         )
 
     return {"status": "success", "quiz_data": quiz_data}

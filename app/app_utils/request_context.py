@@ -13,12 +13,17 @@
 # limitations under the License.
 
 import contextvars
-from typing import Optional
 
 # ContextVars to store current request metadata across async tasks
-client_ip_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("client_ip", default="127.0.0.1")
-client_locale_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("client_locale", default="de")
-anonymous_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("anonymous_id", default="anon-default")
+client_ip_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "client_ip", default="127.0.0.1"
+)
+client_locale_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "client_locale", default="de"
+)
+anonymous_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "anonymous_id", default="anon-default"
+)
 
 
 def get_client_ip() -> str:

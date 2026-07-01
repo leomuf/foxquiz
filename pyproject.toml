@@ -76,10 +76,11 @@ invalid-return-type = "ignore"
 possibly-missing-attribute = "ignore"
 not-subscriptable = "ignore"
 deprecated = "ignore"
+unknown-argument = "ignore"
 
 [tool.codespell]
-ignore-words-list = "rouge"
-skip = "./locust_env/*,uv.lock,.venv,./frontend,**/package-lock.json"
+ignore-words-list = "rouge,ist,oder,deine,alle,assistent,extrem,absolut,als,te"
+skip = "./locust_env/*,uv.lock,.venv,./frontend,**/package-lock.json,./artifacts/*,artifacts/*"
 
 
 

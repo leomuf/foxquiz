@@ -13,13 +13,18 @@
 # limitations under the License.
 
 import datetime
-import pytest
-from unittest.mock import MagicMock, patch, ANY
+from unittest.mock import ANY, MagicMock, patch
 
-from app.database.firestore_repo import FirestoreRepository
-from app.app_utils.callbacks import before_agent_callback, SecurityBlockException
+import pytest
+
 from app.app_utils import callbacks
-from app.app_utils.request_context import client_ip_ctx, anonymous_id_ctx, client_locale_ctx
+from app.app_utils.callbacks import SecurityBlockException, before_agent_callback
+from app.app_utils.request_context import (
+    anonymous_id_ctx,
+    client_ip_ctx,
+    client_locale_ctx,
+)
+from app.database.firestore_repo import FirestoreRepository
 
 
 @pytest.fixture(autouse=True)
@@ -70,7 +75,9 @@ def test_firestore_repo_budgets(mock_repo):
     assert budget["tokens_used"] == 1500
 
     # Simulate calendar day advancement by manually overwriting reset date
-    mock_repo._set_mock_doc("budgets", budget_id, {"last_reset_date": "2020-01-01", "tokens_used": 5000})
+    mock_repo._set_mock_doc(
+        "budgets", budget_id, {"last_reset_date": "2020-01-01", "tokens_used": 5000}
+    )
     budget = mock_repo.get_token_budget(budget_id)
     # Getting budget now should reset it back to 0
     assert budget["tokens_used"] == 0
@@ -79,10 +86,14 @@ def test_firestore_repo_budgets(mock_repo):
 
 def test_firestore_repo_feedback(mock_repo):
     """Verify detailed feedback logging and global atomic metrics increments."""
-    log_id = mock_repo.save_feedback_log(score=1, text="Great quiz!", session_id="sess_1", anonymous_id="anon_1")
+    log_id = mock_repo.save_feedback_log(
+        score=1, text="Great quiz!", session_id="sess_1", anonymous_id="anon_1"
+    )
     assert log_id.startswith("fb_")
 
-    log_id_down = mock_repo.save_feedback_log(score=0, text="Too hard", session_id="sess_2", anonymous_id="anon_2")
+    log_id_down = mock_repo.save_feedback_log(
+        score=0, text="Too hard", session_id="sess_2", anonymous_id="anon_2"
+    )
     assert log_id_down.startswith("fb_")
 
     # Fetch aggregated metrics
@@ -118,9 +129,7 @@ async def test_before_agent_callback_banned():
             "classification_prompt": "Classifier instruction",
             "blocklist_keywords": [],
             "injection_regexes": [],
-            "responses": {
-                "banned_de": "Zutritt verweigert."
-            }
+            "responses": {"banned_de": "Zutritt verweigert."},
         }
 
         mock_context = MagicMock()
@@ -148,15 +157,18 @@ async def test_before_agent_callback_keyword_violation():
     with patch("app.app_utils.callbacks.FirestoreRepository") as MockRepo:
         mock_repo_inst = MockRepo.return_value
         mock_repo_inst.is_signature_banned.return_value = False
-        mock_repo_inst.get_token_budget.return_value = {"tokens_used": 0, "last_reset_date": datetime.date.today().isoformat()}
+        mock_repo_inst.get_token_budget.return_value = {
+            "tokens_used": 0,
+            "last_reset_date": datetime.date.today().isoformat(),
+        }
         mock_repo_inst.get_security_config.return_value = {
             "classification_prompt": "Classifier instruction",
             "blocklist_keywords": ["drop database", "nuclear launch"],
             "injection_regexes": [],
             "responses": {
                 "injection_de": "Dieser Assistent kann dich nur bei der Vorbereitung unterstützen.",
-                "banned_de": "Zutritt verweigert."
-            }
+                "banned_de": "Zutritt verweigert.",
+            },
         }
         mock_repo_inst.get_recent_violations_count.return_value = 1
 
@@ -172,7 +184,9 @@ async def test_before_agent_callback_keyword_violation():
         assert exc_info.value.block_type == "MALICIOUS"
         assert "unterstützen" in exc_info.value.message
         # Verify violation log was recorded
-        mock_repo_inst.log_security_event.assert_called_with("test_anon_id", ANY, "Please drop database now.", "KeywordMatch")
+        mock_repo_inst.log_security_event.assert_called_with(
+            "test_anon_id", ANY, "Please drop database now.", "KeywordMatch"
+        )
 
     client_ip_ctx.reset(t1)
     anonymous_id_ctx.reset(t2)
@@ -189,15 +203,18 @@ async def test_before_agent_callback_sheriff_auto_ban():
     with patch("app.app_utils.callbacks.FirestoreRepository") as MockRepo:
         mock_repo_inst = MockRepo.return_value
         mock_repo_inst.is_signature_banned.return_value = False
-        mock_repo_inst.get_token_budget.return_value = {"tokens_used": 0, "last_reset_date": datetime.date.today().isoformat()}
+        mock_repo_inst.get_token_budget.return_value = {
+            "tokens_used": 0,
+            "last_reset_date": datetime.date.today().isoformat(),
+        }
         mock_repo_inst.get_security_config.return_value = {
             "classification_prompt": "Classifier instruction",
             "blocklist_keywords": ["malicious_keyword"],
             "injection_regexes": [],
             "responses": {
                 "banned_de": "Du bist nun permanent gesperrt! 🤠",
-                "injection_de": "Malicious block"
-            }
+                "injection_de": "Malicious block",
+            },
         }
         # Simulate that this user now has 3 violations in the last hour
         mock_repo_inst.get_recent_violations_count.return_value = 3
