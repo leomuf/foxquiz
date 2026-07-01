@@ -48,7 +48,6 @@ production child-facing web UI. Two layers are therefore kept separate:
 │  PRESENTATION LAYER (web frontend)                       │
 │  - Child-friendly layout (design tokens)                 │
 │  - Flag dropdown, chat window, quiz rendering            │
-│  - "Country-specific curriculum" toggle                  │
 │  - HTML export & share button                            │
 └───────────────────────────┬─────────────────────────────┘
                             │  API (HTTP / streaming)
@@ -277,20 +276,22 @@ judge:
   max_iterations: 5                   # guard against infinite loops
 
 knowledge_sources:
-  # Selection depends on the curriculum toggle (see Section 7).
-  default:
+  # Agent dynamically decides if external knowledge is required (Section 7).
+  default_llm_only:
     - "llm_internal"
-  when_curriculum_enabled:
+  when_search_skill_invoked:
     - "mcp_curriculum"
     - "web_search"
+    - "wikipedia"
     - "llm_internal"
 ```
 
 **The six steps:**
 
-1. **Knowledge gathering.** The workflow draws on LLM knowledge and —
-   only if the country-specific curriculum toggle is on — on the matching
-   MCP server and web search to collect material for the chosen topic.
+1. **Knowledge gathering.** The agent dynamically decides whether to use
+   only its internal LLM knowledge or to invoke the "Curriculum Search Skill"
+   (web search / Wikipedia / MCP servers) to gather country-specific and
+   curriculum-appropriate facts.
 2. **Quiz generation.** Ten multiple-choice questions, 3–5 options each,
    exactly one correct.
 3. **Quality check (LLM-as-a-judge).** A second agent in a judge role
@@ -335,69 +336,51 @@ Feature: Quiz solving and result
 
 ---
 
-## 7. Country-specific curriculum toggle
+## 7. Dynamic Curriculum-Gathering Skill
 
-A toggle on the web UI labeled **"Länderspezifischen Lehrplan
-berücksichtigen"** (USER-FACING — DO NOT TRANSLATE; provide per locale).
-
-**Default: OFF.** When off, only LLM knowledge is used as the basis for the
-quiz. When ON, the matching MCP server is queried for country-specific
-curriculum content (the country derived from the selected/detected locale),
-and the quiz is built accordingly.
+There is **no manual curriculum toggle on the UI**. Instead, the ADK Agent is equipped with a specialized **"Curriculum Search Skill"** tool. The agent dynamically decides whether to generate the quiz using purely its internal LLM knowledge or to invoke the search skill to query external resources (MCP servers, web search, Wikipedia) for localized curriculum facts.
 
 ```yaml
-# curriculum-config.yaml
-curriculum_toggle:
-  default_state: "off"
-  label:
-    # USER-FACING — DO NOT TRANSLATE.
-    de: "Länderspezifischen Lehrplan berücksichtigen"
-    pt: "Considerar o currículo específico do país"
-    en: "Use country-specific curriculum"
+# curriculum-skill-config.yaml
+curriculum_skill:
+  decision_logic:
+    criteria: "Is the internal knowledge sufficient and up-to-date for country-specific (DE/BR) school curriculum?"
+    threshold_on_uncertainty: "invoke_search_skill"
   behavior:
-    off:
+    internal_only:
       knowledge_sources: ["llm_internal"]
-    on:
+    skill_invoked:
       country_source: "selected_or_detected_locale"  # see Section 4
-      knowledge_sources: ["mcp_curriculum", "web_search", "llm_internal"]
-      mcp_server: "curriculum"        # see Section 11 (MCP)
+      knowledge_sources: ["mcp_curriculum", "web_search", "wikipedia"]
   fallback:
-    # If MCP has no data for the country/subject/topic:
-    on_no_curriculum_data: "fall_back_to_llm_internal"
-    inform_user: true
-    # USER-FACING — DO NOT TRANSLATE.
-    message_de: >
-      Für dieses Thema habe ich keinen passenden Lehrplan gefunden –
-      ich erstelle dein Quiz mit meinem allgemeinen Wissen. 🦉
+    # If search skill fails or returns no relevant data:
+    on_search_failed: "fall_back_to_llm_internal"
+    inform_user: false  # Silent fallback, user-experience remains seamless
 ```
 
 ```gherkin
-Feature: Country-specific curriculum toggle
+Feature: Autonomous Curriculum Search Skill Decision
 
-  Scenario: Toggle is off by default
-    Given a visitor opens the site
-    When the page loads
-    Then the "country-specific curriculum" toggle is off
-    And quiz creation uses only LLM knowledge
+  Scenario: Agent uses internal LLM knowledge
+    Given the user requests a quiz on a standard school topic (e.g., Grade 5, Math, Fractions)
+    When the workflow starts
+    Then the agent decides that its internal knowledge is highly accurate and sufficient
+    And the agent does not call the external curriculum search skill
+    And the quiz is generated instantly using internal knowledge
 
-  Scenario: Toggle enabled uses curriculum MCP
-    Given the visitor's locale is German (Germany)
-    When the visitor enables the "country-specific curriculum" toggle
-    And requests a quiz
-    Then the workflow queries the curriculum MCP server for German content
-    And the quiz is built from the country-specific curriculum
+  Scenario: Agent dynamically invokes the search skill
+    Given the user requests a quiz with country-specific or complex topics (e.g., Grade 9, History, Weimar Republic in Germany)
+    When the workflow starts
+    Then the agent decides it needs to verify or gather localized curriculum guidelines
+    And the agent invokes the "Curriculum Search Skill"
+    And the workflow queries the external search/MCP tools for Germany (DE)
+    And the quiz is generated using the retrieved curriculum data
 
-  Scenario: Toggle enabled for a Brazilian visitor
-    Given the visitor's locale is Portuguese (Brazil)
-    When the visitor enables the toggle and requests a quiz
-    Then the workflow queries the curriculum MCP server for Brazilian content
-    And the quiz reflects the Brazilian curriculum
-
-  Scenario: No curriculum data available
-    Given the toggle is enabled
-    When the curriculum MCP returns no data for the topic
-    Then the workflow falls back to LLM knowledge
-    And the user is informed in a friendly message
+  Scenario: Search skill fallback
+    Given the agent decides to invoke the search skill
+    When the search or MCP tools return no relevant data or fail
+    Then the workflow seamlessly falls back to the agent's internal LLM knowledge
+    And the quiz is generated without interrupting the user's flow
 ```
 
 ---
@@ -518,14 +501,14 @@ Feature: Security checkpoint
 ## 11. MCP servers
 
 MCP servers serve step 1 (knowledge gathering). The **curriculum** server
-is required when the country-specific curriculum toggle is ON (Section 7);
-the others are optional enhancements. With the toggle OFF, no MCP is used.
+and other search tools are part of the "Curriculum Search Skill" and are
+queried dynamically when the agent decides external grounding is required.
 
 ```yaml
 # mcp-config.yaml
 mcp_servers:
   - name: "curriculum"
-    required_when: "curriculum_toggle == on"
+    required_when: "agent_invokes_curriculum_search_skill == true"
     purpose: "Country-specific curriculum content (e.g. DE vs. BR)"
     note: >
       Select the concrete MCP server/provider that exposes curriculum data
