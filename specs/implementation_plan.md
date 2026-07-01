@@ -87,13 +87,23 @@ graph TD
     * `responses` (map of localized strings): Friendly block messages per language (e.g. `injection_de`, `off_topic_de`).
   - **Security Events**: Writing audit records to the private collection `security_events/{event_id}` upon violation:
     * `anonymous_id` (string): The anonymous visitor session identifier.
+    * `hashed_ip` (string): The secure SHA-256 fingerprint of the user's IP (used by the Sheriff).
     * `blocked_input` (string): The raw blocked user prompt (completely isolated from the main LLM pipelines).
     * `timestamp` (timestamp): Precise timestamp of the violation.
     * `violation_type` (string): The classification category (e.g., `RegexMatch`, `KeywordMatch`, `ClassifierBlock`).
-- [ ] Implement `BeforeAgentCallback` to perform the dynamic **Security Checkpoint** and **Token Budget Verification**:
+  - **Banned Signatures**: Managing active bans under the path `banned_signatures/{hash_id}`. Document schema must map to:
+    * `hashed_ip` (string): The secure SHA-256 fingerprint of the banned IP.
+    * `banned_at` (timestamp): The timestamp when the ban was issued.
+    * `expires_at` (timestamp): The timestamp when the ban expires (default: 24 hours).
+- [ ] Implement `BeforeAgentCallback` to perform the dynamic **Security Checkpoint**, **Sheriff Guard checks**, and **Token Budget Verification**:
   - Lazily load and cache the `system_config/security` document in memory with a short TTL (e.g. 5 minutes) to protect against DB query latency.
-  - Apply multi-stage validation: first run fast local keyword/regex scans, then secondary LLM guardrail classification using the dynamic system prompt.
-  - If a prompt is malicious (e.g. administrative command override or database deletion attempt), block execution, log the violation to the private `security_events` Firestore collection, and return a localized friendly error.
+  - **Secure Hashed Fingerprinting**: Extract the incoming request IP and run a one-way secure hash (`hashed_ip = SHA-256(IP + salt)`) to fingerprint clients anonymously.
+  - **Zero-Token Fast Block**: Intercept requests immediately and check against a fast, locally cached list of active banned signatures. If matching, reject the request instantly with a friendly block warning (**0-token cost**).
+  - Apply multi-stage validation on unbanned prompts: first run fast local keyword/regex scans, then secondary LLM guardrail classification using the dynamic system prompt.
+  - If a prompt is malicious (e.g. administrative command override or database deletion attempt):
+    * Block execution and return a localized friendly safety error.
+    * Log the violation to `security_events`, tagged with the user's `hashed_ip`.
+    * **Automated Sheriff Trigger**: Query the count of safety violations logged for this `hashed_ip` in the last hour. If the count reaches **3**, write a ban document to `banned_signatures` and add the signature to the local active ban cache for the next 24 hours.
   - Verify that the daily token budgets (both user-level and global) are within bounds before allowing the session to invoke the LLM.
 - [ ] Implement `AfterAgentCallback` for **Token Budget Accumulation** (extracting raw ADK session token usage and incrementing the client/global Firestore counters).
 

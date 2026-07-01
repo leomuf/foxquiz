@@ -93,6 +93,14 @@ To allow Quiz Buddy to be safely published as a **public GitHub repository** wit
 * **Multi-Stage Interception:** The `BeforeAgentCallback` intercepts all incoming user prompts. It conducts rapid keyword and regex matching, intercepts administrative command overrides (such as requests to delete logs or modify system configurations), and runs an LLM classifier using the private prompt configuration.
 * **Logged Security Events:** Malicious injection attempts or administrative bypass commands are blocked immediately and logged securely to a private `security_events` Firestore collection for auditing.
 
+### 🤠 Automated Sheriff Guard (Zero-Token Auto-Banning)
+To prevent malicious actors or automated bots from draining our Vertex AI token budget via repeated safety violations, we implement an automated defense subsystem code-named **The Sheriff Guard**:
+1. **Secure Client Fingerprinting:** For every request, we extract the client's IP address and generate a one-way secure hash (`hashed_ip = SHA-256(IP + salt)`) with a secret salt stored in Firestore. Because raw IP addresses are personal data under GDPR/LGPD, this fingerprinter provides zero-PII security for minors while uniquely identifying repeat spammers.
+2. **Zero-Token Fast Block:** Incoming requests are matched against a fast, local in-memory active ban list (with a 5-minute TTL). If a banned signature matches, the request is instantly short-circuited at the entry gate, consuming **exactly 0 LLM tokens** and protecting the system budget.
+3. **The Gavel (3-Strike Trigger):** If a user commits a safety violation, it is logged to `security_events` under their hashed signature. The Sheriff checks their recent logs: if a signature accumulates **3 or more safety violations** within any 1-hour window, they are automatically banned for 24 hours. The ban is written to the Firestore `banned_signatures` collection and instantly updated in the local active ban cache.
+
+> 💡 **Note:** Purely `OFF_TOPIC` requests (e.g., asking about the weather) are intercepted and redirected with a friendly response, but they are **not** treated as malicious safety violations. Only security exploits, prompt injections, or administrative override attempts are logged in `security_events` and count towards a Sheriff ban.
+
 ---
 
 ## Development

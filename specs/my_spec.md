@@ -517,6 +517,26 @@ The security checkpoint executes in a multi-stage fashion within `BeforeAgentCal
    - **Log Security Event**: If classified as `MALICIOUS`, write a log entry to the `security_events` Firestore collection (storing timestamp, blocked input, violation type, e.g. `RegexMatch`, `KeywordMatch`, `ClassifierBlock`, and anonymous ID).
    - **Friendly Blocked Response**: Return the corresponding localized message from the dynamic `responses` config.
 
+### 10.3 The Sheriff Guard (Automated Rate-Limiting & Auto-Banning)
+
+To prevent malicious actors from repeatedly attempting prompt injections and wasting our precious LLM token budget, the security checkpoint includes an automated defense subsystem code-named **The Sheriff Guard** 🤠.
+
+The Sheriff operates directly inside `BeforeAgentCallback` and uses secure, GDPR/LGPD-compliant hashed IP signatures:
+
+1. **Secure Client Fingerprinting**:
+   - For every incoming request, the server extracts the user's IP address and runs it through a one-way secure hash function with a secret salt fetched from Firestore (`hashed_ip = SHA-256(IP + salt)`).
+   - This creates a completely randomized, unique signature (e.g. `8f12a3bc...`) which cannot be reverse-engineered back to the original IP address, protecting children's privacy.
+2. **Zero-Token Fast Block (Active Ban Check)**:
+   - At the absolute start of *every* request, the server checks a local in-memory active ban cache.
+   - If the user's `hashed_ip` signature is found in the cache, the request is instantly rejected before running any regexes, keyword searches, or LLM classification.
+   - This consumes **exactly 0 LLM tokens**, defending the application budget against automated spammers and bots.
+3. **The Gavel (Automatic Ban Trigger)**:
+   - When a user's prompt violates our safety checkpoint and is logged to `security_events`, the Sheriff checks the database for other violations by the same `hashed_ip` signature within the past hour.
+   - If a signature accumulates **3 or more safety violations** within a 1-hour window, the Sheriff automatically issues a ban:
+     * A ban document is written to the private `banned_signatures` collection in Firestore, specifying the `hashed_ip`, `banned_at` timestamp, and `expires_at` timestamp (default: 24 hours).
+     * The local in-memory active ban cache is instantly updated.
+   - The user receives a friendly localized message indicating they have been blocked due to multiple safety violations.
+
 ```gherkin
 Feature: Security checkpoint & Malicious prompt detection
 
@@ -545,6 +565,30 @@ Feature: Security checkpoint & Malicious prompt detection
     And the prompt is identified as malicious and blocked
     And the user receives the friendly injection response
     And a security entry is written to the security_events collection in Firestore
+
+  Scenario: First safety violation does not trigger a ban
+    Given the user has opened the chat
+    When the user enters their first malicious prompt
+    Then the security guard blocks the prompt
+    And logs a security event tagged with their hashed IP signature
+    But "The Sheriff" does not ban the user
+    And the user can still attempt to enter a valid quiz prompt on their next turn
+
+  Scenario: Third safety violation triggers automatic ban by "The Sheriff"
+    Given the user has already committed 2 safety violations within the last hour
+    When the user enters a third malicious prompt
+    Then the security guard blocks the prompt
+    And logs the third security event tagged with their hashed IP signature
+    And "The Sheriff" automatically issues an active ban document in the banned_signatures collection
+    And updates the in-memory ban cache
+
+  Scenario: Banned user is blocked instantly with zero-token cost
+    Given the user has been banned by "The Sheriff"
+    When the user submits any prompt (valid or invalid)
+    Then the server matches their hashed IP signature in the active ban list
+    And blocks the request instantly at the front gate
+    And does not invoke the LLM or run any classification checks
+    And the user receives a localized safety block message
 ```
 
 
