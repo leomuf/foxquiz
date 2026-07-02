@@ -1045,6 +1045,7 @@
         let progressInterval = null;
         let currentProgress = 0;
         let currentQuizId = ""; // stored once sharing is triggered
+        let hasSubmittedFeedback = false;
 
         const mascotNames = {
             de: { fox: "Felix der Fuchs", owl: "Olivia die Eule", dragon: "Dino der Drache" },
@@ -1437,13 +1438,18 @@
         // 6. Summary and Metrics Panel
         function showSummaryScreen() {
             showScreen("summary-screen");
+            hasSubmittedFeedback = false;
             
             // Set Score Text
             document.getElementById("score-text").innerText = `${score} / 10`;
 
-            // Reset thumbs styles
-            document.getElementById("fb-up").className = "fb-thumb";
-            document.getElementById("fb-down").className = "fb-thumb";
+            // Reset thumbs styles and interactivity
+            const upBtn = document.getElementById("fb-up");
+            const downBtn = document.getElementById("fb-down");
+            upBtn.className = "fb-thumb";
+            upBtn.style.pointerEvents = "auto";
+            downBtn.className = "fb-thumb";
+            downBtn.style.pointerEvents = "auto";
 
             // Mascot Congrats
             const t = translations[currentLanguage];
@@ -1624,9 +1630,15 @@
 
         // 9. Collect Feedback
         async function sendFeedback(scoreValue) {
-            // Apply style highlights instantly
+            if (hasSubmittedFeedback) return;
+            hasSubmittedFeedback = true;
+
             const upBtn = document.getElementById("fb-up");
             const downBtn = document.getElementById("fb-down");
+
+            // Disable further clicks visually/interactively
+            upBtn.style.pointerEvents = "none";
+            downBtn.style.pointerEvents = "none";
 
             if (scoreValue === 1) {
                 upBtn.classList.add("liked");
@@ -1649,7 +1661,26 @@
                         text: `Quiz theme: ${currentQuizData?.title || "none"}`
                     })
                 });
-                showToast(currentLanguage === "de" ? "Vielen Dank für dein Feedback! ❤️" : "Thank you for your rating! ❤️");
+
+                let msg = "";
+                if (scoreValue === 1) {
+                    if (currentLanguage === "de") {
+                        msg = "Vielen Dank für deine Bewertung! ❤️";
+                    } else if (currentLanguage === "pt") {
+                        msg = "Muito obrigado pela sua avaliação! ❤️";
+                    } else {
+                        msg = "Thank you for your rating! ❤️";
+                    }
+                } else {
+                    if (currentLanguage === "de") {
+                        msg = "Vielen Dank für deine Bewertung, wir werden das Quiz prüfen und versuchen Quiz Buddy zu verbessern! 🦊";
+                    } else if (currentLanguage === "pt") {
+                        msg = "Obrigado pela sua avaliação, nós vamos analisar o quiz e tentar melhorar o Quiz Buddy! 🦊";
+                    } else {
+                        msg = "Thank you for your rating, we will check the quiz and try to improve Quiz Buddy! 🦊";
+                    }
+                }
+                showToast(msg);
             } catch (e) {
                 console.error(e);
             }

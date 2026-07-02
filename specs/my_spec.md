@@ -131,6 +131,20 @@ theme:
     incorrect: "💪"   # encouraging, not punishing
 ```
 
+### 3.1 Mascot Encouragement Phrases
+
+To keep children motivated, each mascot delivers localized correctness and incorrectness phrases. 
+
+The Portuguese correctness phrases are:
+- **Felix der Fuchs (Fox)**: `"🦊 Fantástico! Está absolutamente correto!"`
+- **Olivia die Eule (Owl)**: `"🦉 Fantástico! Você entendeu perfeitamente!"`
+- **Dino der Drache (Dragon)**: `"🐉 Força de Dragão! Você é genial!"`
+
+The Portuguese incorrectness phrases are:
+- **Felix der Fuchs (Fox)**: `"🦊 Quase lá! Erros nos ajudam a aprender!"`
+- **Olivia die Eule (Owl)**: `"🦉 Cabeça erguida! Vamos aprender isso juntos!"`
+- **Dino der Drache (Dragon)**: `"🐉 Não desanime! Na próxima você consegue!"`
+
 **Free template sources** (no need to build from scratch):
 
 - Fonts: Google Fonts (Baloo 2, Nunito, Fredoka) — free.
@@ -189,6 +203,13 @@ Feature: Automatic language detection
     When the page loads
     Then the site is displayed in English (fallback)
 ```
+
+### 4.1 Dynamic Translations and Dictionary Mapping (Strict i18n Rule)
+
+> [!IMPORTANT]
+> **Strict Dynamic Translation Rule**: No user-facing text, alerts, helper messages, correctness encouragements, exported labels, or footer captions may be hardcoded statically in HTML/CSS markup. All elements must be dynamically rendered at runtime from centralized language dictionary structures representing supported locales (DE, PT, EN fallback). This ensures perfect i18n synchronization and translation integrity.
+
+All interface elements, custom error pages, and loading overlays must leverage client-side reactive language switching through standard key-value map retrieval.
 
 ---
 
@@ -334,6 +355,24 @@ Feature: Quiz solving and result
     Then a new quiz starts at higher difficulty from step 1
 ```
 
+### 6.1 Asymptotic Progress Loader Overlay
+
+To address long generation times (10 to 20 seconds) and enhance user experience, a rich progressive visual loader is displayed during the quiz-creation state:
+
+1. **Visual Elements**:
+   - **Central Mascot**: The chosen learning buddy mascot (*Felix, Olivia, or Dino*) remains static and non-rotating in the center.
+   - **Outer Indication**: An infinite rotating outer dashed ring conveys ongoing active background operations.
+   - **Circular Overlay**: An SVG progress ring overlay that fills progressively from 0 degrees (0% progress) to 360 degrees (100% progress) using the mascot's brand color.
+
+2. **Asymptotic Progression Formula**:
+   - The progress percentage increments client-side at fixed 200ms intervals using a smooth mathematical asymptotic function to simulate activity without hitting a hard ceiling before the API responds:
+     $$\text{NewProgress} = \text{CurrentProgress} + (98 - \text{CurrentProgress}) \times 0.035$$
+   - This ensures the bar starts fast, then tapers off near 98% during very long waits, maintaining user patience.
+
+3. **API Success Snapping**:
+   - Immediately upon receiving the fully generated quiz payload, the progress bar snaps to 100% (360 degrees complete).
+   - A visual buffer delay of 400ms is applied to let the full transition render smoothly before transitioning the user to the active quiz screen.
+
 ---
 
 ## 7. Dynamic Curriculum-Gathering Skill
@@ -419,6 +458,30 @@ Feature: Quiz feedback
     And the aggregated feedback counts are updated
 ```
 
+### 8.1 Anti-Spam Protection & Localized Toast Feedback
+
+To maintain clean and un-spammed feedback logs, the rating system implements a strict rate protection mechanism along with premium dynamic toast localization.
+
+#### 8.1.1 Anti-Spam Click-Locking Heuristics
+1. **Interactive Session Lock**: Exactly **one feedback submission** is allowed per quiz run.
+2. **Double-Gated Protection**:
+   - A client-side global boolean state flag `hasSubmittedFeedback` is set to `true` instantly upon clicking either thumbs up or thumbs down.
+   - The UI modifies the CSS properties of the feedback button elements to `pointer-events: none` to physically block subsequent click triggers and visual interactions.
+3. **Session Reset**: The rate lock resets back to `false` only when the user finishes a new quiz or starts a completely new session.
+
+#### 8.1.2 Dynamic Toast Feedback Copy
+Instead of static responses, toast notifications are dynamically translated at runtime based on the selected language:
+
+- **Thumbs Up Positive Feedback Toast Copy**:
+  - **Deutsch (DE)**: `"Vielen Dank für deine Bewertung! ❤️"`
+  - **Português (PT)**: `"Muito obrigado pela sua avaliação! ❤️"`
+  - **English (ENFallback)**: `"Thank you for your rating! ❤️"`
+
+- **Thumbs Down Negative Feedback Toast Copy**:
+  - **Deutsch (DE)**: `"Vielen Dank für deine Bewertung, wir werden das Quiz prüfen und versuchen Quiz Buddy zu verbessern! 🦊"`
+  - **Português (PT)**: `"Obrigado pela sua avaliação, nós vamos analisar o quiz e tentar melhorar o Quiz Buddy! 🦊"`
+  - **English (ENFallback)**: `"Thank you for your rating, we will check the quiz and try to improve Quiz Buddy! 🦊"`
+
 ---
 
 ## 9. Save, share & freeze
@@ -460,6 +523,21 @@ Feature: Share and freeze a quiz
     And can start the quiz immediately
     And do not have to answer the assistant's questions
 ```
+
+### 9.1 Fully Localized Local HTML Export
+
+The offline HTML export must be fully localized to prevent any mixed-language experiences (e.g. German words in English exports or English words in Portuguese exports).
+
+1. **Age Group Label Localization**:
+   - The field formerly static `"Altersgruppe"` must be dynamic:
+     - **Deutsch (DE)**: `"Altersgruppe"`
+     - **Português (PT)**: `"Faixa Etária"`
+     - **English (EN)**: `"Age Group"`
+2. **Footer Attribution Localization**:
+   - The footer attribution formerly displaying static English/German text must dynamically resolve `"Created with Quiz Buddy"` based on the active export language:
+     - **Deutsch (DE)**: `"Erstellt mit Quiz Buddy"`
+     - **Português (PT)**: `"Criado com Quiz Buddy"`
+     - **English (EN)**: `"Created with Quiz Buddy"`
 
 ---
 
