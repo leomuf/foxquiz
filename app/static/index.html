@@ -676,17 +676,17 @@
             <div class="mascot-grid">
                 <div class="mascot-option active" onclick="selectMascot('fox', '#ff6b35')">
                     <span class="mascot-emoji">🦊</span>
-                    <span class="mascot-title">Felix der Fuchs</span>
+                    <span id="mascot-title-fox" class="mascot-title">Felix der Fuchs</span>
                     <span class="mascot-desc" data-translate="fox_desc">Verspielt, lustig und immer gut gelaunt!</span>
                 </div>
                 <div class="mascot-option" onclick="selectMascot('owl', '#a29bfe')">
                     <span class="mascot-emoji">🦉</span>
-                    <span class="mascot-title">Olivia die Eule</span>
+                    <span id="mascot-title-owl" class="mascot-title">Olivia die Eule</span>
                     <span class="mascot-desc" data-translate="owl_desc">Schlau, weise und super geduldig!</span>
                 </div>
                 <div class="mascot-option" onclick="selectMascot('dragon', '#4ecdc4')">
                     <span class="mascot-emoji">🐉</span>
-                    <span class="mascot-title">Dino der Drache</span>
+                    <span id="mascot-title-dragon" class="mascot-title">Dino der Drache</span>
                     <span class="mascot-desc" data-translate="dragon_desc">Abenteuerlustig, mutig und extrem cool!</span>
                 </div>
             </div>
@@ -732,8 +732,8 @@
                 <div class="loader-ring">
                     <div id="loader-mascot" class="loader-mascot">🦊</div>
                 </div>
-                <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.5rem;" id="loading-title">Lernstoff wird zusammengestellt...</h3>
-                <p style="color: var(--text-muted); max-width: 450px;" id="loading-subtitle">Ich suche gerade auf Wikipedia und in Lehrplänen nach passenden Inhalten, um dir das perfekte Quiz zu bauen!</p>
+                <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.5rem;" id="loading-title" data-translate="loading_title">Lernstoff wird zusammengestellt...</h3>
+                <p style="color: var(--text-muted); max-width: 450px;" id="loading-subtitle" data-translate="loading_subtitle">Ich suche gerade auf Wikipedia und in Lehrplänen nach passenden Inhalten, um dir das perfekte Quiz zu bauen!</p>
                 <div class="wiki-ticker" id="wiki-ticker">Recherche läuft... 🌐</div>
             </div>
         </div>
@@ -860,7 +860,26 @@
                 search_ticker: ["Wikipedia-Recherche läuft...", "Lehrpläne werden abgeglichen...", "Fragen werden altersgerecht verpackt...", "Sicherheits-Check läuft..."],
                 congrats: ["Super gemacht!", "Unglaublich!", "Pfotenstark!", "Wunderbar!"],
                 congrats_desc: "Du hast alle 10 Fragen gemeistert! Hier ist dein Ergebnis:",
-                not_found: "Teilen-Link ist ungültig oder abgelaufen."
+                not_found: "Teilen-Link ist ungültig oder abgelaufen.",
+                loading_title: "Lernstoff wird zusammengestellt...",
+                loading_subtitle: "Ich suche gerade auf Wikipedia und in Lehrplänen nach passenden Inhalten, um dir das perfekte Quiz zu bauen!",
+                correct_encouragement: {
+                    fox: "🦊 Pfotenstark! Das ist absolut richtig!",
+                    owl: "🦉 Fantastisch! Haargenau erfasst!",
+                    dragon: "🐉 Drachenstark! Du bist genial!"
+                },
+                incorrect_encouragement: {
+                    fox: "🦊 Fast geschafft! Fehler sind Helfer beim Lernen!",
+                    owl: "🦉 Kopf hoch! Wir lernen das zusammen!",
+                    dragon: "🐉 Lass dich nicht entmutigen! Das nächste Mal klappt's!"
+                },
+                export_question: "Frage",
+                export_correct: "Korrekt",
+                export_solution: "Lösung und Erklärung anzeigen 🦊",
+                export_correct_option: "Richtige Option",
+                export_print: "Drucken / Als PDF speichern",
+                export_level: "Altersgruppe",
+                export_offline_buddy: "Erstellt mit Quiz Buddy"
             },
             en: {
                 choose_buddy: "Choose your Quiz Buddy!",
@@ -888,7 +907,26 @@
                 search_ticker: ["Searching Wikipedia...", "Analyzing curricula...", "Tailoring kid-friendly phrasing...", "Performing safety checks..."],
                 congrats: ["Outstanding job!", "Magnificent!", "Awesome work!", "Great effort!"],
                 congrats_desc: "You successfully completed all 10 questions! Here is your score:",
-                not_found: "Share link is invalid or expired."
+                not_found: "Share link is invalid or expired.",
+                loading_title: "Preparing study materials...",
+                loading_subtitle: "I'm searching Wikipedia and curricula to build the perfect quiz for you!",
+                correct_encouragement: {
+                    fox: "🦊 Paw-some! That is absolutely correct!",
+                    owl: "🦉 Fantastic! You got it exactly right!",
+                    dragon: "🐉 Dragon-strong! You are brilliant!"
+                },
+                incorrect_encouragement: {
+                    fox: "🦊 Almost there! Mistakes help us learn!",
+                    owl: "🦉 Keep your chin up! We'll learn this together!",
+                    dragon: "🐉 Don't be discouraged! Next time you'll get it!"
+                },
+                export_question: "Question",
+                export_correct: "Correct",
+                export_solution: "Show solution and explanation 🦊",
+                export_correct_option: "Correct Option",
+                export_print: "Print / Save as PDF",
+                export_level: "Age Group",
+                export_offline_buddy: "Created with Quiz Buddy"
             },
             pt: {
                 choose_buddy: "Escolha seu Quiz Buddy!",
@@ -916,7 +954,26 @@
                 search_ticker: ["Pesquisando na Wikipédia...", "Verificando currículos acadêmicos...", "Formatando perguntas divertidas...", "Fazendo checagens de segurança..."],
                 congrats: ["Excelente trabalho!", "Incrível!", "Espetacular!", "Muito bem!"],
                 congrats_desc: "Você completou todas as 10 perguntas! Aqui está o seu resultado:",
-                not_found: "O link de compartilhamento é inválido ou expirou."
+                not_found: "O link de compartilhamento é inválido ou expirou.",
+                loading_title: "Preparando o conteúdo de estudo...",
+                loading_subtitle: "Estou pesquisando na Wikipédia e em currículos escolares para criar o quiz perfeito para você!",
+                correct_encouragement: {
+                    fox: "🦊 Fantástico! Está absolutamente correto!",
+                    owl: "🦉 Fantástico! Você entendeu perfeitamente!",
+                    dragon: "🐉 Força de Dragão! Você é genial!"
+                },
+                incorrect_encouragement: {
+                    fox: "🦊 Quase lá! Erros nos ajudam a aprender!",
+                    owl: "🦉 Cabeça erguida! Vamos aprender isso juntos!",
+                    dragon: "🐉 Não desanime! Na próxima você consegue!"
+                },
+                export_question: "Pergunta",
+                export_correct: "Correto",
+                export_solution: "Mostrar resposta e explicação 🦊",
+                export_correct_option: "Opção correta",
+                export_print: "Imprimir / Salvar como PDF",
+                export_level: "Faixa Etária",
+                export_offline_buddy: "Criado com Quiz Buddy"
             }
         };
 
@@ -935,7 +992,7 @@
         const mascotNames = {
             de: { fox: "Felix der Fuchs", owl: "Olivia die Eule", dragon: "Dino der Drache" },
             en: { fox: "Felix the Fox", owl: "Olivia the Owl", dragon: "Dino the Dragon" },
-            pt: { fox: "Felix, o Raposo", owl: "Olivia, a Coruja", dragon: "Dino, o Dragão" }
+            pt: { fox: "Felix, a Raposa", owl: "Olivia, a Coruja", dragon: "Dino, o Dragão" }
         };
 
         const greetings = {
@@ -950,7 +1007,7 @@
                 dragon: "Hey! 🐉 Dino here! Ready for an epic learning adventure? Tell me your grade, school subject, and topic, and let's go!"
             },
             pt: {
-                fox: "Olá! 🦊 Eu sou o Felix, o Raposo. Vamos estudar juntos para sua prova! Me conta de qual ano escolar, matéria e assunto você precisa do quiz?",
+                fox: "Olá! 🦊 Eu sou o Felix, a Raposa. Vamos estudar juntos para sua prova! Me conta de qual ano escolar, matéria e assunto você precisa do quiz?",
                 owl: "Saudações! 🦉 Eu sou a Olivia, a Coruja. Estou aqui para ajudar você a estudar com sabedoria. Me conte qual é seu ano, matéria e tema!",
                 dragon: "E aí! 🐉 Dino na área! Pronto para uma aventura épica de aprendizado? Digite seu ano, matéria e assunto e começamos agora!"
             }
@@ -999,6 +1056,13 @@
             const t = translations[lang];
             document.getElementById("input-subject").placeholder = lang === "de" ? "z.B. Biologie, Geschichte" : lang === "pt" ? "ex: Biologia, História" : "e.g., Biology, History";
             document.getElementById("input-topic").placeholder = lang === "de" ? "z.B. Photosynthese" : lang === "pt" ? "ex: Fotossíntese" : "e.g., Photosynthesis";
+
+            // Update mascot names in the selection grid
+            if (typeof mascotNames !== "undefined" && mascotNames[lang]) {
+                document.getElementById("mascot-title-fox").innerText = mascotNames[lang].fox;
+                document.getElementById("mascot-title-owl").innerText = mascotNames[lang].owl;
+                document.getElementById("mascot-title-dragon").innerText = mascotNames[lang].dragon;
+            }
 
             // Update welcome speech bubble with translations
             updateMascotWelcome();
@@ -1081,6 +1145,12 @@
             if (!subject || !topic) {
                 alert(currentLanguage === "de" ? "Bitte fülle alle Felder aus!" : currentLanguage === "pt" ? "Por favor preencha todos os campos!" : "Please fill out all fields!");
                 return;
+            }
+
+            // Update loading title and subtitle translations before showing screen
+            if (typeof translations !== "undefined" && translations[currentLanguage]) {
+                document.getElementById("loading-title").innerText = translations[currentLanguage].loading_title;
+                document.getElementById("loading-subtitle").innerText = translations[currentLanguage].loading_subtitle;
             }
 
             showScreen("loading-screen");
@@ -1267,13 +1337,25 @@
             
             // Prepend a funny buddy statement on performance
             let encouragement = "";
+            const t = translations[currentLanguage];
             if (selectedIndex === correctIndex) {
-                encouragement = activeMascot === "fox" ? "🦊 Pfotenstark! Das ist absolut richtig!" : activeMascot === "owl" ? "🦉 Fantastisch! Haargenau erfasst!" : "🐉 Drachenstark! Du bist genial!";
+                encouragement = t.correct_encouragement[activeMascot];
             } else {
-                encouragement = activeMascot === "fox" ? "🦊 Fast geschafft! Fehler sind Helfer beim Lernen!" : activeMascot === "owl" ? "🦉 Kopf hoch! Wir lernen das zusammen!" : "🐉 Lass dich nicht entmutigen! Das nächste Mal klappt's!";
+                encouragement = t.incorrect_encouragement[activeMascot];
             }
 
-            document.getElementById("explanation-text").innerHTML = `<strong style="display: block; margin-bottom: 0.5rem; font-size: 1rem;">${encouragement}</strong>${q.explanation}`;
+            // Sanitize explanation: strip congratulatory phrases if incorrect answer chosen
+            let explanationText = q.explanation || "";
+            if (selectedIndex !== correctIndex) {
+                // Strip common German, English, and Portuguese congratulations prefixes
+                explanationText = explanationText.replace(/^(Parabéns!|Parabéns,|Parabéns\b|Congratulations!|Congratulations,|Congratulations\b|Herzlichen Glückwunsch!|Herzlichen Glückwunsch,|Herzlichen Glückwunsch\b|Super!|Super gemacht!|Sehr gut!|Muito bem!)\s*/i, "");
+                // Capitalize first letter of cleaned explanation
+                if (explanationText.length > 0) {
+                    explanationText = explanationText.charAt(0).toUpperCase() + explanationText.slice(1);
+                }
+            }
+
+            document.getElementById("explanation-text").innerHTML = `<strong style="display: block; margin-bottom: 0.5rem; font-size: 1rem;">${encouragement}</strong>${explanationText}`;
             explCard.style.display = "block";
 
             // Show Next Button
@@ -1355,20 +1437,20 @@
             const t = translations[currentLanguage];
             const questionsHtml = currentQuizData.questions.map((q, qIdx) => `
                 <div class="question-box">
-                    <h3>Frage ${qIdx + 1}: ${q.question}</h3>
+                    <h3>${t.export_question} ${qIdx + 1}: ${q.question}</h3>
                     <ul class="options-list">
                         ${q.options.map((opt, oIdx) => `
                             <li>
                                 <span class="bullet">${String.fromCharCode(65 + oIdx)}</span>
                                 ${opt}
-                                ${oIdx === q.correct_option_index ? '<span class="correct-badge" style="display:none;">(Korrekt)</span>' : ''}
+                                ${oIdx === q.correct_option_index ? `<span class="correct-badge" style="display:none;">(${t.export_correct})</span>` : ''}
                             </li>
                         `).join('')}
                     </ul>
                     <details>
-                        <summary>Lösung und Erklärung anzeigen 🦊</summary>
+                        <summary>${t.export_solution}</summary>
                         <div class="explanation">
-                            <strong>Richtige Option: ${String.fromCharCode(65 + q.correct_option_index)}</strong>
+                            <strong>${t.export_correct_option}: ${String.fromCharCode(65 + q.correct_option_index)}</strong>
                             <p>${q.explanation}</p>
                         </div>
                     </details>
@@ -1460,9 +1542,9 @@
 <body>
     <div class="header">
         <h1>${currentQuizData.title}</h1>
-        <p>Altersgruppe: ${getMascotEmoji(activeMascot)} Offline Quiz Buddy</p>
+        <p>${t.export_level}: ${getMascotEmoji(activeMascot)} ${t.export_offline_buddy}</p>
     </div>
-    <button class="btn-print" onclick="window.print()">Drucken / Als PDF speichern</button>
+    <button class="btn-print" onclick="window.print()">${t.export_print}</button>
     ${questionsHtml}
 </body>
 </html>`;
