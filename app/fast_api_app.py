@@ -38,33 +38,60 @@ setup_telemetry()
 # Configure standard python logging
 python_logging.basicConfig(level=python_logging.INFO)
 
+class FallbackLogger:
+    def __init__(self):
+        self._logger = python_logging.getLogger(__name__)
+
+    def log_struct(self, info: dict, severity: str = "INFO"):
+        msg = f"[{severity}] {info}"
+        if severity in ("WARNING", "ERROR", "CRITICAL"):
+            self._logger.warning(msg)
+        else:
+            self._logger.info(msg)
+
+    def info(self, msg: str, *args, **kwargs):
+        self._logger.info(msg, *args, **kwargs)
+
+    def error(self, msg: str, *args, **kwargs):
+        self._logger.error(msg, *args, **kwargs)
+
+    def warning(self, msg: str, *args, **kwargs):
+        self._logger.warning(msg, *args, **kwargs)
+
+
+class SafeLogger:
+    def __init__(self, real_logger, fallback):
+        self.real_logger = real_logger
+        self.fallback = fallback
+        self.use_fallback = False
+
+    def log_struct(self, info: dict, severity: str = "INFO"):
+        if not self.use_fallback:
+            try:
+                self.real_logger.log_struct(info, severity=severity)
+                return
+            except Exception as e:
+                python_logging.warning(f"Cloud Logging write failed ({e}). Falling back to standard logging.")
+                self.use_fallback = True
+        self.fallback.log_struct(info, severity=severity)
+
+    def info(self, msg: str, *args, **kwargs):
+        self.fallback.info(msg, *args, **kwargs)
+
+    def error(self, msg: str, *args, **kwargs):
+        self.fallback.error(msg, *args, **kwargs)
+
+    def warning(self, msg: str, *args, **kwargs):
+        self.fallback.warning(msg, *args, **kwargs)
+
+
 try:
     if os.getenv("INTEGRATION_TEST") == "TRUE":
         raise ValueError("Mock mode requested for integration tests")
     logging_client = google_cloud_logging.Client()
-    logger = logging_client.logger(__name__)
+    real_logger = logging_client.logger(__name__)
+    logger = SafeLogger(real_logger, FallbackLogger())
 except Exception as e:
-
-    class FallbackLogger:
-        def __init__(self):
-            self._logger = python_logging.getLogger(__name__)
-
-        def log_struct(self, info: dict, severity: str = "INFO"):
-            msg = f"[{severity}] {info}"
-            if severity in ("WARNING", "ERROR", "CRITICAL"):
-                self._logger.warning(msg)
-            else:
-                self._logger.info(msg)
-
-        def info(self, msg: str, *args, **kwargs):
-            self._logger.info(msg, *args, **kwargs)
-
-        def error(self, msg: str, *args, **kwargs):
-            self._logger.error(msg, *args, **kwargs)
-
-        def warning(self, msg: str, *args, **kwargs):
-            self._logger.warning(msg, *args, **kwargs)
-
     logger = FallbackLogger()
     python_logging.warning(f"Using FallbackLogger due to: {e}")
 

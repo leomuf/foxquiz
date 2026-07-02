@@ -1086,13 +1086,23 @@
             showScreen("loading-screen");
             startTicker();
 
-            // Set up a clean UUID for the session
-            currentSessionId = "sess_" + Math.random().toString(36).substring(2, 15);
-            
             // Format prompt for ADK agent
             const userPrompt = `Grade: ${grade}, Subject: ${subject}, Topic: ${topic}, Language: ${currentLanguage}. Please generate my quiz!`;
             
             try {
+                // Pre-register session in the backend store first to avoid 404 on /run_sse
+                const sessionUrl = "/apps/app/users/anonymous_student/sessions";
+                const sessionRes = await fetch(sessionUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ state: { preferred_language: currentLanguage } })
+                });
+                if (!sessionRes.ok) {
+                    throw new Error("Failed to pre-register session on backend. Status: " + sessionRes.status);
+                }
+                const sessionData = await sessionRes.json();
+                currentSessionId = sessionData.id;
+
                 // Call standard stream route of FastAPI App (get_fast_api_app setup /run_sse)
                 const response = await fetch("/run_sse", {
                     method: "POST",
@@ -1116,28 +1126,55 @@
                     throw new Error("HTTP error " + response.status);
                 }
 
-                // If blocked by Safety Checkpoint Middleware
-                const data = await response.json();
+                // Read the Server-Sent Events (SSE) stream line-by-line
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+                let events = [];
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    // Keep the last partial line in the buffer
+                    buffer = lines.pop();
+                    
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith("data: ")) {
+                            try {
+                                const eventData = JSON.parse(trimmed.slice(6));
+                                events.push(eventData);
+                            } catch (err) {
+                                console.error("Failed to parse SSE line JSON", err);
+                            }
+                        }
+                    }
+                }
                 
-                // Server response checks
-                if (data.status === "blocked") {
-                    showBlockScreen("🛑", data.message);
-                    return;
+                // Parse remaining buffer if any
+                if (buffer.trim().startsWith("data: ")) {
+                    try {
+                        const eventData = JSON.parse(buffer.trim().slice(6));
+                        events.push(eventData);
+                    } catch (err) {}
+                }
+
+                // Check if any event was blocked by Safety Checkpoint Middleware
+                for (const ev of events) {
+                    if (ev.status === "blocked") {
+                        showBlockScreen("🛑", ev.message);
+                        return;
+                    }
                 }
 
                 // Parse terminal output containing the structured Quiz object
                 let quiz = null;
-                
-                // In SSE, the runner logs array of events. Under streaming: false, it returns full response with output
-                if (data.output) {
-                    quiz = data.output;
-                } else if (data.events) {
-                    // Search in chronological events for output
-                    for (const ev of data.events) {
-                        if (ev.output && ev.output.questions) {
-                            quiz = ev.output;
-                            break;
-                        }
+                for (const ev of events) {
+                    if (ev.output && ev.output.questions) {
+                        quiz = ev.output;
+                        break;
                     }
                 }
 
@@ -1150,7 +1187,10 @@
 
             } catch (e) {
                 console.error("Quiz creation error: ", e);
-                showBlockScreen("⚠️", currentLanguage === "de" ? "Etwas ist schiefgelaufen beim Erstellen des Quiz. Bitte versuche es noch einmal!" : "Something went wrong while building your quiz. Please try again!");
+                const errorMsg = currentLanguage === "de" ? "Etwas ist schiefgelaufen beim Erstellen des Quiz. Bitte versuche es noch einmal!" :
+                                 currentLanguage === "pt" ? "Algo deu errado ao criar o seu quiz. Por favor, tente novamente!" :
+                                 "Something went wrong while building your quiz. Please try again!";
+                showBlockScreen("⚠️", errorMsg);
             } finally {
                 stopTicker();
             }
@@ -1483,10 +1523,25 @@
             });
         }
 
-        function showBlockScreen(icon, msg) {
+        function showBlockScreen(icon, msg, title = "") {
             showScreen("block-screen");
             document.getElementById("block-icon").innerText = icon;
             document.getElementById("block-message").innerHTML = msg;
+            const titleElem = document.getElementById("block-title");
+            if (title) {
+                titleElem.innerText = title;
+            } else {
+                if (icon === "🛑") {
+                    titleElem.innerText = currentLanguage === "de" ? "Sicherheitshinweis" : 
+                                          currentLanguage === "pt" ? "Aviso de Segurança" : "Safety Alert";
+                } else if (icon === "⚠️") {
+                    titleElem.innerText = currentLanguage === "de" ? "Fehler" : 
+                                          currentLanguage === "pt" ? "Erro" : "Error";
+                } else {
+                    titleElem.innerText = currentLanguage === "de" ? "Hinweis" : 
+                                          currentLanguage === "pt" ? "Aviso" : "Notice";
+                }
+            }
         }
 
         function resetQuizState() {

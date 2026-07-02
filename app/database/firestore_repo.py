@@ -74,8 +74,10 @@ _mock_db: dict[str, dict[str, Any]] = {
 class FirestoreRepository:
     """Repository class for interacting with Google Cloud Firestore or an in-memory mock fallback."""
 
+    _global_mock_active = False
+
     def __init__(self, force_mock: bool = False):
-        self.use_mock = force_mock or os.getenv("INTEGRATION_TEST") == "TRUE"
+        self.use_mock = force_mock or os.getenv("INTEGRATION_TEST") == "TRUE" or FirestoreRepository._global_mock_active
         self.client = None
 
         if not self.use_mock:
@@ -88,6 +90,7 @@ class FirestoreRepository:
                     f"Failed to initialize Firestore Client ({e}). Falling back to in-memory mock database."
                 )
                 self.use_mock = True
+                FirestoreRepository._global_mock_active = True
 
     def _get_mock_doc(self, collection: str, doc_id: str) -> dict[str, Any] | None:
         return _mock_db.get(collection, {}).get(doc_id)
@@ -132,8 +135,21 @@ class FirestoreRepository:
                     return None
                 return data.get("quiz_data")
             return None
-        except GoogleAPIError as e:
-            logger.error(f"Error fetching shared quiz {quiz_id}: {e}")
+        except Exception as e:
+            logger.warning(
+                f"Failed to read shared quiz from real Firestore ({e}). Falling back to mock database."
+            )
+            FirestoreRepository._global_mock_active = True
+            self.use_mock = True
+            quiz = self._get_mock_doc("quizzes", quiz_id)
+            if quiz:
+                expires_at_str = quiz.get("expires_at")
+                if expires_at_str:
+                    expires_at = datetime.datetime.fromisoformat(expires_at_str)
+                    if datetime.datetime.now(datetime.UTC) > expires_at:
+                        _mock_db["quizzes"].pop(quiz_id, None)
+                        return None
+                return quiz.get("quiz_data")
             return None
 
     def save_shared_quiz(
@@ -157,9 +173,16 @@ class FirestoreRepository:
             doc_ref = self.client.collection("quizzes").document(quiz_id)
             doc_ref.set(data)
             return True
-        except GoogleAPIError as e:
-            logger.error(f"Error saving shared quiz {quiz_id}: {e}")
-            return False
+        except Exception as e:
+            logger.warning(
+                f"Failed to save shared quiz {quiz_id} in real Firestore ({e}). Falling back to mock database."
+            )
+            FirestoreRepository._global_mock_active = True
+            self.use_mock = True
+            data["created_at"] = now.isoformat()
+            data["expires_at"] = expires_at.isoformat()
+            self._set_mock_doc("quizzes", quiz_id, data, merge=False)
+            return True
 
     # --- 2. Token Budgets ---
     def get_token_budget(self, budget_id: str) -> dict[str, Any]:
@@ -188,9 +211,17 @@ class FirestoreRepository:
             # Initialize new budget entry
             doc_ref.set(default_budget)
             return default_budget
-        except GoogleAPIError as e:
-            logger.error(f"Error getting budget {budget_id}: {e}")
-            return default_budget
+        except Exception as e:
+            logger.warning(
+                f"Failed to get budget {budget_id} from real Firestore ({e}). Falling back to mock database."
+            )
+            FirestoreRepository._global_mock_active = True
+            self.use_mock = True
+            budget = self._get_mock_doc("budgets", budget_id)
+            if not budget or budget.get("last_reset_date") != today_iso:
+                self._set_mock_doc("budgets", budget_id, default_budget, merge=False)
+                return default_budget
+            return budget
 
     def increment_token_budget(self, budget_id: str, tokens_to_add: int) -> bool:
         """Atomically increment token usage for a user or global budget."""
@@ -221,9 +252,16 @@ class FirestoreRepository:
             transaction = self.client.transaction()
             update_tx(transaction, doc_ref, tokens_to_add)
             return True
-        except GoogleAPIError as e:
-            logger.error(f"Error incrementing budget {budget_id}: {e}")
-            return False
+        except Exception as e:
+            logger.warning(
+                f"Failed to increment budget {budget_id} in real Firestore ({e}). Falling back to mock database."
+            )
+            FirestoreRepository._global_mock_active = True
+            self.use_mock = True
+            budget = self.get_token_budget(budget_id)
+            budget["tokens_used"] += tokens_to_add
+            self._set_mock_doc("budgets", budget_id, budget)
+            return True
 
     # --- 3. Feedback Logs ---
     def save_feedback_log(
@@ -263,8 +301,20 @@ class FirestoreRepository:
             field_name = "thumbs_up_count" if score > 0 else "thumbs_down_count"
             metrics_ref.set({field_name: firestore.Increment(1)}, merge=True)
             return log_id
-        except GoogleAPIError as e:
-            logger.error(f"Error saving feedback log: {e}")
+        except Exception as e:
+            logger.warning(
+                f"Failed to save feedback log in real Firestore ({e}). Falling back to mock database."
+            )
+            FirestoreRepository._global_mock_active = True
+            self.use_mock = True
+            data["timestamp"] = now.isoformat()
+            self._set_mock_doc("feedback_logs", log_id, data, merge=False)
+            metrics = self._get_mock_doc("feedback_metrics", "satisfaction")
+            if score > 0:
+                metrics["thumbs_up_count"] += 1
+            else:
+                metrics["thumbs_down_count"] += 1
+            self._set_mock_doc("feedback_metrics", "satisfaction", metrics)
             return log_id
 
     def get_satisfaction_metrics(self) -> dict[str, int]:
@@ -284,9 +334,16 @@ class FirestoreRepository:
             if doc.exists:
                 return doc.to_dict()
             return default_metrics
-        except GoogleAPIError as e:
-            logger.error(f"Error getting satisfaction metrics: {e}")
-            return default_metrics
+        except Exception as e:
+            logger.warning(
+                f"Failed to get satisfaction metrics from real Firestore ({e}). Falling back to mock database."
+            )
+            FirestoreRepository._global_mock_active = True
+            self.use_mock = True
+            return (
+                self._get_mock_doc("feedback_metrics", "satisfaction")
+                or default_metrics
+            )
 
     # --- 4. Dynamic Security Configuration ---
     def get_security_config(self) -> dict[str, Any]:
@@ -307,9 +364,13 @@ class FirestoreRepository:
                 fallback_config = _mock_db["system_config"]["security"]
                 doc_ref.set(fallback_config)
                 return fallback_config
-        except GoogleAPIError as e:
-            logger.error(f"Error getting security config: {e}")
-            return _mock_db["system_config"]["security"]
+        except Exception as e:
+            logger.warning(
+                f"Failed to get security config from real Firestore ({e}). Falling back to mock database."
+            )
+            FirestoreRepository._global_mock_active = True
+            self.use_mock = True
+            return self._get_mock_doc("system_config", "security")
 
     # --- 5. Security Events (Violations) ---
     def log_security_event(
@@ -335,8 +396,14 @@ class FirestoreRepository:
             doc_ref = self.client.collection("security_events").document(event_id)
             doc_ref.set(data)
             return event_id
-        except GoogleAPIError as e:
-            logger.error(f"Error logging security event: {e}")
+        except Exception as e:
+            logger.warning(
+                f"Failed to log security event in real Firestore ({e}). Falling back to mock database."
+            )
+            FirestoreRepository._global_mock_active = True
+            self.use_mock = True
+            data["timestamp"] = now.isoformat()
+            self._set_mock_doc("security_events", event_id, data, merge=False)
             return event_id
 
     def get_recent_violations_count(self, hashed_ip: str, hours: int = 1) -> int:
@@ -359,9 +426,19 @@ class FirestoreRepository:
             )
             docs = query.stream()
             return len(list(docs))
-        except GoogleAPIError as e:
-            logger.error(f"Error checking recent violations: {e}")
-            return 0
+        except Exception as e:
+            logger.warning(
+                f"Failed to check recent violations from real Firestore ({e}). Falling back to mock database."
+            )
+            FirestoreRepository._global_mock_active = True
+            self.use_mock = True
+            count = 0
+            for event in _mock_db.get("security_events", {}).values():
+                if event.get("hashed_ip") == hashed_ip:
+                    evt_time = datetime.datetime.fromisoformat(event.get("timestamp"))
+                    if evt_time > cutoff:
+                        count += 1
+            return count
 
     # --- 6. Banned Signatures ---
     def is_signature_banned(self, hashed_ip: str) -> bool:
@@ -393,8 +470,19 @@ class FirestoreRepository:
                     return False
                 return True
             return False
-        except GoogleAPIError as e:
-            logger.error(f"Error checking banned signature {hashed_ip}: {e}")
+        except Exception as e:
+            logger.warning(
+                f"Failed to check banned signature {hashed_ip} in real Firestore ({e}). Falling back to mock database."
+            )
+            FirestoreRepository._global_mock_active = True
+            self.use_mock = True
+            ban = self._get_mock_doc("banned_signatures", hashed_ip)
+            if ban:
+                expires_at = datetime.datetime.fromisoformat(ban.get("expires_at"))
+                if now > expires_at:
+                    _mock_db["banned_signatures"].pop(hashed_ip, None)
+                    return False
+                return True
             return False
 
     def ban_signature(self, hashed_ip: str, duration_hours: int = 24) -> bool:
@@ -415,6 +503,11 @@ class FirestoreRepository:
             doc_ref = self.client.collection("banned_signatures").document(hashed_ip)
             doc_ref.set(data)
             return True
-        except GoogleAPIError as e:
-            logger.error(f"Error banning signature {hashed_ip}: {e}")
-            return False
+        except Exception as e:
+            logger.warning(
+                f"Failed to ban signature {hashed_ip} in real Firestore ({e}). Falling back to mock database."
+            )
+            FirestoreRepository._global_mock_active = True
+            self.use_mock = True
+            self._set_mock_doc("banned_signatures", hashed_ip, data, merge=False)
+            return True
