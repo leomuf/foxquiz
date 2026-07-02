@@ -800,7 +800,10 @@
                     <div class="progress-bar-bg">
                         <div id="quiz-progress-bar" class="progress-bar-fill"></div>
                     </div>
-                    <div id="quiz-progress-counter" class="question-counter">1 / 10</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 0.5rem;">
+                        <span id="quiz-difficulty" style="font-size: 0.85rem; font-weight: 600; padding: 0.25rem 0.6rem; background: rgba(255,255,255,0.08); border-radius: 99px;">⭐ Medium</span>
+                        <div id="quiz-progress-counter" class="question-counter" style="margin-top: 0;">1 / 10</div>
+                    </div>
                 </div>
 
                 <div id="question-text" class="question-text">
@@ -839,6 +842,10 @@
                     <span class="score-label" data-translate="score">Ergebnis</span>
                 </div>
 
+                <div id="summary-difficulty-container" style="display: flex; justify-content: center; margin-top: -0.5rem; margin-bottom: 1.5rem;">
+                    <span id="summary-difficulty" style="font-size: 0.95rem; font-weight: 600; padding: 0.3rem 0.8rem; background: rgba(255,255,255,0.08); border-radius: 99px;">⭐ Medium</span>
+                </div>
+
                 <div class="summary-actions">
                     <button class="btn-secondary" onclick="shareCurrentQuiz()">
                         <span>🔗</span> <span data-translate="btn_share">Quiz teilen</span>
@@ -846,7 +853,10 @@
                     <button class="btn-secondary" onclick="exportOfflineQuiz()">
                         <span>💾</span> <span data-translate="btn_export">Offline speichern</span>
                     </button>
-                    <button class="btn-primary full-width-btn" onclick="resetQuizState()" style="margin-top: 1rem;">
+                    <button id="btn-more-questions" class="btn-primary full-width-btn" onclick="generateQuiz(true)" style="margin-top: 1rem;">
+                        <span>🧠</span> <span data-translate="btn_more_questions">Lass uns mehr Fragen machen!</span>
+                    </button>
+                    <button class="btn-primary full-width-btn" onclick="resetQuizState()" style="margin-top: 0.5rem; background: transparent; border: 2px solid var(--active-theme); color: var(--text-main);">
                         <span>🔄</span> <span data-translate="btn_restart">Neues Quiz spielen</span>
                     </button>
                 </div>
@@ -903,6 +913,10 @@
                 btn_share: "Quiz teilen",
                 btn_export: "Offline speichern",
                 btn_restart: "Neues Quiz spielen",
+                btn_more_questions: "Lass uns mehr Fragen machen!",
+                difficulty_easy: "🌱 Einfach",
+                difficulty_medium: "⭐ Mittel",
+                difficulty_hard: "🚀 Schwer",
                 btn_home: "Zur Startseite",
                 feedback_title: "Wie gefällt dir das Quiz?",
                 score: "Ergebnis",
@@ -950,6 +964,10 @@
                 btn_share: "Share Quiz",
                 btn_export: "Save Offline",
                 btn_restart: "Play New Quiz",
+                btn_more_questions: "Let's go for more questions!",
+                difficulty_easy: "🌱 Easy",
+                difficulty_medium: "⭐ Medium",
+                difficulty_hard: "🚀 Hard",
                 btn_home: "Go to Home",
                 feedback_title: "How did you like this quiz?",
                 score: "Score",
@@ -997,6 +1015,10 @@
                 btn_share: "Compartilhar",
                 btn_export: "Salvar Offline",
                 btn_restart: "Jogar Novamente",
+                btn_more_questions: "Vamos para mais perguntas!",
+                difficulty_easy: "🌱 Fácil",
+                difficulty_medium: "⭐ Médio",
+                difficulty_hard: "🚀 Difícil",
                 btn_home: "Voltar ao Início",
                 feedback_title: "O que achou deste quiz?",
                 score: "Pontuação",
@@ -1070,6 +1092,19 @@
                 dragon: "E aí! 🐉 Dino na área! Pronto para uma aventura épica de aprendizado? Digite seu ano, matéria e assunto e começamos agora!"
             }
         };
+
+        function getLocalizedDifficulty(difficultyStr) {
+            const t = translations[currentLanguage];
+            if (!difficultyStr) return t.difficulty_medium;
+            const normalized = difficultyStr.toLowerCase();
+            if (normalized.includes("easy") || normalized.includes("einfach") || normalized.includes("fácil") || normalized.includes("🌱")) {
+                return t.difficulty_easy;
+            }
+            if (normalized.includes("hard") || normalized.includes("schwer") || normalized.includes("difícil") || normalized.includes("🚀")) {
+                return t.difficulty_hard;
+            }
+            return t.difficulty_medium;
+        }
 
         // On Page Load
         window.addEventListener("DOMContentLoaded", () => {
@@ -1195,7 +1230,7 @@
         }
 
         // 4. Generate Quiz via Agent Workflow
-        async function generateQuiz() {
+        async function generateQuiz(isAdaptation = false) {
             const grade = document.getElementById("input-grade").value;
             const subject = document.getElementById("input-subject").value.trim();
             const topic = document.getElementById("input-topic").value.trim();
@@ -1216,7 +1251,21 @@
             startProgressLoader();
 
             // Format prompt for ADK agent
-            const userPrompt = `Grade: ${grade}, Subject: ${subject}, Topic: ${topic}, Language: ${currentLanguage}. Please generate my quiz!`;
+            let userPrompt = `Grade: ${grade}, Subject: ${subject}, Topic: ${topic}, Language: ${currentLanguage}. Please generate my quiz!`;
+            if (isAdaptation) {
+                const previousQuestions = currentQuizData ? currentQuizData.questions.map(q => q.question) : [];
+                const previousQuizJson = currentQuizData ? JSON.stringify(currentQuizData) : "";
+                const payload = {
+                    grade: grade,
+                    subject: subject,
+                    topic: topic,
+                    preferred_language: currentLanguage,
+                    previous_score: score,
+                    previous_questions: previousQuestions,
+                    previous_quiz_json: previousQuizJson
+                };
+                userPrompt = JSON.stringify(payload);
+            }
             
             try {
                 // Pre-register session in the backend store first to avoid 404 on /run_sse
@@ -1335,6 +1384,12 @@
             currentQuestionIndex = 0;
             userAnswers = [];
             score = 0;
+
+            const diffEl = document.getElementById("quiz-difficulty");
+            if (diffEl) {
+                diffEl.innerText = getLocalizedDifficulty(currentQuizData && currentQuizData.difficulty);
+            }
+
             showScreen("quiz-screen");
             renderQuestion();
         }
@@ -1457,6 +1512,12 @@
             document.getElementById("summary-emoji").innerText = score >= 8 ? "🏆" : score >= 5 ? "🌟" : "💪";
             document.getElementById("summary-title").innerText = `${mascotCong}`;
             document.getElementById("summary-subtitle").innerText = t.congrats_desc;
+
+            // Set Summary Difficulty text
+            const summaryDiffEl = document.getElementById("summary-difficulty");
+            if (summaryDiffEl) {
+                summaryDiffEl.innerText = getLocalizedDifficulty(currentQuizData && currentQuizData.difficulty);
+            }
         }
 
         // 7. Sharing & Freezing Quiz (Zero-Token Shared Access)

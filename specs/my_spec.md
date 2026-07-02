@@ -373,7 +373,78 @@ To address long generation times (10 to 20 seconds) and enhance user experience,
    - Immediately upon receiving the fully generated quiz payload, the progress bar snaps to 100% (360 degrees complete).
    - A visual buffer delay of 400ms is applied to let the full transition render smoothly before transitioning the user to the active quiz screen.
 
+### 6.2 Adaptive Quiz Learning Progression & Dynamic Difficulty Localization
+
+When the user finishes a quiz, they can choose to continue learning the same topic by selecting the primary action "Let's go for more questions" (or its localized equivalent). Rather than keeping a static difficulty level, the system dynamically adapts the quiz based on the user's previous score to deliver customized pedagogical pacing:
+
+#### 6.2.1 Progression Modes (Score-Based Pacing)
+
+1. **Reinforcement Mode (Score $\le$ 4 / 10)**:
+   - **Pedagogical Goal**: Help the student master the content they struggled with.
+   - **Behavior**: The agent shuffles the previous 10 questions and their options, repeating them so the student can focus on correcting their mistakes. Traditional duplicate-prevention filters are bypassed.
+   - **Difficulty Rating**: `🌱 Easy` (mapped dynamically to user's language).
+
+2. **Practice Mode (Score 5 - 7 / 10)**:
+   - **Pedagogical Goal**: Consolidate understanding at the current level.
+   - **Behavior**: The agent generates a new set of 10 standard-difficulty questions on the same topic. Duplication-prevention is recommended but not strictly enforced.
+   - **Difficulty Rating**: `⭐ Medium` (mapped dynamically to user's language).
+
+3. **Progression Mode (Score $\ge$ 8 / 10)**:
+   - **Pedagogical Goal**: Push the student's boundaries and prevent repeating already mastered questions.
+   - **Behavior**: The agent strictly enforces duplication-prevention, ensuring absolutely zero questions from the previous quiz are repeated.
+     - **High Score (8 - 9 / 10)**: Generates 10 completely fresh questions at standard difficulty.
+     - **Perfect Score (10 / 10)**: Significantly scales up the difficulty of the next quiz, introducing advanced concepts, trickier distractors, and deeper questions suitable for high-achieving students.
+   - **Difficulty Rating**: 
+     - 8 - 9 / 10: `⭐ Medium` (mapped dynamically).
+     - 10 / 10: `🚀 Hard` (mapped dynamically).
+
+#### 6.2.2 Dynamic Difficulty Localization
+
+To prevent leakage of English terminology on non-English user interfaces, raw difficulty indicators received from the backend are mapped to localized labels before rendering on the screen (both in `#quiz-difficulty` on the quiz interface and `#summary-difficulty` on the final summary screen):
+
+- **Deutsch (DE)** (# USER-FACING — DO NOT TRANSLATE):
+  - `🌱 Easy` $\to$ `"🌱 Einfach"`
+  - `⭐ Medium` $\to$ `"⭐ Mittel"`
+  - `🚀 Hard` $\to$ `"🚀 Schwer"`
+
+- **Português (PT)** (# USER-FACING — DO NOT TRANSLATE):
+  - `🌱 Easy` $\to$ `"🌱 Fácil"`
+  - `⭐ Medium` $\to$ `"⭐ Médio"`
+  - `🚀 Hard` $\to$ `"🚀 Difícil"`
+
+- **English (EN / Fallback)** (# USER-FACING — DO NOT TRANSLATE):
+  - `🌱 Easy` $\to$ `"🌱 Easy"`
+  - `⭐ Medium` $\to$ `"⭐ Medium"`
+  - `🚀 Hard` $\to$ `"🚀 Hard"`
+
+```gherkin
+Feature: Adaptive learning progression and localized difficulty indicators
+
+  Scenario: Reinforcement mode for low score
+    Given the user finished a quiz with a score of 3 out of 10
+    When they select "Let's go for more questions"
+    Then the system triggers reinforcement mode
+    And the generated quiz shuffles and repeats the previous questions
+    And the difficulty is shown as localized "🌱 Easy" (e.g. "🌱 Einfach" in German)
+
+  Scenario: High score triggers duplication prevention
+    Given the user finished a quiz with a score of 9 out of 10
+    When they select "Let's go for more questions"
+    Then the system triggers progression mode
+    And the generated quiz contains a completely fresh set of questions
+    And none of the previous questions are duplicated
+    And the difficulty is shown as localized "⭐ Medium" (e.g. "⭐ Mittel" in German)
+
+  Scenario: Perfect score triggers hard difficulty escalation
+    Given the user finished a quiz with a score of 10 out of 10
+    When they select "Let's go for more questions"
+    Then the system triggers progression mode with maximum escalation
+    And the generated quiz has significantly harder questions
+    And the difficulty is shown as localized "🚀 Hard" (e.g. "🚀 Schwer" in German)
+```
+
 ---
+
 
 ## 7. Dynamic Curriculum-Gathering Skill
 

@@ -58,6 +58,16 @@ class ExtractedQuizInfo(BaseModel):
     preferred_language: Optional[str] = Field(
         None, description="The detected preferred language ('de', 'pt', 'en') if clear."
     )
+    previous_score: Optional[int] = Field(
+        None, description="The previous quiz score out of 10 if provided (e.g., 3, 10)."
+    )
+    previous_questions: Optional[List[str]] = Field(
+        None, description="A list of question texts from the previous quiz to avoid duplication if provided."
+    )
+    previous_quiz_json: Optional[str] = Field(
+        None, description="The full JSON string of the previous quiz to adapt if provided."
+    )
+
 
 
 class QuizQuestion(BaseModel):
@@ -74,6 +84,11 @@ class QuizQuestion(BaseModel):
 class Quiz(BaseModel):
     title: str = Field(description="A fun and engaging title for the quiz.")
     questions: List[QuizQuestion] = Field(description="List of exactly 10 questions.")
+    difficulty: Optional[str] = Field(
+        None,
+        description="The difficulty indicator of the quiz. Must be exactly one of: '🌱 Easy', '⭐ Medium', or '🚀 Hard'."
+    )
+
 
 
 class JudgeAssessment(BaseModel):
@@ -182,8 +197,33 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
 
     lang = ctx.state["preferred_language"]
 
-    # If a prompt is present, run lightweight structured LLM to extract info
-    if prompt:
+    # Try parsing the prompt as JSON directly (e.g. for deterministic buttons / Let's go for more questions)
+    is_json_payload = False
+    if prompt and prompt.strip().startswith("{") and prompt.strip().endswith("}"):
+        try:
+            parsed = json.loads(prompt)
+            if isinstance(parsed, dict) and ("grade" in parsed or "subject" in parsed or "topic" in parsed or "previous_score" in parsed):
+                logger.info("Successfully parsed prompt as structured JSON parameters.")
+                if parsed.get("grade"):
+                    ctx.state["grade"] = parsed["grade"]
+                if parsed.get("subject"):
+                    ctx.state["subject"] = parsed["subject"]
+                if parsed.get("topic"):
+                    ctx.state["topic"] = parsed["topic"]
+                if parsed.get("preferred_language"):
+                    ctx.state["preferred_language"] = parsed["preferred_language"]
+                if "previous_score" in parsed:
+                    ctx.state["previous_score"] = parsed["previous_score"]
+                if "previous_questions" in parsed:
+                    ctx.state["previous_questions"] = parsed["previous_questions"]
+                if "previous_quiz_json" in parsed:
+                    ctx.state["previous_quiz_json"] = parsed["previous_quiz_json"]
+                is_json_payload = True
+        except Exception as e:
+            logger.info(f"Prompt is not a structured JSON payload: {e}. Proceeding with natural language extraction.")
+
+    # If a prompt is present and was not a parsed JSON payload, run lightweight structured LLM to extract info
+    if prompt and not is_json_payload:
         client = Client()
         try:
             extraction_prompt = (
@@ -212,6 +252,12 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 ctx.state["topic"] = extracted.topic
             if extracted.preferred_language:
                 ctx.state["preferred_language"] = extracted.preferred_language
+            if extracted.previous_score is not None:
+                ctx.state["previous_score"] = extracted.previous_score
+            if extracted.previous_questions:
+                ctx.state["previous_questions"] = extracted.previous_questions
+            if extracted.previous_quiz_json:
+                ctx.state["previous_quiz_json"] = extracted.previous_quiz_json
         except Exception as e:
             logger.error(f"Error during info extraction: {e}")
 
@@ -339,8 +385,12 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     search_context = ctx.state.get("search_context", "")
     attempt = ctx.attempt_count or 1
 
+    previous_score = ctx.state.get("previous_score")
+    previous_questions = ctx.state.get("previous_questions")
+    previous_quiz_json = ctx.state.get("previous_quiz_json")
+
     logger.info(
-        f"Generating Quiz (Attempt {attempt}) for Grade={grade}, Subject={subject}, Topic={topic}"
+        f"Generating Quiz (Attempt {attempt}) for Grade={grade}, Subject={subject}, Topic={topic}, previous_score={previous_score}"
     )
 
     prompt = (
@@ -363,6 +413,72 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         "5. Keep the explanations warm, educational, clear, and highly encouraging (explain why the correct answer is right and why others are wrong in a child-friendly mascot way). CRITICAL: Do NOT start explanations with congratulatory words like 'Parabéns!', 'Congratulations!', or 'Herzlichen Glückwunsch!', because these explanations are shown even when the student chooses the wrong answer.\n"
     )
 
+    adaptation_instructions = ""
+    if previous_score is not None:
+        logger.info(f"Applying adaptive progression for previous_score={previous_score}")
+        if previous_score <= 4:
+            # Score <= 4/10: the current quiz is difficult enough, repeat it with small changes in the question orders.
+            # No duplicate-prevention, reuse previous questions but shuffle.
+            adaptation_instructions = (
+                f"\n--- ADAPTIVE REINFORCEMENT MODE ---\n"
+                f"The student scored {previous_score}/10 on the previous quiz, which is a failing grade.\n"
+                f"The current quiz content is difficult enough. Your goal is to REPEAT the previous quiz questions so that the student can understand and learn them properly.\n"
+                f"Do NOT generate new or different questions. Do NOT avoid duplication.\n"
+                f"Instead, do the following:\n"
+                f"- Shuffle the order of the 10 questions compared to the previous quiz.\n"
+                f"- For each question, shuffle the order of its options (answer choices) and update the 'correct_option_index' accordingly.\n"
+                f"- You can make slight, minor improvements or rephrasings to make the questions or explanations even clearer/simpler, but they must cover the exact same questions and concepts.\n"
+                f"- Set the 'difficulty' field to exactly: '🌱 Easy' (since we are repeating for reinforcement and practice).\n"
+            )
+            if previous_quiz_json:
+                adaptation_instructions += f"Here is the exact previous quiz JSON for reference:\n{previous_quiz_json}\n"
+        elif previous_score >= 8:
+            # Score >= 8/10: Strictly avoid duplicating any previously asked questions.
+            # If 10/10: significantly scale up difficulty.
+            # If 8 or 9: same difficulty, fresh questions.
+            if previous_score == 10:
+                adaptation_instructions = (
+                    f"\n--- ADAPTIVE PROGRESSION MODE (CHALLENGE) ---\n"
+                    f"The student scored {previous_score}/10 (perfect score!) on the previous quiz.\n"
+                    f"You must significantly SCALE UP the difficulty of this new quiz. Introduce more advanced concepts, trickier options/distractors, and deeper questions suitable for high-achieving student in Grade {grade}.\n"
+                    f"Set the 'difficulty' field to exactly: '🚀 Hard'.\n"
+                )
+            else:
+                adaptation_instructions = (
+                    f"\n--- ADAPTIVE PROGRESSION MODE (NEXT LEVEL) ---\n"
+                    f"The student scored {previous_score}/10 on the previous quiz.\n"
+                    f"Maintain the same grade difficulty level, but generate a completely fresh set of questions.\n"
+                    f"Set the 'difficulty' field to exactly: '⭐ Medium'.\n"
+                )
+            
+            # Strict Avoid Duplication rules
+            adaptation_instructions += (
+                f"\nCRITICAL COMPLIANCE RULES:\n"
+                f"1. You MUST STRICTLY AVOID duplicating any previously asked questions to encourage learning progression.\n"
+                f"2. Compare your new questions with the previous questions. Do not generate questions that are similar or duplicate the old ones.\n"
+            )
+            if previous_questions:
+                adaptation_instructions += f"Do NOT use any of these questions from the previous quiz:\n" + "\n".join(f"- {q}" for q in previous_questions) + "\n"
+        else:
+            # Score 5 to 7: Keep standard difficulty, generate a new set of questions.
+            # Important: duplication prevention is NOT strictly required for bad/normal results below 8/10,
+            # but we should suggest keeping standard difficulty. Let's make it clear.
+            adaptation_instructions = (
+                f"\n--- STANDARD PRACTICE MODE ---\n"
+                f"The student scored {previous_score}/10 on the previous quiz.\n"
+                f"Keep standard difficulty for Grade {grade}. Generate a new set of questions to continue practice on the topic.\n"
+                f"Set the 'difficulty' field to exactly: '⭐ Medium'.\n"
+                f"Note: It is fine to reuse some questions or concepts if they are central, as duplication avoidance is not strictly enforced for scores below 8/10.\n"
+            )
+    else:
+        # First time quiz generation or no score available:
+        # Set difficulty to '⭐ Medium'
+        adaptation_instructions = (
+            f"\nSet the 'difficulty' field to exactly: '⭐ Medium'.\n"
+        )
+
+    prompt += adaptation_instructions
+
     client = Client()
     try:
         response = client.models.generate_content(
@@ -375,6 +491,9 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             ),
         )
         quiz_dict = json.loads(response.text.strip())
+        # Ensure difficulty field is set in quiz_dict
+        if "difficulty" not in quiz_dict or not quiz_dict["difficulty"]:
+            quiz_dict["difficulty"] = "🌱 Easy" if (previous_score is not None and previous_score <= 4) else "🚀 Hard" if (previous_score == 10) else "⭐ Medium"
         ctx.state["temp_quiz"] = quiz_dict
         return Event(output=quiz_dict)
     except Exception as e:
