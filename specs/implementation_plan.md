@@ -24,10 +24,13 @@ graph TD
         Workflow["ADK 2.0 Workflow Graph<br>(agent.py)"]
         
         %% Workflow sub-graph
-        Workflow_Start["START Node<br>(Inputs: Grade, Subject, Topic, Locale)"]
-        Workflow_Gather["Knowledge Gathering Node<br>(LLM + Search / Wikipedia tools)"]
-        Workflow_Gen["Quiz Generator Node<br>(LlmAgent with Output Schema)"]
-        Workflow_Judge["LLM-as-a-Judge Node<br>(Strict Validation Agent)"]
+        Workflow_Start["START"]
+        Workflow_Router["gather_and_route Node<br>(Extract Params & Check Compatibility)"]
+        Workflow_AskMore["ask_more_node Node<br>(Mascot Dialogue & Suggest Topics)"]
+        Workflow_Gather["decision_and_search Node<br>(Decision: Search / Wikipedia / Pure LLM)"]
+        Workflow_Gen["quiz_generation Node<br>(LlmAgent with Output Schema)"]
+        Workflow_Judge["llm_as_a_judge Node<br>(Strict Quality review, max 3x retries)"]
+        Workflow_Output["quiz_output_node Node<br>(Release Validated Quiz JSON)"]
     end
 
     %% Persistence Layer
@@ -51,8 +54,12 @@ graph TD
     BeforeCB -.->|3. Log security violations| FS_Events
     AfterCB -.->|Log Session Token Usage| FS_Budgets
     
-    Workflow_Start --> Workflow_Gather --> Workflow_Gen --> Workflow_Judge
-    Workflow_Judge -.->|On Fail: Loop up to 5x| Workflow_Gen
+    Workflow_Start --> Workflow_Router
+    Workflow_Router -->|Route: ask_more - Missing or Incompatible| Workflow_AskMore
+    Workflow_Router -->|Route: generate_quiz - Complete and Compatible| Workflow_Gather
+    Workflow_Gather --> Workflow_Gen --> Workflow_Judge
+    Workflow_Judge -.->|Route: retry - On Fail: Loop up to 3x| Workflow_Gen
+    Workflow_Judge -->|Route: success| Workflow_Output
     
     FastAPI <-->|Save/Fetch Quizzes| FS_Quizzes
     FastAPI <-->|Log Feedback| FS_Feedback
@@ -118,6 +125,12 @@ graph TD
   - **Knowledge Gathering Node**: Dynamically decides whether to use internal LLM knowledge or execute the "Curriculum Search Skill" (web search or Wikipedia tools).
   - **Quiz Generation Node**: `LlmAgent` with `Quiz` output schema.
   - **LLM-as-a-Judge Node**: Evaluates the generated quiz. If checks fail, loops back to the generator (up to 5 iterations).
+- [ ] Implement **Upfront Curriculum Validation & Mascot Age-Appropriateness Guidance**:
+  - Define `CurriculumCompatibility` Pydantic model for structured safety evaluation (compatibility status, pedagogical rationale, and 2-3 alternative topics suitable for that grade).
+  - Insert a fast `gemini-2.5-flash` check with `temperature=0.0` in `gather_and_route` once the user submits grade, subject, and topic.
+  - If incompatible: Clear the topic from state, generate a helpful, encouraging mascot message explaining the grade mismatch in the user's preferred language, offer 2-3 age-appropriate topic alternatives, and return a `route="ask_more"` event.
+  - If compatible: Transition seamlessly with `route="generate_quiz"`.
+  - Cap maximum retry loops in `llm_as_a_judge` to 3 iterations for additional latency security.
 
 ### Phase 3: Premium Single-Page Application (Frontend)
 - [x] Create `app/static/` and write a highly polished `index.html` featuring:

@@ -1364,7 +1364,30 @@
                         startQuizWizard();
                     }, 400);
                 } else {
-                    throw new Error("Failed to extract 10 questions from response output.");
+                    // Check if we got a mascot feedback explanation (curriculum mismatch)
+                    let mascotText = "";
+                    for (const ev of events) {
+                        if (ev.content && ev.content.parts) {
+                            for (const part of ev.content.parts) {
+                                if (part.text) {
+                                    mascotText += part.text;
+                                }
+                            }
+                        }
+                    }
+                    if (mascotText) {
+                        // Format markdown bold/italics/newlines to simple HTML for chat bubble
+                        let formattedText = mascotText
+                            .replace(/\n/g, "<br>")
+                            .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+                            .replace(/\*(.*?)\*/g, "<em>$1</em>");
+                        
+                        document.getElementById("welcome-bubble").innerHTML = formattedText;
+                        document.getElementById("input-topic").value = ""; // Clear incompatible topic
+                        showScreen("setup-screen");
+                    } else {
+                        throw new Error("Failed to extract 10 questions from response output.");
+                    }
                 }
 
             } catch (e) {

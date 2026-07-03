@@ -443,6 +443,62 @@ Feature: Adaptive learning progression and localized difficulty indicators
     And the difficulty is shown as localized "🚀 Hard" (e.g. "🚀 Schwer" in German)
 ```
 
+### 6.3 Upfront Curriculum Validation & Mascot Age-Appropriateness Guidance
+
+To prevent long loading delays, resource waste, and slow retry loops inside the quality checking (judge) phase, the agent incorporates an **Upfront Curriculum Validation** checkpoint.
+
+#### 6.3.1 Early Compatibility Verification
+Before transitioning from information gathering (`gather_and_route`) to quiz generation (`quiz_generation`), the system performs a lightweight validation check on the extracted variables: `grade`, `subject`, and `topic`.
+
+1. **Execution**:
+   - The validation runs as soon as all three fields are successfully parsed.
+   - It executes a fast `gemini-2.5-flash` model call with `temperature=0.0` and a strict schema mapping.
+   
+2. **Schema Reference**:
+   ```python
+   class CurriculumCompatibility(BaseModel):
+       is_compatible: bool
+       explanation: str
+       suggested_topics: list[str]
+   ```
+
+3. **Check Criteria**:
+   - Is the chosen `topic` cognitively, pedagogically, and curriculum-wise appropriate for the requested school `grade` and `subject`?
+   - Mismatches like *Grade 5 Math -> Differential Equations* or *Grade 2 Science -> Quantum Field Theory* are flagged as incompatible.
+
+4. **Failure Resolution (Mascot Dialogue)**:
+   - If `is_compatible` is `False`, quiz generation is aborted immediately.
+   - The agent routes to `ask_more` rather than `generate_quiz`.
+   - The system state for the incompatible `topic` is cleared so the user can provide a new one.
+   - The chosen mascot (*Felix*, *Olivia*, or *Dino*) delivers a friendly, encouraging explanation in the user's selected language, noting that the topic is usually learned by older students.
+   - The mascot presents the `suggested_topics` (e.g. *Fractions*, *Long Division* for Grade 5 Math) as kid-friendly alternative choices.
+
+5. **Success Routing**:
+   - If `is_compatible` is `True`, the graph proceeds directly to quiz generation with zero extra user interaction.
+
+```gherkin
+Feature: Upfront Curriculum Validation
+
+  Scenario: Incompatible grade and topic mismatch
+    Given the user has selected Grade "5"
+    And Subject "Math"
+    And entered "Differential Equations" as the Topic
+    When the upfront curriculum validation check is performed
+    Then the compatibility check flags the inputs as incompatible (is_compatible = false)
+    And quiz generation is aborted before starting
+    And the mascot explains the mismatch in the user's language
+    And provides 2 to 3 age-appropriate topic alternatives (e.g. "Fractions", "Decimals")
+    And the state's topic is reset to allow a new choice
+
+  Scenario: Compatible grade and topic
+    Given the user has selected Grade "5"
+    And Subject "Math"
+    And entered "Fractions" as the Topic
+    When the upfront curriculum validation check is performed
+    Then the compatibility check flags the inputs as compatible (is_compatible = true)
+    And the system transitions seamlessly to quiz generation
+```
+
 ---
 
 

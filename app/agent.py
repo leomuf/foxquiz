@@ -98,6 +98,18 @@ class JudgeAssessment(BaseModel):
     reason: str = Field(description="Detailed review comments/feedback.")
 
 
+class CurriculumCompatibility(BaseModel):
+    is_compatible: bool = Field(
+        description="True if the chosen topic is cognitively, pedagogically, and curriculum-wise appropriate for the requested school grade and subject. False otherwise."
+    )
+    explanation: str = Field(
+        description="A helpful, kind, and pedagogically sound explanation of why the topic is or is not compatible with the grade. If incompatible, state clearly why (e.g., differential equations is university-level math, not for 5th graders)."
+    )
+    suggested_topics: List[str] = Field(
+        description="If is_compatible is False, provide 2 to 3 alternative topics in the requested language that are age-appropriate and curriculum-aligned for this grade and subject."
+    )
+
+
 # --- Helper Function for Curriculum Search Skill ---
 
 
@@ -194,6 +206,8 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         ctx.state["topic"] = None
     if "preferred_language" not in ctx.state:
         ctx.state["preferred_language"] = get_client_locale() or "de"
+    # Reset judge attempts on any fresh start or new turn
+    ctx.state["judge_attempts"] = 0
 
     lang = ctx.state["preferred_language"]
 
@@ -268,7 +282,92 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     lang = ctx.state.get("preferred_language") or "de"
 
     if grade and subject and topic:
-        return Event(route="generate_quiz")
+        # Perform Upfront Curriculum Validation Check to prevent mismatched/inappropriate topics
+        logger.info(f"Performing upfront curriculum validation check for: Grade='{grade}', Subject='{subject}', Topic='{topic}'")
+        client = Client()
+        try:
+            validation_prompt = (
+                f"Assess whether the school topic '{topic}' is age-appropriate, cognitively and curriculum-wise suitable "
+                f"for school grade '{grade}' and subject '{subject}'.\n"
+                f"Return structured JSON matching CurriculumCompatibility schema.\n"
+                f"Provide alternative suggested topics if incompatible. Ensure everything is in language '{lang}' (either 'de', 'pt', or 'en')."
+            )
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=validation_prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=CurriculumCompatibility,
+                    temperature=0.0,
+                ),
+            )
+            compatibility = CurriculumCompatibility.model_validate_json(response.text.strip())
+            logger.info(f"Upfront curriculum check results: is_compatible={compatibility.is_compatible}, explanation='{compatibility.explanation}', suggestions={compatibility.suggested_topics}")
+
+            if compatibility.is_compatible:
+                return Event(route="generate_quiz")
+            else:
+                # Clear incompatible topic from state so they can enter a new one
+                ctx.state["topic"] = None
+
+                # Select and localize mascot for friendly dialogue delivery
+                mascots = [
+                    {
+                        "id": "fox",
+                        "emoji": "🦊",
+                        "name": "Felix der Fuchs",
+                        "name_pt": "Felix, a Raposa",
+                        "name_en": "Felix the Fox",
+                    },
+                    {
+                        "id": "owl",
+                        "emoji": "🦉",
+                        "name": "Olivia die Eule",
+                        "name_pt": "Olivia, a Coruja",
+                        "name_en": "Olivia the Owl",
+                    },
+                    {
+                        "id": "dragon",
+                        "emoji": "🐉",
+                        "name": "Dino der Drache",
+                        "name_pt": "Dino, o Dragão",
+                        "name_en": "Dino the Dragon",
+                    },
+                ]
+                mascot = mascots[len(prompt or "") % 3]
+                mascot_name = (
+                    mascot["name"]
+                    if lang == "de"
+                    else mascot["name_pt"]
+                    if lang == "pt"
+                    else mascot["name_en"]
+                )
+                mascot_emoji = mascot["emoji"]
+
+                mascot_prompt = (
+                    f"You are {mascot_name} {mascot_emoji}, a friendly, encouraging school learning companion mascot speaking directly to a child.\n"
+                    f"The child asked for a quiz about '{topic}' in Grade '{grade}' and Subject '{subject}', but this topic is too complex or not appropriate (Explanation: {compatibility.explanation}).\n"
+                    f"In a playful, extremely encouraging, and kind tone, explain in language '{lang}' that this topic is usually learned by older students, and suggest these age-appropriate alternatives: {', '.join(compatibility.suggested_topics)}.\n"
+                    f"Ask them which of these cool topics they would like to do instead, or if they want to choose a different grade/topic. Keep the response short, clear, and full of positive energy!"
+                )
+                mascot_resp = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=f"Playful mascot explanation to child why '{topic}' is not suitable for grade '{grade}' and suggest: {', '.join(compatibility.suggested_topics)}",
+                    config=types.GenerateContentConfig(
+                        system_instruction=mascot_prompt,
+                        temperature=0.7,
+                    ),
+                )
+                msg_text = mascot_resp.text.strip()
+                return Event(
+                    content=types.Content(
+                        role="model", parts=[types.Part.from_text(text=msg_text)]
+                    ),
+                    route="ask_more",
+                )
+        except Exception as e:
+            logger.error(f"Error during upfront curriculum check: {e}. Defaulting to allowing quiz generation.")
+            return Event(route="generate_quiz")
 
     # Otherwise, ask conversationally for what is missing in their language
     mascots = [
@@ -505,13 +604,17 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
 async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
     """Strict Reviewer: evaluates the generated quiz structure and content accuracy. Loops back on failures."""
     quiz_dict = ctx.state.get("temp_quiz")
-    attempt = ctx.attempt_count or 1
+    
+    # Track attempts using our state counter instead of unreliable/non-incrementing ctx.attempt_count inside manual loops
+    attempts = ctx.state.get("judge_attempts", 0) + 1
+    ctx.state["judge_attempts"] = attempts
 
     if not quiz_dict:
         return Event(route="retry")
 
-    if attempt >= 5:
+    if attempts >= 3:
         logger.warning("Max quality judge iterations reached. Releasing current quiz.")
+        ctx.state["judge_attempts"] = 0
         return Event(route="success")
 
     grade = ctx.state.get("grade")
@@ -542,7 +645,7 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         )
         assessment = JudgeAssessment.model_validate_json(response.text.strip())
         logger.info(
-            f"LLM Judge Quality Review (Attempt {attempt}): Passed={assessment.passed}. Reason: {assessment.reason}"
+            f"LLM Judge Quality Review (Attempt {attempts}): Passed={assessment.passed}. Reason: {assessment.reason}"
         )
 
         if assessment.passed:
@@ -563,6 +666,9 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     quiz_dict = ctx.state.get("temp_quiz")
     lang = ctx.state.get("preferred_language") or "de"
 
+    # Reset judge attempts as we successfully finalized the quiz
+    ctx.state["judge_attempts"] = 0
+
     logger.info(f"Finalizing validated quiz: '{quiz_dict.get('title')}'")
 
     if lang == "de":
@@ -579,6 +685,11 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
 
     # Return structured Quiz object as the workflow's terminal output
     yield Event(output=quiz_dict)
+@node
+async def ask_more_node(ctx: Context, node_input: Any) -> Event:
+    """Terminal node for the 'ask_more' route. Gracefully ends the branch."""
+    logger.info("Mascot prompt asking for more information.")
+    return Event()
 
 
 # --- ADK 2.0 Workflow Definition ---
@@ -592,6 +703,11 @@ root_agent = Workflow(
             from_node=gather_and_route,
             to_node=decision_and_search,
             route="generate_quiz",
+        ),
+        Edge(
+            from_node=gather_and_route,
+            to_node=ask_more_node,
+            route="ask_more",
         ),
         Edge(from_node=decision_and_search, to_node=quiz_generation),
         Edge(from_node=quiz_generation, to_node=llm_as_a_judge),
