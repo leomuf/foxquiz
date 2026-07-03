@@ -1,5 +1,7 @@
 # 🎓 Quiz Buddy: Dynamic Interactive Exam Prep Companion
 
+![Quiz Buddy Cover Art](assets/quiz_buddy_kaggle_cover_560x280.png)
+
 > Built by **Leonardo Muffato** at **AUTOSOFT Engineering** ([www.autosoft-engineering.de](https://www.autosoft-engineering.de))  
 > Licensed under **Creative Commons Attribution 4.0 International (CC BY 4.0)** with upstream preservation of Google LLC's Apache 2.0 components.
 
