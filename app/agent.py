@@ -13,6 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ==============================================================================
+# Modified and extended by Leonardo Muffato (AUTOSOFT Engineering - www.autosoft-engineering.de) 2026.
+# Copyright (c) 2026 Leonardo Muffato (AUTOSOFT Engineering - www.autosoft-engineering.de).
+# All custom application additions, upfront curriculum validations, and mascot guides 
+# are licensed under CC BY 4.0. See global LICENSE file for details.
+# ==============================================================================
+
 import os
 import json
 import logging
