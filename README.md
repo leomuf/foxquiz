@@ -148,6 +148,8 @@ Built-in telemetry exports to Cloud Trace, BigQuery, and Cloud Logging.
 ---
 
 ## 💖 Acknowledgments & Recognition
-This project was directly inspired and developed after the **Kaggle’s 5-Day AI Agents: Intensive Vibe Coding Course with Google**, which served as the absolute **catalyst** for the design, implementation, and deployment of **Quiz Buddy**.
+This project was developed as a capstone project for [**Kaggle’s 5-Day AI Agents: Intensive Vibe Coding Course with Google**](https://www.kaggle.com/competitions/5-day-ai-agents-intensive-vibecoding-course-with-google) and is directly inspired by the concepts, techniques and best practices taught throughout the course.
 
-We would like to express our deepest gratitude to the entire **Kaggle and Google team** for providing this extraordinary learning opportunity, which equipped us with the cutting-edge agentic frameworks (ADK 2.0), evaluation pipelines (Antrigravity) and development methodologies necessary to bring this project to life!
+We would like to express our deepest gratitude to the entire **Kaggle and Google team** for providing this extraordinary learning opportunity, which equipped us with the cutting-edge [**Google Agent Development Kit (ADK) 2.0**](https://adk.dev/2.0/) framework, the powerful [**agents-cli**](https://github.com/google/agents-cli) developer workflows, and the [**Antigravity CLI**](https://antigravity.google/product/antigravity-cli) coding companion, alongside the advanced evaluation pipelines and agentic methodologies necessary to bring this project to life!
+
+
