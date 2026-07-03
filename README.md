@@ -1,7 +1,19 @@
-# quiz-buddy
+# 🎓 Quiz Buddy: Dynamic Interactive Exam Prep Companion
 
-Simple ReAct agent
-Agent generated with `agents-cli` version `0.5.0`
+> Built by **Leonardo Muffato** at **AUTOSOFT Engineering** ([www.autosoft-engineering.de](https://www.autosoft-engineering.de))  
+> Licensed under **Creative Commons Attribution 4.0 International (CC BY 4.0)** with upstream preservation of Google LLC's Apache 2.0 components.
+
+---
+
+## 🚀 Live Public Deployment
+The application is fully containerized and deployed to **Google Cloud Run** with low latency, automated serverless scaling, and robust performance:
+* 🌐 **Public URL:** [https://your-quiz-buddy-url.a.run.app](https://your-quiz-buddy-url.a.run.app) *(Update this placeholder with your live Cloud Run service URL after deployment)*
+
+---
+
+## 🎯 Project Overview
+Quiz Buddy is an intelligent, highly engaging, and child-safe exam preparation application designed to help kids in Grades 5–12 master academic topics in a playful and localized environment. Powered by **Google ADK 2.0** and **Gemini 2.5 Flash**, Quiz Buddy features dynamic mascot pedagogy (Felix the Fox, Olivia the Owl, Dino the Dragon), smart curriculum checks, academic peer-review nodes, and state-of-the-art security guardrails to keep students safe.
+
 
 ## Project Structure
 
@@ -129,3 +141,10 @@ To set up your production infrastructure, run `agents-cli infra cicd`.
 ## Observability
 
 Built-in telemetry exports to Cloud Trace, BigQuery, and Cloud Logging.
+
+---
+
+## 💖 Acknowledgments & Recognition
+This project was directly inspired and developed after the **Kaggle’s 5-Day AI Agents: Intensive Vibe Coding Course with Google**, which served as the absolute **catalyst** for the design, implementation, and deployment of **Quiz Buddy**.
+
+We would like to express our deepest gratitude to the entire **Kaggle and Google team** for providing this extraordinary learning opportunity, which equipped us with the cutting-edge agentic frameworks (ADK 2.0), evaluation pipelines (Antrigravity) and development methodologies necessary to bring this project to life!

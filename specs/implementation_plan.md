@@ -78,7 +78,7 @@ graph TD
 | **Web Frontend** | **FastAPI-Served Premium SPA** | A stunning, responsive Single-Page Application served directly by our FastAPI app. It features modern Rounded layouts, Glassmorphism, animations, and active mascots (*Felix*, *Olivia*, *Dino*). Run everything with one command! |
 | **Progress Feedback** | **Asymptotic Outer Circle Loader** | Replaced standard spinners with a dynamic, non-rotating central mascot, infinitely spinning outer dash spinner, and a visual SVG overlay filled progressively via an asymptotic formula (fast start, slowing down near 98%). Complete snap to 100% on successful quiz render. |
 | **User Feedback (Rating)** | **Anti-Spam Localized Thumbs UP/Down** | Tracks and allows exactly 1 rating per quiz run by disabling further clicks (`pointer-events: none`). Dynamically localizes toast messages into EN/DE/PT, including a tailored message for negative ratings (`Thumbs Down`) committing to continuously improve the app based on their feedback. |
-| **Internationalization** | **Dynamic Lookup, No Static Strings** | All UI translations and user-facing messages must be loaded dynamically from localized translation dictionaries (DE/PT/EN). Hardcoded static strings are prohibited to maintain a fully synchronized multilingual user experience. |
+| **Internationalization** | **Dynamic Lookup, No Static Strings** | All UI translations and user-facing messages must be loaded dynamically from localized translation dictionaries (DE/PT/EN). This includes dynamic, language-specific labels prepended before difficulty indicators (e.g. "Level: Medium", "Nível: Médio", "Stufe: Mittel"). Hardcoded static strings are prohibited to maintain a fully synchronized multilingual user experience. |
 
 ---
 
@@ -142,7 +142,8 @@ graph TD
   - Local HTML Export & "Share Link" creation.
   - **Asymptotic Progress Circle Overlay**: A non-rotating central mascot, infinitely spinning outer dash spinner, and an SVG progress ring driven by a smooth mathematical progression during long LLM-generating states.
   - **Anti-Spam & Localized User Feedback**: Locks rating buttons after 1 click via `pointer-events: none` and state tracking. Toasts are fully translated (DE/EN/PT) with a constructive continuous-improvement notice for Thumbs Down.
-  - **Dynamic Translations Only**: All user-facing text, alerts, correctness/incorrectness messages, exports, and footer labels must be driven dynamically via i18n lookup structures (no hardcoded/static UI text in general markup).
+  - **Dynamic Translations Only**: All user-facing text, alerts, correctness/incorrectness messages, exports, difficulty levels (with dynamic language-specific prefixes such as "Level: ", "Nível: ", "Stufe: "), and footer labels must be driven dynamically via i18n lookup structures (no hardcoded/static UI text in general markup).
+  - **Interactive Difficulty Hover Tooltips**: Display clean popover tooltips above `#quiz-difficulty` and `#summary-difficulty` on mouse hover, explaining how the difficulty levels scale (🌱 Easy for score < 5, ⭐ Medium for score 5-9, 🚀 Hard for perfect 10/10). The explanations are dynamic and fully localized via `tooltip_easy`, `tooltip_medium`, and `tooltip_hard` keys.
 - [x] Update `app/fast_api_app.py` to serve the static frontend, handle custom routes (`/feedback`, `/quiz/{quiz_id}`, `/share`), and mount the ADK app.
 
 ---

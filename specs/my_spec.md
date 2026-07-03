@@ -400,22 +400,46 @@ When the user finishes a quiz, they can choose to continue learning the same top
 
 #### 6.2.2 Dynamic Difficulty Localization
 
-To prevent leakage of English terminology on non-English user interfaces, raw difficulty indicators received from the backend are mapped to localized labels before rendering on the screen (both in `#quiz-difficulty` on the quiz interface and `#summary-difficulty` on the final summary screen):
+To prevent leakage of English terminology on non-English user interfaces, raw difficulty indicators received from the backend are mapped to localized labels before rendering on the screen (both in `#quiz-difficulty` on the quiz interface and `#summary-difficulty` on the final summary screen). To ensure the UI is fully self-explained, a language-specific prefix description is prepended before the difficulty label:
 
 - **Deutsch (DE)** (# USER-FACING — DO NOT TRANSLATE):
-  - `🌱 Easy` $\to$ `"🌱 Einfach"`
-  - `⭐ Medium` $\to$ `"⭐ Mittel"`
-  - `🚀 Hard` $\to$ `"🚀 Schwer"`
+  - Prefix description: `"Stufe: "`
+  - `🌱 Easy` $\to$ `"Stufe: 🌱 Einfach"`
+  - `⭐ Medium` $\to$ `"Stufe: ⭐ Mittel"`
+  - `🚀 Hard` $\to$ `"Stufe: 🚀 Schwer"`
 
 - **Português (PT)** (# USER-FACING — DO NOT TRANSLATE):
-  - `🌱 Easy` $\to$ `"🌱 Fácil"`
-  - `⭐ Medium` $\to$ `"⭐ Médio"`
-  - `🚀 Hard` $\to$ `"🚀 Difícil"`
+  - Prefix description: `"Nível: "`
+  - `🌱 Easy` $\to$ `"Nível: 🌱 Fácil"`
+  - `⭐ Medium` $\to$ `"Nível: ⭐ Médio"`
+  - `🚀 Hard` $\to$ `"Nível: 🚀 Difícil"`
 
 - **English (EN / Fallback)** (# USER-FACING — DO NOT TRANSLATE):
-  - `🌱 Easy` $\to$ `"🌱 Easy"`
-  - `⭐ Medium` $\to$ `"⭐ Medium"`
-  - `🚀 Hard` $\to$ `"🚀 Hard"`
+  - Prefix description: `"Level: "`
+  - `🌱 Easy` $\to$ `"Level: 🌱 Easy"`
+  - `⭐ Medium` $\to$ `"Level: ⭐ Medium"`
+  - `🚀 Hard` $\to$ `"Level: 🚀 Hard"`
+
+#### 6.2.3 Interactive Difficulty Tooltips
+
+To make the adaptive pacing transparent and self-explained, both the `#quiz-difficulty` and `#summary-difficulty` badges feature an interactive hover effect. When a user hovers their cursor over a difficulty badge, a localized tooltip displays explaining how the current level was determined:
+
+- **Deutsch (DE)** (# USER-FACING — DO NOT TRANSLATE):
+  - `🌱 Einfach` explanation: `"Einfach: Automatisch aktiv nach weniger als 5 richtigen Antworten, um Grundlagen zu festigen."`
+  - `⭐ Mittel` explanation: `"Mittel: Standardstufe für diese Klasse. Bleibt aktiv bei 5 bis 9 richtigen Antworten."`
+  - `🚀 Schwer` explanation: `"Schwer: Meisterstufe! Wird freigeschaltet, wenn du im letzten Quiz 10/10 Punkten erreichst."`
+
+- **Português (PT)** (# USER-FACING — DO NOT TRANSLATE):
+  - `🌱 Fácil` explanation: `"Fácil: Ativado automaticamente após menos de 5 respostas corretas para reforçar os fundamentos."`
+  - `⭐ Médio` explanation: `"Médio: Nível padrão para esta série. Mantém-se ativo com 5 a 9 respostas corretas."`
+  - `🚀 Difícil` explanation: `"Difícil: Nível mestre! Desbloqueado quando você acerta 10/10 perguntas no quiz anterior."`
+
+- **English (EN / Fallback)** (# USER-FACING — DO NOT TRANSLATE):
+  - `🌱 Easy` explanation: `"Easy: Activated automatically after scoring less than 5 correct answers to reinforce the fundamentals."`
+  - `⭐ Medium` explanation: `"Medium: Standard level for this grade. Stays active with 5 to 9 correct answers."`
+  - `🚀 Hard` explanation: `"Hard: Master level! Unlocked when you score 10/10 correct answers in the previous quiz."`
+
+The tooltip must render as a modern CSS-driven popover styling over the difficulty badges, ensuring smooth transitions and absolute positioning. Its content is dynamically populated on language switch and when updating difficulty badges.
 
 ```gherkin
 Feature: Adaptive learning progression and localized difficulty indicators
