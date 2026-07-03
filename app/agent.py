@@ -294,10 +294,18 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         client = Client()
         try:
             validation_prompt = (
-                f"Assess whether the school topic '{topic}' is age-appropriate, cognitively and curriculum-wise suitable "
-                f"for school grade '{grade}' and subject '{subject}'.\n"
-                f"Return structured JSON matching CurriculumCompatibility schema.\n"
-                f"Provide alternative suggested topics if incompatible. Ensure everything is in language '{lang}' (either 'de', 'pt', or 'en')."
+                f"You are an expert, supportive school curriculum evaluator. Assess whether the school topic '{topic}' "
+                f"can be taught in an age-appropriate, simplified, and engaging way to a student "
+                f"in school grade '{grade}' and subject '{subject}'.\n\n"
+                f"GUIDELINES FOR LENIENCY & ENCOURAGEMENT:\n"
+                f"1. Adopt a highly supportive, 'lenient-by-default' approach. If a complex scientific, historical, or geological topic "
+                f"(e.g., 'Explosão cambriana' or evolutionary milestones in 5th Grade Sciences) can be explained in simplified, "
+                f"fun, and conceptual terms without using heavy academic jargon, mark it as compatible (is_compatible = True).\n"
+                f"2. Only mark a topic as incompatible (is_compatible = False) if it is egregiously inappropriate, cognitively impossible, "
+                f"or completely outside school standards for that age group (e.g., advanced university-level differential calculus, "
+                f"complex organic chemistry synthesis, or highly graphic/inappropriate adult themes).\n"
+                f"3. Ensure the assessment, explanation, and suggestions are fully written in language '{lang}' (either 'de', 'pt', or 'en').\n\n"
+                f"Return a structured JSON matching the CurriculumCompatibility schema."
             )
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -500,11 +508,14 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     )
 
     prompt = (
-        f"Create an interactive, kid-friendly multiple-choice quiz with exactly 10 questions.\n"
-        f"Target Audience: School children in Grade/Year {grade} (aged 10-16 years old).\n"
+        f"Create an interactive multiple-choice quiz with exactly 10 questions.\n"
+        f"Target Audience: School students in Grade/Year {grade} (aged 10-18 years old).\n"
         f"Subject: {subject}\n"
         f"Topic: {topic}\n"
         f"Preferred Language: Entire quiz MUST be written in '{lang}' (Deutsch, Português, or English).\n"
+        f"\nPedagogical Tone Scaling:\n"
+        f"- For younger students (Grades 5-8, ages 10-14): Keep the tone highly playful, simplified, full of positive emojis, and kid-friendly.\n"
+        f"- For older students (Grades 9-12, ages 14-18): Switch to a supportive peer-mentor tone. Keep the mascot identity (e.g. Felix/Olivia/Dino) but communicate with intellectual respect, using advanced, clear explanations without sounding overly simple or talking down to them.\n"
     )
 
     if search_context:
