@@ -45,6 +45,7 @@ setup_telemetry()
 # Configure standard python logging
 python_logging.basicConfig(level=python_logging.INFO)
 
+
 class FallbackLogger:
     def __init__(self):
         self._logger = python_logging.getLogger(__name__)
@@ -78,7 +79,9 @@ class SafeLogger:
                 self.real_logger.log_struct(info, severity=severity)
                 return
             except Exception as e:
-                python_logging.warning(f"Cloud Logging write failed ({e}). Falling back to standard logging.")
+                python_logging.warning(
+                    f"Cloud Logging write failed ({e}). Falling back to standard logging."
+                )
                 self.use_fallback = True
         self.fallback.log_struct(info, severity=severity)
 

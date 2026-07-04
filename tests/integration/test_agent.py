@@ -19,9 +19,9 @@
 # are licensed under CC BY 4.0. See global LICENSE file for details.
 # ==============================================================================
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -39,21 +39,25 @@ def mock_wikipedia_requests():
             resp = MagicMock()
             if params and params.get("list") == "search":
                 resp.json.return_value = {
-                    "query": {
-                        "search": [{"pageid": 123, "title": "Mock Title"}]
-                    }
+                    "query": {"search": [{"pageid": 123, "title": "Mock Title"}]}
                 }
             else:
                 resp.json.return_value = {
                     "query": {
-                        "pages": [{"pageid": 123, "title": "Mock Title", "extract": "This is a mock Wikipedia extract for testing."}]
+                        "pages": [
+                            {
+                                "pageid": 123,
+                                "title": "Mock Title",
+                                "extract": "This is a mock Wikipedia extract for testing.",
+                            }
+                        ]
                     }
                 }
             resp.status_code = 200
             return resp
+
         mock_get.side_effect = side_effect
         yield mock_get
-
 
 
 def test_agent_stream() -> None:
@@ -99,6 +103,7 @@ def test_adaptive_quiz_generation() -> None:
     Verifies reinforcement mode (score <= 4) generates '🌱 Easy' difficulty.
     """
     import json
+
     session_service = InMemorySessionService()
     session = session_service.create_session_sync(user_id="test_user", app_name="test")
     runner = Runner(agent=root_agent, session_service=session_service, app_name="test")
@@ -110,9 +115,10 @@ def test_adaptive_quiz_generation() -> None:
                 "question": "What is 1/2 of 10?",
                 "options": ["5", "3", "2"],
                 "correct_option_index": 0,
-                "explanation": "1/2 of 10 is 5."
+                "explanation": "1/2 of 10 is 5.",
             }
-        ] * 10
+        ]
+        * 10,
     }
 
     # 1. Test Reinforcement Mode (score <= 4)
@@ -123,7 +129,7 @@ def test_adaptive_quiz_generation() -> None:
         "preferred_language": "en",
         "previous_score": 3,
         "previous_questions": ["What is 1/2 of 10?"],
-        "previous_quiz_json": json.dumps(mock_previous_quiz)
+        "previous_quiz_json": json.dumps(mock_previous_quiz),
     }
 
     message = types.Content(
@@ -146,7 +152,9 @@ def test_adaptive_quiz_generation() -> None:
             break
 
     assert quiz_output is not None, "Expected structured quiz output"
-    assert quiz_output.get("difficulty") == "🌱 Easy", f"Expected '🌱 Easy', got {quiz_output.get('difficulty')}"
+    assert quiz_output.get("difficulty") == "🌱 Easy", (
+        f"Expected '🌱 Easy', got {quiz_output.get('difficulty')}"
+    )
 
 
 def test_upfront_curriculum_validation_mismatch() -> None:
@@ -156,6 +164,7 @@ def test_upfront_curriculum_validation_mismatch() -> None:
     is caught upfront, clears the topic, and triggers a friendly mascot explanation.
     """
     import json
+
     session_service = InMemorySessionService()
     session = session_service.create_session_sync(user_id="test_user", app_name="test")
     runner = Runner(agent=root_agent, session_service=session_service, app_name="test")
@@ -164,7 +173,7 @@ def test_upfront_curriculum_validation_mismatch() -> None:
         "grade": "Grade 5",
         "subject": "Math",
         "topic": "Differential Equations",
-        "preferred_language": "en"
+        "preferred_language": "en",
     }
 
     message = types.Content(
@@ -183,7 +192,7 @@ def test_upfront_curriculum_validation_mismatch() -> None:
     # Verify that the route was ask_more (which returns content, but no output quiz JSON)
     has_mascot_response = False
     has_quiz_output = False
-    
+
     for ev in events:
         if ev.content and ev.content.parts:
             for part in ev.content.parts:
@@ -192,11 +201,15 @@ def test_upfront_curriculum_validation_mismatch() -> None:
         if ev.output:
             has_quiz_output = True
 
-    assert has_mascot_response, "Expected mascot response explaining the incompatibility"
+    assert has_mascot_response, (
+        "Expected mascot response explaining the incompatibility"
+    )
     assert not has_quiz_output, "Should not generate a quiz for incompatible inputs"
-    
+
     # Retrieve final session state and verify that topic was cleared
-    final_session = session_service.get_session_sync(user_id="test_user", session_id=session.id, app_name="test")
-    assert final_session.state.get("topic") is None, "Incompatible topic should be cleared from state"
-
-
+    final_session = session_service.get_session_sync(
+        user_id="test_user", session_id=session.id, app_name="test"
+    )
+    assert final_session.state.get("topic") is None, (
+        "Incompatible topic should be cleared from state"
+    )

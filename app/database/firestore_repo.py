@@ -17,7 +17,6 @@ import logging
 import os
 from typing import Any
 
-from google.api_core.exceptions import GoogleAPIError
 from google.cloud import firestore
 
 logger = logging.getLogger(__name__)
@@ -77,7 +76,11 @@ class FirestoreRepository:
     _global_mock_active = False
 
     def __init__(self, force_mock: bool = False):
-        self.use_mock = force_mock or os.getenv("INTEGRATION_TEST") == "TRUE" or FirestoreRepository._global_mock_active
+        self.use_mock = (
+            force_mock
+            or os.getenv("INTEGRATION_TEST") == "TRUE"
+            or FirestoreRepository._global_mock_active
+        )
         self.client = None
 
         if not self.use_mock:

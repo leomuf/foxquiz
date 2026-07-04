@@ -16,7 +16,7 @@
 # ==============================================================================
 # Modified and extended by Leonardo Muffato (AUTOSOFT Engineering - www.autosoft-engineering.de) 2026.
 # Copyright (c) 2026 Leonardo Muffato (AUTOSOFT Engineering - www.autosoft-engineering.de).
-# All custom application additions, upfront curriculum validations, and mascot guides 
+# All custom application additions, upfront curriculum validations, and mascot guides
 # are licensed under CC BY 4.0. See global LICENSE file for details.
 # ==============================================================================
 
@@ -69,12 +69,17 @@ class ExtractedQuizInfo(BaseModel):
         None, description="The previous quiz score out of 10 if provided (e.g., 3, 10)."
     )
     previous_questions: Optional[List[str]] = Field(
-        None, description="A list of question texts from the previous quiz to avoid duplication if provided."
+        None,
+        description="A list of question texts from the previous quiz to avoid duplication if provided.",
     )
     previous_quiz_json: Optional[str] = Field(
-        None, description="The full JSON string of the previous quiz to adapt if provided."
+        None,
+        description="The full JSON string of the previous quiz to adapt if provided.",
     )
-
+    selected_difficulty: Optional[str] = Field(
+        None,
+        description="The user selected progression difficulty ('medium' or 'hard') if chosen via the modal.",
+    )
 
 
 class QuizQuestion(BaseModel):
@@ -93,9 +98,8 @@ class Quiz(BaseModel):
     questions: List[QuizQuestion] = Field(description="List of exactly 10 questions.")
     difficulty: Optional[str] = Field(
         None,
-        description="The difficulty indicator of the quiz. Must be exactly one of: '🌱 Easy', '⭐ Medium', or '🚀 Hard'."
+        description="The difficulty indicator of the quiz. Must be exactly one of: '🌱 Easy', '⭐ Medium', or '🚀 Hard'.",
     )
-
 
 
 class JudgeAssessment(BaseModel):
@@ -223,7 +227,12 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     if prompt and prompt.strip().startswith("{") and prompt.strip().endswith("}"):
         try:
             parsed = json.loads(prompt)
-            if isinstance(parsed, dict) and ("grade" in parsed or "subject" in parsed or "topic" in parsed or "previous_score" in parsed):
+            if isinstance(parsed, dict) and (
+                "grade" in parsed
+                or "subject" in parsed
+                or "topic" in parsed
+                or "previous_score" in parsed
+            ):
                 logger.info("Successfully parsed prompt as structured JSON parameters.")
                 if parsed.get("grade"):
                     ctx.state["grade"] = parsed["grade"]
@@ -239,9 +248,13 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     ctx.state["previous_questions"] = parsed["previous_questions"]
                 if "previous_quiz_json" in parsed:
                     ctx.state["previous_quiz_json"] = parsed["previous_quiz_json"]
+                if "selected_difficulty" in parsed:
+                    ctx.state["selected_difficulty"] = parsed["selected_difficulty"]
                 is_json_payload = True
         except Exception as e:
-            logger.info(f"Prompt is not a structured JSON payload: {e}. Proceeding with natural language extraction.")
+            logger.info(
+                f"Prompt is not a structured JSON payload: {e}. Proceeding with natural language extraction."
+            )
 
     # If a prompt is present and was not a parsed JSON payload, run lightweight structured LLM to extract info
     if prompt and not is_json_payload:
@@ -279,6 +292,8 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 ctx.state["previous_questions"] = extracted.previous_questions
             if extracted.previous_quiz_json:
                 ctx.state["previous_quiz_json"] = extracted.previous_quiz_json
+            if extracted.selected_difficulty:
+                ctx.state["selected_difficulty"] = extracted.selected_difficulty
         except Exception as e:
             logger.error(f"Error during info extraction: {e}")
 
@@ -290,7 +305,9 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
 
     if grade and subject and topic:
         # Perform Upfront Curriculum Validation Check to prevent mismatched/inappropriate topics
-        logger.info(f"Performing upfront curriculum validation check for: Grade='{grade}', Subject='{subject}', Topic='{topic}'")
+        logger.info(
+            f"Performing upfront curriculum validation check for: Grade='{grade}', Subject='{subject}', Topic='{topic}'"
+        )
         client = Client()
         try:
             validation_prompt = (
@@ -316,8 +333,12 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     temperature=0.0,
                 ),
             )
-            compatibility = CurriculumCompatibility.model_validate_json(response.text.strip())
-            logger.info(f"Upfront curriculum check results: is_compatible={compatibility.is_compatible}, explanation='{compatibility.explanation}', suggestions={compatibility.suggested_topics}")
+            compatibility = CurriculumCompatibility.model_validate_json(
+                response.text.strip()
+            )
+            logger.info(
+                f"Upfront curriculum check results: is_compatible={compatibility.is_compatible}, explanation='{compatibility.explanation}', suggestions={compatibility.suggested_topics}"
+            )
 
             if compatibility.is_compatible:
                 return Event(route="generate_quiz")
@@ -381,7 +402,9 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     route="ask_more",
                 )
         except Exception as e:
-            logger.error(f"Error during upfront curriculum check: {e}. Defaulting to allowing quiz generation.")
+            logger.error(
+                f"Error during upfront curriculum check: {e}. Defaulting to allowing quiz generation."
+            )
             return Event(route="generate_quiz")
 
     # Otherwise, ask conversationally for what is missing in their language
@@ -532,13 +555,15 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
 
     adaptation_instructions = ""
     if previous_score is not None:
-        logger.info(f"Applying adaptive progression for previous_score={previous_score}")
-        if previous_score <= 4:
-            # Score <= 4/10: the current quiz is difficult enough, repeat it with small changes in the question orders.
+        logger.info(
+            f"Applying adaptive progression for previous_score={previous_score}"
+        )
+        if previous_score <= 3:
+            # Score <= 3/10: Reinforcement Mode (🌱 Easy)
             # No duplicate-prevention, reuse previous questions but shuffle.
             adaptation_instructions = (
                 f"\n--- ADAPTIVE REINFORCEMENT MODE ---\n"
-                f"The student scored {previous_score}/10 on the previous quiz, which is a failing grade.\n"
+                f"The student scored {previous_score}/10 on the previous quiz, which indicates they struggled with the material.\n"
                 f"The current quiz content is difficult enough. Your goal is to REPEAT the previous quiz questions so that the student can understand and learn them properly.\n"
                 f"Do NOT generate new or different questions. Do NOT avoid duplication.\n"
                 f"Instead, do the following:\n"
@@ -550,24 +575,31 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             if previous_quiz_json:
                 adaptation_instructions += f"Here is the exact previous quiz JSON for reference:\n{previous_quiz_json}\n"
         elif previous_score >= 8:
-            # Score >= 8/10: Strictly avoid duplicating any previously asked questions.
-            # If 10/10: significantly scale up difficulty.
-            # If 8 or 9: same difficulty, fresh questions.
-            if previous_score == 10:
+            # Score >= 8/10: User-Choice Progression Mode (choose between ⭐ Medium and 🚀 Hard)
+            selected_difficulty = ctx.state.get("selected_difficulty")
+            # Normalize selected_difficulty
+            if isinstance(selected_difficulty, str):
+                sel_diff_lower = selected_difficulty.lower()
+            else:
+                sel_diff_lower = (
+                    "hard" if previous_score == 10 else "medium"
+                )  # Fallback if not specified
+
+            if sel_diff_lower in ["hard", "rocket hard", "🚀 hard"]:
                 adaptation_instructions = (
                     f"\n--- ADAPTIVE PROGRESSION MODE (CHALLENGE) ---\n"
-                    f"The student scored {previous_score}/10 (perfect score!) on the previous quiz.\n"
-                    f"You must significantly SCALE UP the difficulty of this new quiz. Introduce more advanced concepts, trickier options/distractors, and deeper questions suitable for high-achieving student in Grade {grade}.\n"
+                    f"The student scored {previous_score}/10 on the previous quiz and selected the DIFFICULT (Advanced) level.\n"
+                    f"You must significantly SCALE UP the difficulty of this new quiz. Introduce more advanced concepts, trickier options/distractors, and deeper questions suitable for a high-achieving student in Grade {grade}.\n"
                     f"Set the 'difficulty' field to exactly: '🚀 Hard'.\n"
                 )
             else:
                 adaptation_instructions = (
                     f"\n--- ADAPTIVE PROGRESSION MODE (NEXT LEVEL) ---\n"
-                    f"The student scored {previous_score}/10 on the previous quiz.\n"
-                    f"Maintain the same grade difficulty level, but generate a completely fresh set of questions.\n"
+                    f"The student scored {previous_score}/10 on the previous quiz and selected the MEDIUM (Standard) level.\n"
+                    f"Maintain standard Grade {grade} difficulty, but generate a completely fresh set of questions.\n"
                     f"Set the 'difficulty' field to exactly: '⭐ Medium'.\n"
                 )
-            
+
             # Strict Avoid Duplication rules
             adaptation_instructions += (
                 f"\nCRITICAL COMPLIANCE RULES:\n"
@@ -575,11 +607,14 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
                 f"2. Compare your new questions with the previous questions. Do not generate questions that are similar or duplicate the old ones.\n"
             )
             if previous_questions:
-                adaptation_instructions += f"Do NOT use any of these questions from the previous quiz:\n" + "\n".join(f"- {q}" for q in previous_questions) + "\n"
+                adaptation_instructions += (
+                    f"Do NOT use any of these questions from the previous quiz:\n"
+                    + "\n".join(f"- {q}" for q in previous_questions)
+                    + "\n"
+                )
         else:
-            # Score 5 to 7: Keep standard difficulty, generate a new set of questions.
-            # Important: duplication prevention is NOT strictly required for bad/normal results below 8/10,
-            # but we should suggest keeping standard difficulty. Let's make it clear.
+            # Score 4 to 7: Practice Mode (⭐ Medium)
+            # Keep standard difficulty, generate a new set of questions.
             adaptation_instructions = (
                 f"\n--- STANDARD PRACTICE MODE ---\n"
                 f"The student scored {previous_score}/10 on the previous quiz.\n"
@@ -610,7 +645,31 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         quiz_dict = json.loads(response.text.strip())
         # Ensure difficulty field is set in quiz_dict
         if "difficulty" not in quiz_dict or not quiz_dict["difficulty"]:
-            quiz_dict["difficulty"] = "🌱 Easy" if (previous_score is not None and previous_score <= 4) else "🚀 Hard" if (previous_score == 10) else "⭐ Medium"
+            if previous_score is not None:
+                if previous_score <= 3:
+                    quiz_dict["difficulty"] = "🌱 Easy"
+                elif previous_score >= 8:
+                    sel_diff = ctx.state.get("selected_difficulty")
+                    if isinstance(sel_diff, str) and sel_diff.lower() in [
+                        "hard",
+                        "rocket hard",
+                        "🚀 hard",
+                    ]:
+                        quiz_dict["difficulty"] = "🚀 Hard"
+                    elif isinstance(sel_diff, str) and sel_diff.lower() in [
+                        "medium",
+                        "star medium",
+                        "⭐ medium",
+                    ]:
+                        quiz_dict["difficulty"] = "⭐ Medium"
+                    else:
+                        quiz_dict["difficulty"] = (
+                            "🚀 Hard" if previous_score == 10 else "⭐ Medium"
+                        )
+                else:
+                    quiz_dict["difficulty"] = "⭐ Medium"
+            else:
+                quiz_dict["difficulty"] = "⭐ Medium"
         ctx.state["temp_quiz"] = quiz_dict
         return Event(output=quiz_dict)
     except Exception as e:
@@ -622,7 +681,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
 async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
     """Strict Reviewer: evaluates the generated quiz structure and content accuracy. Loops back on failures."""
     quiz_dict = ctx.state.get("temp_quiz")
-    
+
     # Track attempts using our state counter instead of unreliable/non-incrementing ctx.attempt_count inside manual loops
     attempts = ctx.state.get("judge_attempts", 0) + 1
     ctx.state["judge_attempts"] = attempts
@@ -703,6 +762,8 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
 
     # Return structured Quiz object as the workflow's terminal output
     yield Event(output=quiz_dict)
+
+
 @node
 async def ask_more_node(ctx: Context, node_input: Any) -> Event:
     """Terminal node for the 'ask_more' route. Gracefully ends the branch."""

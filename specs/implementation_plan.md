@@ -143,7 +143,11 @@ graph TD
   - **Asymptotic Progress Circle Overlay**: A non-rotating central mascot, infinitely spinning outer dash spinner, and an SVG progress ring driven by a smooth mathematical progression during long LLM-generating states.
   - **Anti-Spam & Localized User Feedback**: Locks rating buttons after 1 click via `pointer-events: none` and state tracking. Toasts are fully translated (DE/EN/PT) with a constructive continuous-improvement notice for Thumbs Down.
   - **Dynamic Translations Only**: All user-facing text, alerts, correctness/incorrectness messages, exports, difficulty levels (with dynamic language-specific prefixes such as "Level: ", "Nível: ", "Stufe: "), and footer labels must be driven dynamically via i18n lookup structures (no hardcoded/static UI text in general markup).
-  - **Interactive Difficulty Hover Tooltips**: Display clean popover tooltips above `#quiz-difficulty` and `#summary-difficulty` on mouse hover, explaining how the difficulty levels scale (🌱 Easy for score < 5, ⭐ Medium for score 5-9, 🚀 Hard for perfect 10/10). The explanations are dynamic and fully localized via `tooltip_easy`, `tooltip_medium`, and `tooltip_hard` keys.
+  - **Interactive Difficulty Hover Tooltips**: Display clean popover tooltips above `#quiz-difficulty` and `#summary-difficulty` on mouse hover, explaining how the difficulty levels scale (🌱 Easy for score <= 3, ⭐ Medium for score 4-7, and user-choice for score >= 8 choosing between Medium or Hard). The explanations are dynamic and fully localized via `tooltip_easy`, `tooltip_medium`, and `tooltip_hard` keys.
+- [ ] **User-Choice Difficulty Modal**:
+  - Implement a premium, beautifully styled modal that triggers when the user scores $\ge 8/10$ and selects "Let's go for more questions".
+  - Provide two visually distinct, hover-animated, and accessible buttons for "Medium (Standard)" and "Difficult (Advanced)", dynamically localized across German, Portuguese, and English.
+  - Upon selecting an option, transition state seamlessly and request the backend to generate 10 completely fresh questions on the same topic using the selected difficulty, enforcing 100% duplication-prevention logic.
 - [x] Update `app/fast_api_app.py` to serve the static frontend, handle custom routes (`/feedback`, `/quiz/{quiz_id}`, `/share`), and mount the ADK app.
 
 ---
