@@ -1113,7 +1113,7 @@
                 btn_next: "Nächste Frage",
                 btn_share: "Quiz teilen",
                 btn_export: "Offline speichern",
-                btn_restart: "Neues Quiz spielen",
+                btn_restart: "Anderes Thema wählen",
                 btn_more_questions: "Lass uns mehr Fragen machen!",
                 label_level: "Stufe: ",
                 difficulty_easy: "🌱 Einfach",
@@ -1175,7 +1175,7 @@
                 btn_next: "Next Question",
                 btn_share: "Share Quiz",
                 btn_export: "Save Offline",
-                btn_restart: "Play New Quiz",
+                btn_restart: "Choose New Topic",
                 btn_more_questions: "Let's go for more questions!",
                 label_level: "Level: ",
                 difficulty_easy: "🌱 Easy",
@@ -1237,7 +1237,7 @@
                 btn_next: "Próxima Pergunta",
                 btn_share: "Compartilhar",
                 btn_export: "Salvar Offline",
-                btn_restart: "Jogar Novamente",
+                btn_restart: "Mudar de Tema",
                 btn_more_questions: "Vamos para mais perguntas!",
                 label_level: "Nível: ",
                 difficulty_easy: "🌱 Fácil",
@@ -1566,19 +1566,25 @@
                 progressionDifficultyChosen = null;
             }
             
+            if (!isAdaptation) {
+                currentSessionId = "";
+            }
+            
             try {
-                // Pre-register session in the backend store first to avoid 404 on /run_sse
-                const sessionUrl = "/apps/app/users/anonymous_student/sessions";
-                const sessionRes = await fetch(sessionUrl, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ state: { preferred_language: currentLanguage } })
-                });
-                if (!sessionRes.ok) {
-                    throw new Error("Failed to pre-register session on backend. Status: " + sessionRes.status);
+                if (!currentSessionId) {
+                    // Pre-register session in the backend store first to avoid 404 on /run_sse
+                    const sessionUrl = "/apps/app/users/anonymous_student/sessions";
+                    const sessionRes = await fetch(sessionUrl, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ state: { preferred_language: currentLanguage } })
+                    });
+                    if (!sessionRes.ok) {
+                        throw new Error("Failed to pre-register session on backend. Status: " + sessionRes.status);
+                    }
+                    const sessionData = await sessionRes.json();
+                    currentSessionId = sessionData.id;
                 }
-                const sessionData = await sessionRes.json();
-                currentSessionId = sessionData.id;
 
                 // Call standard stream route of FastAPI App (get_fast_api_app setup /run_sse)
                 const response = await fetch("/run_sse", {
@@ -2106,6 +2112,7 @@
 
             currentQuizData = null;
             currentQuizId = "";
+            currentSessionId = "";
             showScreen("setup-screen");
         }
 

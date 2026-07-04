@@ -130,6 +130,9 @@ def search_wikipedia(query: str, lang: str = "en") -> str:
         import requests
 
         url = f"https://{lang}.wikipedia.org/w/api.php"
+        headers = {
+            "User-Agent": "QuizBuddyBot/1.0 (https://github.com/leomuf/quiz-buddy; support@quizbuddy.app) requests-python"
+        }
 
         # Step 1: Search for matches
         search_params = {
@@ -140,7 +143,7 @@ def search_wikipedia(query: str, lang: str = "en") -> str:
             "utf8": 1,
             "formatversion": 2,
         }
-        r = requests.get(url, params=search_params, timeout=5)
+        r = requests.get(url, params=search_params, headers=headers, timeout=5)
         r.raise_for_status()
         data = r.json()
         search_results = data.get("query", {}).get("search", [])
@@ -159,7 +162,7 @@ def search_wikipedia(query: str, lang: str = "en") -> str:
             "explaintext": 1,
             "formatversion": 2,
         }
-        r = requests.get(url, params=extract_params, timeout=5)
+        r = requests.get(url, params=extract_params, headers=headers, timeout=5)
         r.raise_for_status()
         page_data = r.json().get("query", {}).get("pages", [{}])[0]
         extract = page_data.get("extract", "")
@@ -502,6 +505,13 @@ async def decision_and_search(ctx: Context, node_input: Any) -> Event:
     topic = ctx.state.get("topic")
     lang = ctx.state.get("preferred_language") or "de"
 
+    # Optimization: if search_context is already present in state, reuse it to avoid duplicate network queries.
+    if "search_context" in ctx.state:
+        logger.info(
+            "Search context already present in session state, skipping Wikipedia query."
+        )
+        return Event()
+
     logger.info(
         f"Curriculum Search Skill invoked. Querying Wikipedia for subject='{subject}', topic='{topic}', lang='{lang}'"
     )
@@ -688,6 +698,15 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
 
     if not quiz_dict:
         return Event(route="retry")
+
+    # Optimization: In Reinforcement Mode (score <= 3), we shuffle the previously validated questions.
+    # We can skip the LLM Judge review call completely to save token usage and cut latency by 1.5 - 2.5 seconds!
+    previous_score = ctx.state.get("previous_score")
+    if previous_score is not None and previous_score <= 3:
+        logger.info(
+            "Reinforcement mode: skipping LLM-as-a-judge review on shuffled questions."
+        )
+        return Event(route="success")
 
     if attempts >= 3:
         logger.warning("Max quality judge iterations reached. Releasing current quiz.")
