@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quiz Buddy — Your Playful Exam Prep Companion!</title>
+    <title>FoxQuiz — Your Playful Exam Prep Companion!</title>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -63,12 +63,25 @@
             font-family: 'Outfit', sans-serif;
             font-size: 1.8rem;
             font-weight: 800;
-            background: linear-gradient(135deg, #ff6b35, #4ecdc4);
+            background: linear-gradient(135deg, #ff6b35 0%, #ffb03a 50%, #ffffff 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             display: flex;
             align-items: center;
             gap: 0.5rem;
+        }
+
+        .brand-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+        }
+
+        .brand-subtitle {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            letter-spacing: 0.01em;
         }
 
         .language-toggle {
@@ -879,8 +892,11 @@
 <body>
 
     <header>
-        <div class="logo">
-            <span>🎓</span> Quiz Buddy
+        <div class="brand-group">
+            <div class="logo">
+                <span>🦊</span> FoxQuiz
+            </div>
+            <div class="brand-subtitle" data-translate="app_subtitle">Dein intelligenter Assistent für Schulprüfungen</div>
         </div>
         <div class="language-toggle">
             <button class="lang-btn active" onclick="setLanguage('de')">DE</button>
@@ -892,7 +908,7 @@
     <main>
         <!-- Card 1: Mascot Selection & Quiz Config (Setup Screen) -->
         <div id="setup-screen" class="glass-card">
-            <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.6rem; text-align: center; margin-bottom: 0.5rem;" data-translate="choose_buddy">Wähle deinen Quiz-Buddy!</h2>
+            <h2 style="font-family: 'Outfit', sans-serif; font-size: 1.6rem; text-align: center; margin-bottom: 0.5rem;" data-translate="choose_buddy">Wähle deinen FoxQuiz-Begleiter!</h2>
             <p style="color: var(--text-muted); text-align: center; font-size: 0.95rem; margin-bottom: 2rem;" data-translate="buddy_subtitle">Such dir einen coolen Lernbegleiter aus, der dich unterstützt!</p>
             
             <div class="mascot-grid">
@@ -1101,7 +1117,8 @@
         // Translations Dictionary
         const translations = {
             de: {
-                choose_buddy: "Wähle deinen Quiz-Buddy!",
+                choose_buddy: "Wähle deinen FoxQuiz-Begleiter!",
+                app_subtitle: "Dein intelligenter Assistent für Schulprüfungen",
                 buddy_subtitle: "Such dir einen coolen Lernbegleiter aus, der dich unterstützt!",
                 fox_desc: "Verspielt, lustig und immer gut gelaunt!",
                 owl_desc: "Schlau, weise und super geduldig!",
@@ -1160,10 +1177,11 @@
                 export_correct_option: "Richtige Option",
                 export_print: "Drucken / Als PDF speichern",
                 export_level: "Altersgruppe",
-                export_offline_buddy: "Erstellt mit Quiz Buddy"
+                export_offline_buddy: "Erstellt mit FoxQuiz"
             },
             en: {
-                choose_buddy: "Choose your Quiz Buddy!",
+                choose_buddy: "Choose your FoxQuiz Companion!",
+                app_subtitle: "Your intelligent assistant for school exams",
                 buddy_subtitle: "Choose a cool learning companion to guide you!",
                 fox_desc: "Playful, funny, and always cheerful!",
                 owl_desc: "Smart, wise, and super patient!",
@@ -1222,10 +1240,11 @@
                 export_correct_option: "Correct Option",
                 export_print: "Print / Save as PDF",
                 export_level: "Age Group",
-                export_offline_buddy: "Created with Quiz Buddy"
+                export_offline_buddy: "Created with FoxQuiz"
             },
             pt: {
-                choose_buddy: "Escolha seu Quiz Buddy!",
+                choose_buddy: "Escolha seu companheiro FoxQuiz!",
+                app_subtitle: "Seu assistente inteligente para provas escolares",
                 buddy_subtitle: "Escolha um companheiro de aprendizado super legal para te guiar!",
                 fox_desc: "Brincalhão, divertido e sempre alegre!",
                 owl_desc: "Inteligente, sábia e super paciente!",
@@ -1284,7 +1303,7 @@
                 export_correct_option: "Opção correta",
                 export_print: "Imprimir / Salvar como PDF",
                 export_level: "Faixa Etária",
-                export_offline_buddy: "Criado com Quiz Buddy"
+                export_offline_buddy: "Criado com FoxQuiz"
             }
         };
 
@@ -2058,11 +2077,11 @@
                     }
                 } else {
                     if (currentLanguage === "de") {
-                        msg = "Vielen Dank für deine Bewertung, wir werden das Quiz prüfen und versuchen Quiz Buddy zu verbessern! 🦊";
+                        msg = "Vielen Dank für deine Bewertung, wir werden das Quiz prüfen und versuchen FoxQuiz zu verbessern! 🦊";
                     } else if (currentLanguage === "pt") {
-                        msg = "Obrigado pela sua avaliação, nós vamos analisar o quiz e tentar melhorar o Quiz Buddy! 🦊";
+                        msg = "Obrigado pela sua avaliação, nós vamos analisar o quiz e tentar melhorar o FoxQuiz! 🦊";
                     } else {
-                        msg = "Thank you for your rating, we will check the quiz and try to improve Quiz Buddy! 🦊";
+                        msg = "Thank you for your rating, we will check the quiz and try to improve FoxQuiz! 🦊";
                     }
                 }
                 showToast(msg);

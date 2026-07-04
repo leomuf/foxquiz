@@ -1,6 +1,6 @@
-# 🎓 Quiz Buddy: Dynamic Interactive Exam Prep Companion
+# 🦊 FoxQuiz: Dynamic Interactive Exam Prep Companion
 
-![Quiz Buddy Cover Art](assets/quiz_buddy_kaggle_cover_560x280.png)
+![FoxQuiz Cover Art](assets/quiz_buddy_kaggle_cover_560x280.png)
 
 > Built by **Leonardo Muffato** at **AUTOSOFT Engineering** ([www.autosoft-engineering.de](https://www.autosoft-engineering.de))  
 > Licensed under **Creative Commons Attribution 4.0 International (CC BY 4.0)** with upstream preservation of Google LLC's Apache 2.0 components.
@@ -9,18 +9,18 @@
 
 ## 🚀 Live Public Deployment
 The application is fully containerized and deployed to **Google Cloud Run** with low latency, automated serverless scaling, and robust performance:
-* 🌐 **Public URL:** [https://your-quiz-buddy-url.a.run.app](https://your-quiz-buddy-url.a.run.app) *(Update this placeholder with your live Cloud Run service URL after deployment)*
+* 🌐 **Public URL:** [https://your-foxquiz-url.a.run.app](https://your-foxquiz-url.a.run.app) *(Update this placeholder with your live Cloud Run service URL after deployment)*
 
 ---
 
 ## 🎯 Project Overview
-Quiz Buddy is an intelligent, highly engaging, and child-safe exam preparation application designed to help kids in Grades 5–12 master academic topics in a playful and localized environment. Powered by **Google ADK 2.0** and **Gemini 2.5 Flash**, Quiz Buddy features dynamic mascot pedagogy (Felix the Fox, Olivia the Owl, Dino the Dragon), smart curriculum checks, academic peer-review nodes, and state-of-the-art security guardrails to keep students safe.
+FoxQuiz is an intelligent, highly engaging, and child-safe exam preparation application designed to help kids in Grades 5–12 master academic topics in a playful and localized environment. Powered by **Google ADK 2.0** and **Gemini 2.5 Flash**, FoxQuiz features dynamic mascot pedagogy (Felix the Fox, Olivia the Owl, Dino the Dragon), smart curriculum checks, academic peer-review nodes, and state-of-the-art security guardrails to keep students safe.
 
 
 ## Project Structure
 
 ```
-quiz-buddy/
+foxquiz/
 ├── app/         # Core agent code
 │   ├── agent.py               # Main agent logic
 │   └── app_utils/             # App utilities and helpers
@@ -82,7 +82,7 @@ You can also use features from the [ADK](https://adk.dev/) CLI with `uv run adk`
 
 ## 🏛️ High Concurrency & Scalability Architecture
 
-Quiz Buddy is designed from the ground up to support high-concurrency, multi-user parallel access. The technology stack scales seamlessly to accommodate thousands of simultaneous students:
+FoxQuiz is designed from the ground up to support high-concurrency, multi-user parallel access. The technology stack scales seamlessly to accommodate thousands of simultaneous students:
 
 ### 1. Client-Side Presentation Independence
 * **State Isolation:** Each user runs their own copy of the Single-Page Application (HTML/CSS/JS) entirely within their web browser. All quiz logic, timers, animations, and mascot states run locally on the client machine, resulting in zero crossover or resource contention between parallel visitors.
@@ -99,7 +99,7 @@ The persistence layer relies on **Cloud Firestore (Native Mode)**, Google's serv
 
 ## 🔗 Zero-Token Frozen Quiz Sharing
 
-Quiz Buddy includes an interactive social feature that allows students to freeze and share their generated quizzes with friends, parents, or teachers:
+FoxQuiz includes an interactive social feature that allows students to freeze and share their generated quizzes with friends, parents, or teachers:
 
 * **Instant Recipient Delivery:** When a user clicks **"Share"**, the frontend "freezes" the active 10-question quiz state and saves it as a static document in Google Cloud Firestore under `quizzes/{quiz_id}`.
 * **Zero-Token Cost:** When a recipient visits the generated share link, our FastAPI backend (`/quiz/{quiz_id}`) serves the static SPA layout and directly loads the frozen JSON data. **No LLM model calls are triggered and zero Vertex AI tokens are consumed**, making sharing instant and infinitely scalable.
@@ -110,7 +110,7 @@ Quiz Buddy includes an interactive social feature that allows students to freeze
 
 ## 🛡️ Security Checkpoint & Public Repository Readiness
 
-To allow Quiz Buddy to be safely published as a **public GitHub repository** without exposing sensitive defensive rules or safety system instructions, it implements a dynamic, serverless configuration system:
+To allow FoxQuiz to be safely published as a **public GitHub repository** without exposing sensitive defensive rules or safety system instructions, it implements a dynamic, serverless configuration system:
 
 * **Dynamic Configurations:** Prompt injection keywords, administrative command regexes, defensive classification prompts, and localized block responses are stored privately in Google Cloud Firestore under the `system_config/security` document.
 * **No Code Exposure:** Defensive regexes and system-level instructions are never committed to git, preventing attackers from reverse-engineering guardrail vulnerabilities.

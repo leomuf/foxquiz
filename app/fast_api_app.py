@@ -126,8 +126,8 @@ app: FastAPI = get_fast_api_app(
     session_service_uri=session_service_uri,
     otel_to_cloud=True,
 )
-app.title = "quiz-buddy"
-app.description = "API for interacting with the Agent quiz-buddy"
+app.title = "foxquiz"
+app.description = "API for interacting with the Agent foxquiz"
 
 # Dynamically remove the default "/" route registered by ADK to expose our own UI
 # Modify app.routes list in-place because it has no setter in newer FastAPI/Starlette versions.

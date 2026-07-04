@@ -131,7 +131,7 @@ def search_wikipedia(query: str, lang: str = "en") -> str:
 
         url = f"https://{lang}.wikipedia.org/w/api.php"
         headers = {
-            "User-Agent": "QuizBuddyBot/1.0 (https://github.com/leomuf/quiz-buddy; support@quizbuddy.app) requests-python"
+            "User-Agent": "FoxQuizBot/1.0 (https://github.com/leomuf/foxquiz; support@foxquiz.app) requests-python"
         }
 
         # Step 1: Search for matches
@@ -794,7 +794,7 @@ async def ask_more_node(ctx: Context, node_input: Any) -> Event:
 
 root_agent = Workflow(
     name="root_agent",
-    description="Interactive School Exam Preparation Companion (Quiz Buddy)",
+    description="Interactive School Exam Preparation Companion (FoxQuiz)",
     edges=[
         Edge(from_node=START, to_node=gather_and_route),
         Edge(

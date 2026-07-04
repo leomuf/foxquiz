@@ -72,7 +72,7 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
 
     # 1. Secure IP Hashing (GDPR/LGPD privacy preservation)
     client_ip = get_client_ip()
-    salt = config.get("salt", "quiz_buddy_secret_salt_2026")
+    salt = config.get("salt", "foxquiz_secret_salt_2026")
     hashed_ip = hashlib.sha256((client_ip + salt).encode("utf-8")).hexdigest()
 
     locale = get_client_locale()
