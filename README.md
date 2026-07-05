@@ -62,6 +62,45 @@ agents-cli playground
 
 You can also use features from the [ADK](https://adk.dev/) CLI with `uv run adk`.
 
+## 🖥️ Running and Restarting the Application
+
+### 1. How to Start the Application
+To launch the FoxQuiz local playground or start the web server, you can use either the standardized agent CLI or start the FastAPI application directly:
+
+* **Option A (Standard Agent CLI):**
+  ```bash
+  agents-cli playground
+  ```
+* **Option B (Direct FastAPI/Uvicorn Command):**
+  ```bash
+  uv run uvicorn app.fast_api_app:app --reload --host 127.0.0.1 --port 8000
+  ```
+
+Once started, open your browser and navigate to `http://127.0.0.1:8000` to interact with FoxQuiz!
+
+### 🔄 How to Restart the Application (Fresh Session & Logs)
+If you need to clear your active session or reset the server output to get a fresh console log, follow these steps:
+
+1. **Terminate the running server process on port 8000:**
+   * On **Linux / WSL** (instant port cleanup):
+     ```bash
+     kill $(lsof -t -i:8000)
+     ```
+     *(Alternative: `fuser -k 8000/tcp`)*
+   * **Manual Process Lookup**:
+     ```bash
+     ps aux | grep -E "uvicorn|fast_api_app"
+     kill <PID>
+     ```
+
+2. **Boot up a fresh server session:**
+   Simply run the start command again:
+   ```bash
+   agents-cli playground
+   # OR
+   uv run uvicorn app.fast_api_app:app --reload --host 127.0.0.1 --port 8000
+   ```
+
 ## Commands
 
 | Command              | Description                                                                                 |
