@@ -7,12 +7,6 @@
 
 ---
 
-## 🚀 Live Public Deployment
-The application is fully containerized and deployed to **Google Cloud Run** with low latency, automated serverless scaling, and robust performance:
-* 🌐 **Public URL:** [https://your-foxquiz-url.a.run.app](https://your-foxquiz-url.a.run.app) *(Update this placeholder with your live Cloud Run service URL after deployment)*
-
----
-
 ## 🎯 Project Overview
 FoxQuiz is an intelligent, highly engaging, and child-safe exam preparation application designed to help kids in Grades 5–12 master academic topics in a playful and localized environment. Powered by **Google ADK 2.0** and **Gemini 2.5 Flash**, FoxQuiz features dynamic mascot pedagogy (Felix the Fox, Olivia the Owl, Dino the Dragon), smart curriculum checks, academic peer-review nodes, and state-of-the-art security guardrails to keep students safe.
 
@@ -25,11 +19,11 @@ foxquiz/
 │   ├── agent.py               # Main agent logic
 │   └── app_utils/             # App utilities and helpers
 ├── tests/                     # Unit, integration, and load tests
-├── GEMINI.md                  # AI-assisted development guide
+├── AGENTS.md                  # AI-assisted development guide
 └── pyproject.toml             # Project dependencies
 ```
 
-> 💡 **Tip:** Use [Gemini CLI](https://github.com/google-gemini/gemini-cli) for AI-assisted development - project context is pre-configured in `GEMINI.md`.
+> 💡 **Tip:** Use [agents-cli](https://github.com/google/agents-cli) for AI-assisted development - project context is pre-configured in `AGENTS.md`.
 
 ## Requirements
 
