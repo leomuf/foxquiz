@@ -10,6 +10,12 @@
 ## 🎯 Project Overview
 FoxQuiz is an intelligent, highly engaging, and child-safe exam preparation application designed to help kids in Grades 5–12 master academic topics in a playful and localized environment. Powered by **Google ADK 2.0** and **Gemini 2.5 Flash**, FoxQuiz features dynamic mascot pedagogy (Felix the Fox, Olivia the Owl, Dino the Dragon), smart curriculum checks, academic peer-review nodes, and state-of-the-art security guardrails to keep students safe.
 
+## Project Walkthrough & Demo
+
+🎥 Discover why we built FoxQuiz, see a full feature demo and technical deep-dive: 
+
+Watch on YouTube: https://youtu.be/5zt7EqS9uvg
+
 
 ## Project Structure
 
