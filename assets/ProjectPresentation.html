@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxQuiz — YouTube Presentation Slides</title>
+    <!-- Google Fonts for Ultra-Premium Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #0b0c10;
+            --card-bg: rgba(22, 24, 35, 0.7);
+            --border-glow: rgba(255, 107, 53, 0.2);
+            --orange-red: #ff6b35;
+            --gold-orange: #ffb03a;
+            --pure-white: #ffffff;
+            --muted-gray: #a0aec0;
+            --neon-blue: #00f0ff;
+            --neon-green: #39ff14;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--pure-white);
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+        }
+
+        /* Ambient Background Glowing Orbs */
+        .ambient-orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(130px);
+            z-index: -1;
+            opacity: 0.25;
+        }
+
+        .orb-1 {
+            width: 400px;
+            height: 400px;
+            background: var(--orange-red);
+            top: -10%;
+            left: -10%;
+        }
+
+        .orb-2 {
+            width: 500px;
+            height: 500px;
+            background: var(--gold-orange);
+            bottom: -15%;
+            right: -10%;
+        }
+
+        .orb-3 {
+            width: 300px;
+            height: 300px;
+            background: var(--neon-blue);
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0.1;
+        }
+
+        /* Header / Logo */
+        header {
+            padding: 2.5rem 4rem 1rem 4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .brand-logo {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 2rem;
+            background: linear-gradient(135deg, var(--orange-red) 0%, var(--gold-orange) 50%, var(--pure-white) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .slide-counter {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: var(--gold-orange);
+            background: rgba(255, 176, 58, 0.1);
+            padding: 0.4rem 1rem;
+            border-radius: 50px;
+            border: 1px solid rgba(255, 176, 58, 0.2);
+        }
+
+        /* Main Slide Container */
+        main {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 1rem 4rem;
+            position: relative;
+            z-index: 5;
+        }
+
+        .slide {
+            display: none;
+            width: 100%;
+            max-width: 1200px;
+            height: 100%;
+            max-height: 600px;
+            animation: slideFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .slide.active {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        @keyframes slideFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Shared Slide Components */
+        .slide-title {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 3.5rem;
+            line-height: 1.15;
+            margin-bottom: 2rem;
+            text-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .gradient-text {
+            background: linear-gradient(135deg, var(--orange-red) 0%, var(--gold-orange) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Glassmorphism Cards */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-glow);
+            border-radius: 20px;
+            padding: 2.5rem;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            transition: border-color 0.3s ease, transform 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: var(--gold-orange);
+            transform: translateY(-2px);
+        }
+
+        /* SLIDE 1: COVER SLIDE */
+        #slide-cover {
+            align-items: center;
+            text-align: center;
+        }
+
+        #slide-cover .cover-art-container {
+            width: 420px;
+            height: 210px;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 2px solid var(--orange-red);
+            box-shadow: 0 8px 32px rgba(255, 107, 53, 0.3);
+            margin-bottom: 2rem;
+        }
+
+        #slide-cover .cover-art-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #slide-cover h1 {
+            font-size: 4.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        #slide-cover p {
+            font-size: 1.4rem;
+            color: var(--muted-gray);
+            max-width: 700px;
+            line-height: 1.6;
+        }
+
+        /* SLIDE 2: PROBLEM STATEMENT */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr;
+            gap: 3rem;
+            align-items: center;
+        }
+
+        .problem-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .problem-item {
+            display: flex;
+            gap: 1.2rem;
+            align-items: flex-start;
+        }
+
+        .problem-icon {
+            background: rgba(255, 107, 53, 0.15);
+            border: 1px solid var(--orange-red);
+            border-radius: 12px;
+            padding: 0.8rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            color: var(--orange-red);
+            flex-shrink: 0;
+        }
+
+        .problem-content h3 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            margin-bottom: 0.3rem;
+            color: var(--pure-white);
+        }
+
+        .problem-content p {
+            font-size: 1rem;
+            color: var(--muted-gray);
+            line-height: 1.5;
+        }
+
+        /* SLIDE 3: WHY AGENTS */
+        .agent-features {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2rem;
+        }
+
+        .feature-card {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .feature-badge {
+            align-self: flex-start;
+            padding: 0.4rem 1rem;
+            border-radius: 50px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .badge-security {
+            background: rgba(0, 240, 255, 0.1);
+            border: 1px solid var(--neon-blue);
+            color: var(--neon-blue);
+        }
+
+        .badge-memory {
+            background: rgba(255, 176, 58, 0.1);
+            border: 1px solid var(--gold-orange);
+            color: var(--gold-orange);
+        }
+
+        .badge-critique {
+            background: rgba(57, 255, 20, 0.1);
+            border: 1px solid var(--neon-green);
+            color: var(--neon-green);
+        }
+
+        .feature-card h3 {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .feature-card p {
+            color: var(--muted-gray);
+            line-height: 1.6;
+            font-size: 1.05rem;
+        }
+
+        /* SLIDE 4: ARCHITECTURE DIAGRAM SLIDE */
+        .arch-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 2rem;
+            position: relative;
+        }
+
+        .arch-step {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 420px;
+        }
+
+        .arch-node {
+            background: rgba(15, 16, 25, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            position: relative;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .node-number {
+            width: 32px;
+            height: 32px;
+            background: var(--gold-orange);
+            color: var(--bg-color);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: 800;
+            font-family: 'Outfit', sans-serif;
+            flex-shrink: 0;
+        }
+
+        .node-info h4 {
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 0.2rem;
+        }
+
+        .node-info p {
+            font-size: 0.85rem;
+            color: var(--muted-gray);
+        }
+
+        /* Safety-colored card */
+        .node-safety {
+            border-color: var(--orange-red);
+            background: rgba(255, 107, 53, 0.05);
+        }
+
+        .node-safety .node-number {
+            background: var(--orange-red);
+        }
+
+        /* Active Critique Loop overlay lines */
+        .critique-loop-card {
+            border: 2px dashed var(--neon-green);
+            background: rgba(57, 255, 20, 0.03);
+            border-radius: 20px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            justify-content: center;
+            position: relative;
+        }
+
+        .critique-loop-badge {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--neon-green);
+            color: var(--bg-color);
+            font-size: 0.75rem;
+            font-weight: 800;
+            padding: 0.2rem 0.8rem;
+            border-radius: 50px;
+            text-transform: uppercase;
+        }
+
+        /* SLIDE 5: THE BUILD (TECH STACK) */
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+        }
+
+        .tech-card {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+            padding: 2rem 1.5rem;
+        }
+
+        .tech-icon {
+            width: 70px;
+            height: 70px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2.2rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--gold-orange);
+            margin-bottom: 0.5rem;
+            transition: color 0.3s, border-color 0.3s;
+        }
+
+        .tech-card:hover .tech-icon {
+            color: var(--orange-red);
+            border-color: var(--orange-red);
+        }
+
+        .tech-card h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.3rem;
+            font-weight: 700;
+        }
+
+        .tech-card p {
+            font-size: 0.9rem;
+            color: var(--muted-gray);
+            line-height: 1.4;
+        }
+
+        /* SLIDE 6 & 7: THE BUILD (STEPS) */
+        .build-grid {
+            display: grid;
+            width: 100%;
+        }
+
+        .build-step-card {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            position: relative;
+            transition: transform 0.3s, border-color 0.3s, box-shadow 0.3s;
+        }
+
+        .build-step-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--gold-orange);
+            box-shadow: 0 10px 30px rgba(255, 176, 58, 0.15);
+        }
+
+        .build-step-number {
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--orange-red) 0%, var(--gold-orange) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-family: 'Outfit', sans-serif;
+            line-height: 1;
+        }
+
+        .build-step-card h3 {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            color: var(--pure-white);
+        }
+
+        .build-step-card p {
+            color: var(--muted-gray);
+            line-height: 1.5;
+        }
+
+        .build-step-card code {
+            font-family: monospace;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.1rem 0.3rem;
+            border-radius: 4px;
+            color: var(--gold-orange);
+            font-size: 0.95rem;
+        }
+
+        /* Footer Controls */
+        footer {
+            padding: 1rem 4rem 2.5rem 4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .slide-controls {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--pure-white);
+            padding: 0.8rem 1.8rem;
+            border-radius: 50px;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s, transform 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--gold-orange);
+            transform: scale(1.03);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--orange-red) 0%, var(--gold-orange) 100%);
+            border: none;
+            box-shadow: 0 4px 20px rgba(255, 107, 53, 0.3);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #ff8152 0%, #ffbe57 100%);
+            border-color: transparent;
+            box-shadow: 0 6px 24px rgba(255, 107, 53, 0.5);
+        }
+
+        .credits {
+            font-size: 0.9rem;
+            color: var(--muted-gray);
+            letter-spacing: 0.05em;
+            word-spacing: 0.1em;
+        }
+
+        .credits a {
+            color: var(--gold-orange);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        /* Slide Copy Assist Banner */
+        .copy-banner {
+            background: rgba(255, 107, 53, 0.1);
+            border-bottom: 1px solid rgba(255, 107, 53, 0.2);
+            color: var(--gold-orange);
+            text-align: center;
+            padding: 0.6rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            z-index: 20;
+        }
+        
+        .copy-banner span {
+            background: var(--orange-red);
+            color: var(--bg-color);
+            padding: 0.1rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 800;
+        }
+
+        /* GALLERY / MEDIA KIT STYLES */
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 1.2rem;
+            width: 100%;
+        }
+
+        .gallery-card {
+            padding: 1rem !important;
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+            cursor: pointer;
+            transition: transform 0.3s ease, border-color 0.3s ease;
+            height: 100%;
+        }
+
+        .gallery-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--neon-blue);
+        }
+
+        .gallery-img-container {
+            width: 100%;
+            height: 110px;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .gallery-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+
+        .gallery-card:hover .gallery-img {
+            transform: scale(1.08);
+        }
+
+        .gallery-info h3 {
+            font-size: 1.05rem !important;
+            font-weight: 700;
+            margin-bottom: 0.2rem;
+            font-family: 'Outfit', sans-serif;
+            color: var(--pure-white);
+        }
+
+        .gallery-info p {
+            font-size: 0.75rem !important;
+            color: var(--muted-gray);
+            line-height: 1.3;
+            margin-bottom: 0.6rem;
+            height: 34px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+
+        .path-badge {
+            font-size: 0.7rem;
+            font-family: monospace;
+            background: rgba(0, 240, 255, 0.08);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            color: var(--neon-blue);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            text-align: center;
+            display: block;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Background Orbs -->
+    <div class="ambient-orb orb-1"></div>
+    <div class="ambient-orb orb-2"></div>
+    <div class="ambient-orb orb-3"></div>
+
+    <!-- Header Navigation -->
+    <header>
+        <div class="brand-logo">
+            🦊 FoxQuiz
+        </div>
+        <div class="slide-counter" id="counter-display">
+            Slide 1 / 5
+        </div>
+    </header>
+
+    <!-- Main Presentation slides -->
+    <main>
+        
+        <!-- SLIDE 1: COVER -->
+        <section class="slide active" id="slide1">
+            <div id="slide-cover">
+                <div class="cover-art-container">
+                    <img src="foxquiz_mascots_alone.png" alt="FoxQuiz Mascot Art">
+                </div>
+                <h1>Welcome to <span class="gradient-text">FoxQuiz</span></h1>
+                <p>An intelligent, highly engaging, and child-safe exam preparation application powered by Google ADK 2.0 & Gemini 2.5 Flash.</p>
+            </div>
+        </section>
+
+        <!-- SLIDE 2: PROBLEM STATEMENT -->
+        <section class="slide" id="slide2">
+            <div class="grid-2">
+                <div>
+                    <h2 class="slide-title">The <span class="gradient-text">Problem</span> with Study Tools</h2>
+                    <p style="color: var(--muted-gray); font-size: 1.15rem; line-height: 1.6;">
+                        Traditional digital test prep falls short in three fundamental areas, making learning tedious and sometimes unsafe for young learners.
+                    </p>
+                </div>
+                <div class="problem-list">
+                    <div class="card problem-item">
+                        <div class="problem-icon">📖</div>
+                        <div class="problem-content">
+                            <h3>Dry, Rigid & One-Size-Fits-All</h3>
+                            <p>Static questionnaires that do not adapt to a student's grade (Grades 5-12) or actual learning progress.</p>
+                        </div>
+                    </div>
+                    <div class="card problem-item">
+                        <div class="problem-icon">🛡️</div>
+                        <div class="problem-content">
+                            <h3>Unchecked, Dangerous Content</h3>
+                            <p>Standard open-ended LLMs run the risk of generating inaccurate facts or child-inappropriate topics.</p>
+                        </div>
+                    </div>
+                    <div class="card problem-item">
+                        <div class="problem-icon">👤</div>
+                        <div class="problem-content">
+                            <h3>Severe Privacy & PII Leakage</h3>
+                            <p>Most AI interfaces fail to prevent children from uploading private data (PII) or school credentials.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SLIDE 3: WHY AGENTS? -->
+        <section class="slide" id="slide3">
+            <h2 class="slide-title" style="margin-bottom: 2.5rem; text-align: center;">Why Choose <span class="gradient-text">AI Agents</span>?</h2>
+            <div class="agent-features">
+                <div class="card feature-card">
+                    <div class="feature-badge badge-security">Security First</div>
+                    <h3>Autonomous Input Scanning</h3>
+                    <p>Unlike standard chatbots, our agents intercept queries locally. An IP Ban Sheriff detects PII, shields identities, and maintains extreme database guardrails automatically.</p>
+                </div>
+                <div class="card feature-card">
+                    <div class="feature-badge badge-critique">Quality First</div>
+                    <h3>Self-Correction Loop</h3>
+                    <p>No more AI hallucinations. The critique loop tests answers against real grade-level curricula, automatically regenerating questions if they fail strict pedagogical standards.</p>
+                </div>
+                <div class="card feature-card">
+                    <div class="feature-badge badge-memory">User First</div>
+                    <h3>Adaptive Mascot Pedagogy</h3>
+                    <p>Our agents maintain context state. Choosing different mascot buddies (Felix, Olivia, Dino) dynamically shifts the vocabulary, explanations, and encouraging hints.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- SLIDE 4: ARCHITECTURE -->
+        <section class="slide" id="slide4">
+            <h2 class="slide-title" style="margin-bottom: 1.5rem; text-align: center;">FoxQuiz <span class="gradient-text">Agent Architecture</span></h2>
+            <div class="arch-container">
+                <!-- Column 1: Input & Gatekeeping -->
+                <div class="arch-step">
+                    <div class="arch-node">
+                        <div class="node-number">1</div>
+                        <div class="node-info">
+                            <h4>Student Request</h4>
+                            <p>Subject, Topic, Grade (5-12)</p>
+                        </div>
+                    </div>
+                    <div class="arch-node node-safety">
+                        <div class="node-number">2</div>
+                        <div class="node-info">
+                            <h4>Input Scanner</h4>
+                            <p>Regex and PII Keyword filter</p>
+                        </div>
+                    </div>
+                    <div class="arch-node node-safety">
+                        <div class="node-number">3</div>
+                        <div class="node-info">
+                            <h4>IP Ban Sheriff</h4>
+                            <p>Bans malicious signatures in DB</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column 2: Orchestration & Generation Loop -->
+                <div class="arch-step" style="justify-content: center;">
+                    <div class="critique-loop-card">
+                        <div class="critique-loop-badge">Autonomous Critique Loop</div>
+                        <div class="arch-node">
+                            <div class="node-number">4</div>
+                            <div class="node-info">
+                                <h4>Generator Node</h4>
+                                <p>Gemini 2.5 Flash constructs quiz</p>
+                            </div>
+                        </div>
+                        <div style="text-align: center; color: var(--neon-green); font-weight: 800; font-size: 1.2rem;">🔄</div>
+                        <div class="arch-node">
+                            <div class="node-number">5</div>
+                            <div class="node-info">
+                                <h4>Curriculum Validator</h4>
+                                <p>Self-critiques grade alignment</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column 3: Output & Client Stream -->
+                <div class="arch-step">
+                    <div class="arch-node node-safety">
+                        <div class="node-number">6</div>
+                        <div class="node-info">
+                            <h4>Output Guardrail</h4>
+                            <p>Ensures 100% child-safe speech</p>
+                        </div>
+                    </div>
+                    <div class="arch-node">
+                        <div class="node-number">7</div>
+                        <div class="node-info">
+                            <h4>Client SSE Stream</h4>
+                            <p>Real-time server-sent event push</p>
+                        </div>
+                    </div>
+                    <div class="arch-node" style="border-color: var(--neon-green);">
+                        <div class="node-number" style="background: var(--neon-green);">8</div>
+                        <div class="node-info">
+                            <h4>Firestore Database</h4>
+                            <p>Atomic stats and frozen shares</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SLIDE 5: THE BUILD -->
+        <!-- SLIDE 5: THE BUILD (PART 1) -->
+        <section class="slide" id="slide5">
+            <h2 class="slide-title" style="margin-bottom: 2.5rem; text-align: center;">How FoxQuiz Was Built — <span class="gradient-text">Design & Setup</span></h2>
+            <div class="build-grid" style="grid-template-columns: repeat(3, 1fr); max-width: 1200px; gap: 2rem;">
+                <!-- Step 1 -->
+                <div class="card build-step-card" style="padding: 2.2rem 2rem;">
+                    <div class="build-step-number" style="font-size: 3.5rem;">01</div>
+                    <h3 style="font-size: 1.4rem;">Scaffold & Setup</h3>
+                    <p style="font-size: 1rem;">Install necessary tools and skills, prompt Antigravity to set up the Google Cloud Environment, and use <code>agents-cli</code> to scaffold a new ADK 2.0 graph workflow agent project.</p>
+                </div>
+                <!-- Step 2 -->
+                <div class="card build-step-card" style="padding: 2.2rem 2rem;">
+                    <div class="build-step-number" style="font-size: 3.5rem;">02</div>
+                    <h3 style="font-size: 1.4rem;">Behavior Spec</h3>
+                    <p style="font-size: 1rem;">Compose a thorough Markdown specification in <code>specs/my_spec.md</code> mapping out the agent purpose, YAML and Pydantic data schemas, security guardrails, and detailed Gherkin behavioral rules.</p>
+                </div>
+                <!-- Step 3 -->
+                <div class="card build-step-card" style="padding: 2.2rem 2rem;">
+                    <div class="build-step-number" style="font-size: 3.5rem;">03</div>
+                    <h3 style="font-size: 1.4rem;">Align & Interview</h3>
+                    <p style="font-size: 1rem;">Trigger <code>/grill-me</code> with Antigravity to run an interactive alignment interview, identifying hidden edge cases and detailing the active mascot state-machine before writing code.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- SLIDE 6: THE BUILD (PART 2) -->
+        <section class="slide" id="slide6">
+            <h2 class="slide-title" style="margin-bottom: 2.5rem; text-align: center;">How FoxQuiz Was Built — <span class="gradient-text">Construction & Deploy</span></h2>
+            <div class="build-grid" style="grid-template-columns: repeat(2, 1fr); max-width: 900px; gap: 2.5rem; margin: 0 auto;">
+                <!-- Step 4 -->
+                <div class="card build-step-card" style="padding: 2.5rem 2.2rem;">
+                    <div class="build-step-number" style="font-size: 3.5rem;">04</div>
+                    <h3 style="font-size: 1.4rem;">Build & Lint</h3>
+                    <p style="font-size: 1rem;">Once you agree on the implementation plan, ask Antigravity to build the app. Iterate on new features and run strict <code>agents-cli lint</code> checks to verify format, code quality, and security guidelines.</p>
+                </div>
+                <!-- Step 5 -->
+                <div class="card build-step-card" style="padding: 2.5rem 2.2rem;">
+                    <div class="build-step-number" style="font-size: 3.5rem;">05</div>
+                    <h3 style="font-size: 1.4rem;">Verify & Deploy</h3>
+                    <p style="font-size: 1rem;">Verify execution using <code>agents-cli playground</code>. Obtain explicit human confirmation, and seamlessly deploy the child-safe multi-agent application to Cloud Run via <code>agents-cli deploy</code>.</p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Navigation Controls Footer -->
+    <footer>
+        <div class="credits">
+            Crafted&nbsp;for&nbsp;<a href="https://www.kaggle.com/" target="_blank">Kaggle&nbsp;&amp;&nbsp;Google</a>&nbsp;by&nbsp;Leonardo&nbsp;Muffato&nbsp;(<span style="color:#3b82f6;font-weight:700;">AUTOSOFT</span>&nbsp;<span style="color:#60a5fa;font-weight:500;">Engineering</span>)
+        </div>
+        <div class="slide-controls">
+            <button class="btn" id="prev-btn" onclick="prevSlide()">◀ Previous</button>
+            <button class="btn btn-primary" id="next-btn" onclick="nextSlide()">Next Slide ▶</button>
+        </div>
+    </footer>
+
+    <!-- Presentation Javascript Controls -->
+    <script>
+        let currentSlideIndex = 1;
+        const totalSlides = 6;
+
+        const slideTitles = [
+            "Welcome to FoxQuiz",
+            "The Problem with Study Tools",
+            "Why Choose AI Agents?",
+            "FoxQuiz Agent Architecture",
+            "The Build: Design & Setup",
+            "The Build: Construction & Deploy"
+        ];
+
+        function copyAssetPath(path, card) {
+            navigator.clipboard.writeText(path).then(() => {
+                const badge = card.querySelector('.path-badge');
+                const originalText = badge.textContent;
+                badge.textContent = 'Copied to Clipboard! ✓';
+                badge.style.background = 'rgba(57, 255, 20, 0.15)';
+                badge.style.borderColor = 'var(--neon-green)';
+                badge.style.color = 'var(--neon-green)';
+                
+                setTimeout(() => {
+                    badge.textContent = originalText;
+                    badge.style.background = 'rgba(0, 240, 255, 0.08)';
+                    badge.style.borderColor = 'rgba(0, 240, 255, 0.2)';
+                    badge.style.color = 'var(--neon-blue)';
+                }, 1500);
+            }).catch(err => {
+                console.error('Could not copy text: ', err);
+            });
+        }
+
+        function updateSlideDisplay() {
+            // Hide all slides
+            for (let i = 1; i <= totalSlides; i++) {
+                document.getElementById(`slide${i}`).classList.remove('active');
+            }
+            // Show active slide
+            document.getElementById(`slide${currentSlideIndex}`).classList.add('active');
+            
+            // Update counter and button text
+            document.getElementById('counter-display').textContent = `Slide ${currentSlideIndex} / ${totalSlides}`;
+            
+            // Disable or style buttons depending on state
+            const prevBtn = document.getElementById('prev-btn');
+            const nextBtn = document.getElementById('next-btn');
+            
+            if (currentSlideIndex === 1) {
+                prevBtn.style.opacity = '0.4';
+                prevBtn.style.cursor = 'not-allowed';
+            } else {
+                prevBtn.style.opacity = '1';
+                prevBtn.style.cursor = 'pointer';
+            }
+            
+            if (currentSlideIndex === totalSlides) {
+                nextBtn.textContent = 'Restart Presentation 🔄';
+            } else {
+                nextBtn.textContent = 'Next Slide ▶';
+            }
+        }
+
+        function nextSlide() {
+            if (currentSlideIndex < totalSlides) {
+                currentSlideIndex++;
+            } else {
+                currentSlideIndex = 1; // loop back to cover
+            }
+            updateSlideDisplay();
+        }
+
+        function prevSlide() {
+            if (currentSlideIndex > 1) {
+                currentSlideIndex--;
+                updateSlideDisplay();
+            }
+        }
+
+        // Support arrow keys for smooth navigation
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'ArrowRight' || event.key === 'Space') {
+                nextSlide();
+            } else if (event.key === 'ArrowLeft') {
+                prevSlide();
+            }
+        });
+
+        // Initialize state
+        updateSlideDisplay();
+    </script>
+</body>
+</html>
