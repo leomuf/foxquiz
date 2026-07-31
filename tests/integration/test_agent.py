@@ -19,6 +19,7 @@
 # are licensed under CC BY 4.0. See global LICENSE file for details.
 # ==============================================================================
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,6 +29,21 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from app.agent import root_agent
+
+# Skip integration tests in CI/GitHub Actions when no Google Cloud / Gemini credentials are present
+skip_integration = os.environ.get("GITHUB_ACTIONS") == "true" and not any(
+    os.environ.get(var)
+    for var in [
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+    ]
+)
+
+pytestmark = pytest.mark.skipif(
+    skip_integration,
+    reason="Skipping integration tests in GitHub Actions because Google Cloud/Gemini credentials are not configured.",
+)
 
 
 @pytest.fixture(autouse=True)

@@ -30,6 +30,21 @@ from requests.exceptions import RequestException
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Skip integration tests in CI/GitHub Actions when no Google Cloud / Gemini credentials are present
+skip_integration = os.environ.get("GITHUB_ACTIONS") == "true" and not any(
+    os.environ.get(var)
+    for var in [
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+    ]
+)
+
+pytestmark = pytest.mark.skipif(
+    skip_integration,
+    reason="Skipping integration tests in GitHub Actions because Google Cloud/Gemini credentials are not configured.",
+)
+
 BASE_URL = "http://127.0.0.1:8000"
 STREAM_URL = BASE_URL + "/run_sse"
 FEEDBACK_URL = BASE_URL + "/feedback"

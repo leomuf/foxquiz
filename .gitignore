@@ -144,6 +144,10 @@ dmypy.json
 # User-specific files
 .terraform*
 .Terraform*
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
 
 
 tmp*
@@ -205,3 +209,4 @@ tools/a2a-inspector/
 
 # Evaluation traces and results
 artifacts/
+test_traces/

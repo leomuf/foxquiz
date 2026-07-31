@@ -2,6 +2,8 @@
 
 ![FoxQuiz Cover Art](assets/foxquiz_mascots_performing_quiz.png)
 
+🌐 **Play Online Now:** [https://foxquiz.app](https://foxquiz.app)
+
 > Built by **Leonardo Muffato** at **AUTOSOFT Engineering** ([www.autosoft-engineering.de](https://www.autosoft-engineering.de))  
 > Licensed under **Creative Commons Attribution 4.0 International (CC BY 4.0)** with upstream preservation of Google LLC's Apache 2.0 components.
 
@@ -10,11 +12,11 @@
 ## 🎯 Project Overview
 FoxQuiz is an intelligent, highly engaging, and child-safe exam preparation application designed to help kids in Grades 5–12 master academic topics in a playful and localized environment. Powered by **Google ADK 2.0** and **Gemini 2.5 Flash**, FoxQuiz features dynamic mascot pedagogy (Felix the Fox, Olivia the Owl, Dino the Dragon), smart curriculum checks, academic peer-review nodes, and state-of-the-art security guardrails to keep students safe.
 
-## Project Walkthrough & Demo
+## 🎥 Project Walkthrough & Demo
 
-🎥 Discover why we built FoxQuiz, see a full feature demo and technical deep-dive: 
+Discover why we built FoxQuiz, see a full feature demo, and explore the technical deep-dive:
 
-Watch on YouTube: https://youtu.be/5zt7EqS9uvg
+📺 **Watch the Presentation on YouTube:** [FoxQuiz Explainer Video](https://youtu.be/5zt7EqS9uvg)
 
 
 ## Project Structure
@@ -190,5 +192,19 @@ Built-in telemetry exports to Cloud Trace, BigQuery, and Cloud Logging.
 This project was developed as a capstone project for [**Kaggle’s 5-Day AI Agents: Intensive Vibe Coding Course with Google**](https://www.kaggle.com/competitions/5-day-ai-agents-intensive-vibecoding-course-with-google) and is directly inspired by the concepts, techniques and best practices taught throughout the course.
 
 We would like to express our deepest gratitude to the entire **Kaggle and Google team** for providing this extraordinary learning opportunity, which equipped us with the cutting-edge [**Google Agent Development Kit (ADK) 2.0**](https://adk.dev/2.0/) framework, the powerful [**agents-cli**](https://github.com/google/agents-cli) developer workflows, and the [**Antigravity CLI**](https://antigravity.google/product/antigravity-cli) coding companion, alongside the advanced evaluation pipelines and agentic methodologies necessary to bring this project to life!
+
+---
+
+## 💖 Support the Project & Keep Education Free!
+
+FoxQuiz is a **100% free, open-source, and ad-free** educational initiative built to empower children globally with high-quality, safe, and personalized exam preparation. 
+
+To keep this platform freely accessible to students and schools everywhere, we rely on community contributions to cover active LLM API costs. **100% of all financial donations are used directly to fund Google Gemini API educational tokens for kids using FoxQuiz.**
+
+*   **Support us directly via PayPal:** [PayPal.me/Muffato](https://paypal.me/Muffato)
+*   **Sponsor us on GitHub:** Click the **Sponsor** heart button at the top of our repository!
+
+*Every token counts. Thank you for empowering the next generation of students!* 🎓🦊✨
+
 
 

@@ -39,7 +39,11 @@ from app.app_utils.callbacks import before_agent_callback, after_agent_callback
 from app.app_utils.request_context import get_client_locale
 
 # Setup project configuration
-_, project_id = google.auth.default()
+try:
+    _, project_id = google.auth.default()
+except Exception as e:
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "mock-project-id")
+
 os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
 os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"

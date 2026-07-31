@@ -887,6 +887,64 @@
             color: rgba(45, 48, 71, 0.8);
             font-weight: 500;
         }
+
+        footer {
+            width: 100%;
+            max-width: 1000px;
+            padding: 3rem 1.5rem;
+            margin-top: auto;
+            border-top: 1px solid var(--border-card);
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            z-index: 10;
+        }
+
+        .footer-logo {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #ff6b35 0%, #ffb03a 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-top: 0.5rem;
+        }
+
+        .footer-link {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.3s ease;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .footer-link:hover {
+            color: var(--active-theme);
+        }
+
+        @media (max-width: 600px) {
+            footer {
+                padding: 2rem 1rem;
+                gap: 1.2rem;
+            }
+            .footer-links {
+                gap: 1rem;
+                flex-direction: column;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1108,6 +1166,33 @@
         </div>
     </main>
 
+    <footer>
+        <div class="footer-logo">FoxQuiz</div>
+        <div>
+            <span>© 2026 </span><span style="color: #3b82f6; font-weight: 700; letter-spacing: 0.02em;">AUTOSOFT</span> <span style="color: #ffffff; font-weight: 500; letter-spacing: 0.02em;">Engineering</span>. <span data-translate="footer_copyright">Alle Rechte vorbehalten.</span>
+        </div>
+        <div style="font-size: 0.82rem; max-width: 600px; line-height: 1.4;">
+            <span data-translate="footer_opensource">FoxQuiz is an open-source educational project licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).</span>
+        </div>
+        <div style="margin: 0.75rem auto; background: rgba(255, 255, 255, 0.02); border: 1px dashed var(--border-card); padding: 1rem; border-radius: 12px; max-width: 600px; font-size: 0.85rem; line-height: 1.45; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 0.75rem;">
+            <p data-translate="footer_donation" style="color: var(--text-muted);">Gefällt dir die App? Wir freuen uns über eine Spende! 100% der Einnahmen fließen in den Kauf von KI-Tokens, damit FoxQuiz langfristig für viele Kinder kostenlos bleiben kann. ❤️</p>
+            <a href="https://paypal.me/Muffato" target="_blank" rel="noopener noreferrer" class="btn-primary" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; font-size: 0.85rem; border-radius: 8px; text-decoration: none; width: auto; max-width: max-content; background: linear-gradient(135deg, #ff6b35, #ffb03a); box-shadow: 0 4px 10px rgba(255, 107, 53, 0.25);">
+                <span>💖</span> <span data-translate="btn_donate">Projekt unterstützen</span>
+            </a>
+        </div>
+        <div class="footer-links">
+            <a href="https://github.com/leomuf/foxquiz" target="_blank" rel="noopener noreferrer" class="footer-link">
+                <span>💻</span> <span data-translate="footer_github">GitHub Repository</span>
+            </a>
+            <a href="https://www.autosoft-engineering.de/impressum-1/" target="_blank" rel="noopener noreferrer" class="footer-link">
+                <span>⚖️</span> <span data-translate="footer_imprint">Imprint / Impressum</span>
+            </a>
+            <a href="https://www.autosoft-engineering.de/impressum-1/" target="_blank" rel="noopener noreferrer" class="footer-link">
+                <span>🛡️</span> <span data-translate="footer_privacy">Privacy / Datenschutz</span>
+            </a>
+        </div>
+    </footer>
+
     <!-- Toast Notification -->
     <div id="toast" class="toast">
         <span>✅</span> <span id="toast-text">Link kopiert!</span>
@@ -1177,7 +1262,14 @@
                 export_correct_option: "Richtige Option",
                 export_print: "Drucken / Als PDF speichern",
                 export_level: "Altersgruppe",
-                export_offline_buddy: "Erstellt mit FoxQuiz"
+                export_offline_buddy: "Erstellt mit FoxQuiz",
+                footer_copyright: "Alle Rechte vorbehalten.",
+                footer_opensource: "FoxQuiz ist ein Open-Source-Bildungsprojekt, lizenziert unter Creative Commons Attribution 4.0 International (CC BY 4.0).",
+                footer_github: "GitHub Repository",
+                footer_imprint: "Impressum",
+                footer_privacy: "Datenschutzerklärung",
+                footer_donation: "Gefällt dir die App? Wir freuen uns über eine Spende! 100% der Einnahmen fließen direkt in den Kauf von KI-Tokens, damit FoxQuiz langfristig für viele Kinder kostenlos bleiben kann. ❤️",
+                btn_donate: "Projekt unterstützen"
             },
             en: {
                 choose_buddy: "Choose your FoxQuiz Companion!",
@@ -1240,7 +1332,14 @@
                 export_correct_option: "Correct Option",
                 export_print: "Print / Save as PDF",
                 export_level: "Age Group",
-                export_offline_buddy: "Created with FoxQuiz"
+                export_offline_buddy: "Created with FoxQuiz",
+                footer_copyright: "All rights reserved.",
+                footer_opensource: "FoxQuiz is an open-source educational project licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).",
+                footer_github: "GitHub Repository",
+                footer_imprint: "Imprint",
+                footer_privacy: "Privacy Policy",
+                footer_donation: "Do you like the app? We would love your support! 100% of donations go directly toward purchasing AI tokens so FoxQuiz can remain free for children in the long term. ❤️",
+                btn_donate: "Support the project"
             },
             pt: {
                 choose_buddy: "Escolha seu companheiro FoxQuiz!",
@@ -1303,7 +1402,14 @@
                 export_correct_option: "Opção correta",
                 export_print: "Imprimir / Salvar como PDF",
                 export_level: "Faixa Etária",
-                export_offline_buddy: "Criado com FoxQuiz"
+                export_offline_buddy: "Criado com FoxQuiz",
+                footer_copyright: "Todos os direitos reservados.",
+                footer_opensource: "O FoxQuiz é um projeto educacional de código aberto licenciado sob a licença Creative Commons Attribution 4.0 International (CC BY 4.0).",
+                footer_github: "Repositório GitHub",
+                footer_imprint: "Termos Legais (Impressum)",
+                footer_privacy: "Política de Privacidade",
+                footer_donation: "Gostou do aplicativo? Adoraríamos seu apoio! 100% das doações vão direto para a compra de tokens de IA para que o FoxQuiz continue gratuito para as crianças a longo prazo. ❤️",
+                btn_donate: "Apoiar o projeto"
             }
         };
 

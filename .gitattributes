@@ -1,0 +1,34 @@
+# =========================================================================
+# FoxQuiz: Git Attributes Configuration (Cross-Platform Normalization)
+# =========================================================================
+
+# Set default behavior to automatically handle line endings for text files
+# and leave binary files untouched.
+* text=auto
+
+# -------------------------------------------------------------------------
+# 1. Binary Files (Strict preservation, no line ending conversion, no text diffs)
+# -------------------------------------------------------------------------
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+
+# -------------------------------------------------------------------------
+# 2. Text Files (Force LF line endings for all cross-platform OS consistency)
+# -------------------------------------------------------------------------
+*.py text eol=lf
+*.sh text eol=lf
+*.sql text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.tf text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
