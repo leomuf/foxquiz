@@ -564,7 +564,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         "2. Each question has between 3 and 5 answer options.\n"
         "3. EXACTLY one option must be correct.\n"
         "4. Set 'correct_option_index' to the exact 0-based index of the correct option inside the options array.\n"
-        "5. Keep the explanations warm, educational, clear, and highly encouraging (explain why the correct answer is right and why others are wrong in a child-friendly mascot way). CRITICAL: Do NOT start explanations with congratulatory words like 'Parabéns!', 'Congratulations!', or 'Herzlichen Glückwunsch!', because these explanations are shown even when the student chooses the wrong answer.\n"
+        "5. Keep the explanations warm, educational, clear, and highly encouraging (explain why the correct answer is right and why others are wrong in a child-friendly mascot way). CRITICAL: Do NOT start explanations with affirmative or congratulatory words like 'Parabéns!', 'Isso mesmo!', 'Congratulations!', 'Exactly!', 'Herzlichen Glückwunsch!', or 'Richtig!', because these explanations are shown even when the student chooses the wrong answer. Start directly with the factual explanation (e.g. 'Células-tronco são...' instead of 'Isso mesmo! Células-tronco são...').\n"
     )
 
     adaptation_instructions = ""

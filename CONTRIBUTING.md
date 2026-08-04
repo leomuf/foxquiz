@@ -83,26 +83,36 @@ If you are deploying updates to Google Cloud Run, follow this workflow to packag
    * *`--cpu-boost`:* Automatically doubles allocated CPU on container boot to fast-track startup.
    * *`--execution-environment gen1`:* Uses lightweight sandboxed gVisor virtual machines to reduce startup latencies to milliseconds.
 
-3. **Ensure Public Accessibility (Allow Unauthenticated Traffic):**
-   If the deployment resets the IAM policies, resulting in a `Forbidden` error for anonymous web users, restore public access instantly:
-   ```bash
-   gcloud run services add-iam-policy-binding foxquiz \
-     --member="allUsers" \
-     --role="roles/run.invoker" \
-     --project <YOUR_PROJECT_ID> \
-     --region us-east1
-   ```
+ 3. **Initialize Google Cloud Firestore Database (One-Time Setup):**
+    Because FoxQuiz relies on a durable serverless database to store shared quizzes (for exactly 30 days) and security event logs, you must initialize a Google Cloud Firestore instance in Native Mode in your Google Cloud Project. Run this command:
+    ```bash
+    gcloud firestore databases create \
+      --project=<YOUR_PROJECT_ID> \
+      --location=us-east1 \
+      --type=firestore-native
+    ```
+    *Note:* Setting the location to `us-east1` keeps the database in the same region as the Cloud Run containers, eliminating regional network latency and cross-region traffic costs!
 
-4. **Manage Custom Domain Subdomains (Optional):**
-   To map a subdomain (such as `www.foxquiz.app`) to your Cloud Run service, create the domain mapping in Google Cloud:
-   ```bash
-   gcloud beta run domain-mappings create \
-     --service=foxquiz \
-     --domain=www.foxquiz.app \
-     --project=<YOUR_PROJECT_ID> \
-     --region=us-east1
-   ```
-   *Note:* Ensure you configure a CNAME record in your domain registrar's DNS settings, pointing `www` to `ghs.googlehosted.com.`.
+ 4. **Ensure Public Accessibility (Allow Unauthenticated Traffic):**
+    If the deployment resets the IAM policies, resulting in a `Forbidden` error for anonymous web users, restore public access instantly:
+    ```bash
+    gcloud run services add-iam-policy-binding foxquiz \
+      --member="allUsers" \
+      --role="roles/run.invoker" \
+      --project <YOUR_PROJECT_ID> \
+      --region us-east1
+    ```
+
+ 5. **Manage Custom Domain Subdomains (Optional):**
+    To map a subdomain (such as `www.foxquiz.app`) to your Cloud Run service, create the domain mapping in Google Cloud:
+    ```bash
+    gcloud beta run domain-mappings create \
+      --service=foxquiz \
+      --domain=www.foxquiz.app \
+      --project=<YOUR_PROJECT_ID> \
+      --region=us-east1
+    ```
+    *Note:* Ensure you configure a CNAME record in your domain registrar's DNS settings, pointing `www` to `ghs.googlehosted.com.`.
 
 ---
 

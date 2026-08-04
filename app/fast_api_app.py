@@ -25,7 +25,7 @@ import uuid
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk.cli.fast_api import get_fast_api_app
 from google.cloud import logging as google_cloud_logging
@@ -143,8 +143,77 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 @app.get("/")
-def read_root():
-    return FileResponse(os.path.join(static_dir, "index.html"))
+def read_root(request: Request):
+    # Determine user language
+    lang = "en"  # Default
+    query_lang = request.query_params.get("lang")
+    if query_lang:
+        query_lang = query_lang.lower()
+        if query_lang in ["de", "pt", "en"]:
+            lang = query_lang
+    else:
+        accept_language = request.headers.get("Accept-Language", "").lower()
+        if "pt" in accept_language:
+            lang = "pt"
+        elif "de" in accept_language:
+            lang = "de"
+
+    # Social Preview Meta Tags Meta Data
+    meta_data = {
+        "de": {
+            "title": "FoxQuiz 🦊 — Dein spielerischer Lernbegleiter!",
+            "description": "Intelligente, maskottchengeführte Prüfungsvorbereitung für die Klassen 5-12. Kostenlos, sicher, werbefrei und perfekt auf den Lehrplan abgestimmt!",
+        },
+        "pt": {
+            "title": "FoxQuiz 🦊 — Seu companheiro de estudos divertido!",
+            "description": "Preparação inteligente para avaliações guiada por mascotes da 5º série até o 3º ano do ensino médio. Gratuito, seguro, sem anúncios e alinhado ao currículo escolar!",
+        },
+        "en": {
+            "title": "FoxQuiz 🦊 — Your Playful Exam Prep Companion!",
+            "description": "Intelligent, mascot-guided exam preparation for grades 5-12. Free, safe, ad-free, and perfectly aligned with school curriculums!",
+        },
+    }
+
+    selected = meta_data[lang]
+
+    # Generate the Open Graph/Twitter Meta Tags
+    og_tags = f"""
+    <!-- Open Graph / Facebook / WhatsApp -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://foxquiz.app/">
+    <meta property="og:title" content="{selected["title"]}">
+    <meta property="og:description" content="{selected["description"]}">
+    <meta property="og:image" content="https://foxquiz.app/static/assets/foxquiz_github_social_preview.jpg">
+
+    <!-- Twitter / X -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://foxquiz.app/">
+    <meta property="twitter:title" content="{selected["title"]}">
+    <meta property="twitter:description" content="{selected["description"]}">
+    <meta property="twitter:image" content="https://foxquiz.app/static/assets/foxquiz_github_social_preview.jpg">
+    """
+
+    # Read the base index.html file
+    index_path = os.path.join(static_dir, "index.html")
+    if not os.path.exists(index_path):
+        return HTMLResponse("index.html not found", status_code=404)
+
+    with open(index_path, encoding="utf-8") as f:
+        html_content = f.read()
+
+    # Dynamically inject localized HTML lang attribute
+    html_content = html_content.replace('<html lang="en">', f'<html lang="{lang}">')
+
+    # Dynamically inject localized Title
+    html_content = html_content.replace(
+        "<title>FoxQuiz — Your Playful Exam Prep Companion!</title>",
+        f"<title>{selected['title']}</title>",
+    )
+
+    # Dynamically inject the Social Preview Meta Tags right before </head>
+    html_content = html_content.replace("</head>", f"{og_tags}\n</head>")
+
+    return HTMLResponse(html_content)
 
 
 # --- ContextVar Injection Middleware ---
