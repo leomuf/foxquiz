@@ -2176,7 +2176,8 @@
                         score: scoreValue,
                         user_id: "anonymous_student",
                         session_id: currentSessionId || "sess_none",
-                        text: `Quiz theme: ${currentQuizData?.title || "none"}`
+                        text: `Quiz theme: ${currentQuizData?.title || "none"}`,
+                        quiz_data: scoreValue === 0 ? currentQuizData : null
                     })
                 });
 

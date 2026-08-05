@@ -301,6 +301,7 @@ def collect_feedback(feedback: Feedback) -> dict[str, str]:
         text=feedback.text or "",
         session_id=feedback.session_id,
         anonymous_id=feedback.user_id,
+        quiz_data=feedback.quiz_data,
     )
 
     logger.log_struct(

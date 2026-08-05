@@ -268,11 +268,48 @@ class FirestoreRepository:
 
     # --- 3. Feedback Logs ---
     def save_feedback_log(
-        self, score: int, text: str, session_id: str, anonymous_id: str
+        self,
+        score: int,
+        text: str,
+        session_id: str,
+        anonymous_id: str,
+        quiz_data: dict[str, Any] | None = None,
     ) -> str:
-        """Save a thumbs-down feedback log and increment satisfied counter if appropriate."""
+        """Save feedback log following spec: positive feedback only increments global stats, negative stores quiz data."""
         log_id = f"fb_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}"
         now = datetime.datetime.now(datetime.UTC)
+
+        # 1. Thumbs-Up (Positive): Do NOT store individual logs/quiz info, only increment counter
+        if score > 0:
+            if self.use_mock:
+                metrics = self._get_mock_doc("feedback_metrics", "satisfaction") or {
+                    "thumbs_up_count": 0,
+                    "thumbs_down_count": 0,
+                }
+                metrics["thumbs_up_count"] += 1
+                self._set_mock_doc("feedback_metrics", "satisfaction", metrics)
+                return log_id
+            try:
+                metrics_ref = self.client.collection("feedback_metrics").document(
+                    "satisfaction"
+                )
+                metrics_ref.set({"thumbs_up_count": firestore.Increment(1)}, merge=True)
+                return log_id
+            except Exception as e:
+                logger.warning(
+                    f"Failed to increment satisfied metrics in real Firestore ({e}). Falling back to mock."
+                )
+                FirestoreRepository._global_mock_active = True
+                self.use_mock = True
+                metrics = self._get_mock_doc("feedback_metrics", "satisfaction") or {
+                    "thumbs_up_count": 0,
+                    "thumbs_down_count": 0,
+                }
+                metrics["thumbs_up_count"] += 1
+                self._set_mock_doc("feedback_metrics", "satisfaction", metrics)
+                return log_id
+
+        # 2. Thumbs-Down (Negative): Store detailed log with complete quiz context
         data = {
             "log_id": log_id,
             "score": score,
@@ -280,15 +317,16 @@ class FirestoreRepository:
             "session_id": session_id,
             "anonymous_id": anonymous_id,
             "timestamp": now.isoformat() if self.use_mock else now,
+            "quiz_data": quiz_data,
         }
 
         if self.use_mock:
             self._set_mock_doc("feedback_logs", log_id, data, merge=False)
-            metrics = self._get_mock_doc("feedback_metrics", "satisfaction")
-            if score > 0:
-                metrics["thumbs_up_count"] += 1
-            else:
-                metrics["thumbs_down_count"] += 1
+            metrics = self._get_mock_doc("feedback_metrics", "satisfaction") or {
+                "thumbs_up_count": 0,
+                "thumbs_down_count": 0,
+            }
+            metrics["thumbs_down_count"] += 1
             self._set_mock_doc("feedback_metrics", "satisfaction", metrics)
             return log_id
 
@@ -301,8 +339,7 @@ class FirestoreRepository:
             metrics_ref = self.client.collection("feedback_metrics").document(
                 "satisfaction"
             )
-            field_name = "thumbs_up_count" if score > 0 else "thumbs_down_count"
-            metrics_ref.set({field_name: firestore.Increment(1)}, merge=True)
+            metrics_ref.set({"thumbs_down_count": firestore.Increment(1)}, merge=True)
             return log_id
         except Exception as e:
             logger.warning(
@@ -312,11 +349,11 @@ class FirestoreRepository:
             self.use_mock = True
             data["timestamp"] = now.isoformat()
             self._set_mock_doc("feedback_logs", log_id, data, merge=False)
-            metrics = self._get_mock_doc("feedback_metrics", "satisfaction")
-            if score > 0:
-                metrics["thumbs_up_count"] += 1
-            else:
-                metrics["thumbs_down_count"] += 1
+            metrics = self._get_mock_doc("feedback_metrics", "satisfaction") or {
+                "thumbs_up_count": 0,
+                "thumbs_down_count": 0,
+            }
+            metrics["thumbs_down_count"] += 1
             self._set_mock_doc("feedback_metrics", "satisfaction", metrics)
             return log_id
 
