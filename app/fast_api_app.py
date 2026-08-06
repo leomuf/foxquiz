@@ -175,19 +175,22 @@ def read_root(request: Request):
     }
 
     selected = meta_data[lang]
+    canonical_url = (
+        f"https://foxquiz.app/?lang={lang}" if lang != "en" else "https://foxquiz.app/"
+    )
 
     # Generate the Open Graph/Twitter Meta Tags
     og_tags = f"""
     <!-- Open Graph / Facebook / WhatsApp -->
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://foxquiz.app/">
+    <meta property="og:url" content="{canonical_url}">
     <meta property="og:title" content="{selected["title"]}">
     <meta property="og:description" content="{selected["description"]}">
     <meta property="og:image" content="https://foxquiz.app/static/assets/foxquiz_github_social_preview.jpg">
 
     <!-- Twitter / X -->
     <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://foxquiz.app/">
+    <meta property="twitter:url" content="{canonical_url}">
     <meta property="twitter:title" content="{selected["title"]}">
     <meta property="twitter:description" content="{selected["description"]}">
     <meta property="twitter:image" content="https://foxquiz.app/static/assets/foxquiz_github_social_preview.jpg">
@@ -301,6 +304,7 @@ def collect_feedback(feedback: Feedback) -> dict[str, str]:
         text=feedback.text or "",
         session_id=feedback.session_id,
         anonymous_id=feedback.user_id,
+        quiz_data=feedback.quiz_data,
     )
 
     logger.log_struct(
