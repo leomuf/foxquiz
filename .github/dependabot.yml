@@ -1,0 +1,10 @@
+# Dependabot configuration file for FoxQuiz
+# Native support for uv package ecosystem ensures security and version updates
+# are correctly locked and generated inside uv.lock.
+
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
