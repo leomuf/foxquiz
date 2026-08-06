@@ -1493,7 +1493,15 @@
 
         // 1. Language Detection & Handling
         function detectLanguage() {
-            // Auto-detect browser language or fallback
+            // 1. Check URL parameters first for explicit lang choice
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlLang = urlParams.get("lang");
+            if (urlLang && ["de", "pt", "en"].includes(urlLang.toLowerCase())) {
+                setLanguage(urlLang.toLowerCase());
+                return;
+            }
+
+            // 2. Auto-detect browser language or fallback
             const lang = navigator.language || navigator.userLanguage;
             if (lang.startsWith("pt")) {
                 setLanguage("pt");
@@ -1917,8 +1925,8 @@
             // Sanitize explanation: strip congratulatory phrases if incorrect answer chosen
             let explanationText = q.explanation || "";
             if (selectedIndex !== correctIndex) {
-                // Strip common German, English, and Portuguese congratulations prefixes
-                explanationText = explanationText.replace(/^(Parabéns!|Parabéns,|Parabéns\b|Congratulations!|Congratulations,|Congratulations\b|Herzlichen Glückwunsch!|Herzlichen Glückwunsch,|Herzlichen Glückwunsch\b|Super!|Super gemacht!|Sehr gut!|Muito bem!)\s*/i, "");
+                // Strip common German, English, and Portuguese congratulations and affirmative prefixes
+                explanationText = explanationText.replace(/^(Parabéns!|Parabéns,|Parabéns\b|Isso mesmo!|Isso mesmo,|Isso mesmo\b|Exato!|Exato,|Exato\b|Exatamente!|Exatamente,|Exatamente\b|Correto!|Correto,|Correto\b|Congratulations!|Congratulations,|Congratulations\b|Exactly!|Exactly,|Exactly\b|Correct!|Correct,|Correct\b|That's right!|That's right,|That's right\b|That's correct!|That's correct,|That's correct\b|Herzlichen Glückwunsch!|Herzlichen Glückwunsch,|Herzlichen Glückwunsch\b|Super!|Super gemacht!|Sehr gut!|Sehr gut,|Sehr gut\b|Richtig!|Richtig,|Richtig\b|Genau!|Genau,|Genau\b|Korrekt!|Korrekt,|Korrekt\b|Muito bem!)\s*/i, "");
                 // Capitalize first letter of cleaned explanation
                 if (explanationText.length > 0) {
                     explanationText = explanationText.charAt(0).toUpperCase() + explanationText.slice(1);
@@ -2168,7 +2176,8 @@
                         score: scoreValue,
                         user_id: "anonymous_student",
                         session_id: currentSessionId || "sess_none",
-                        text: `Quiz theme: ${currentQuizData?.title || "none"}`
+                        text: `Quiz theme: ${currentQuizData?.title || "none"}`,
+                        quiz_data: scoreValue === 0 ? currentQuizData : null
                     })
                 });
 

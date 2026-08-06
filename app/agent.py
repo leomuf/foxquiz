@@ -563,8 +563,8 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         "1. Create exactly 10 questions.\n"
         "2. Each question has between 3 and 5 answer options.\n"
         "3. EXACTLY one option must be correct.\n"
-        "4. Set 'correct_option_index' to the exact 0-based index of the correct option inside the options array.\n"
-        "5. Keep the explanations warm, educational, clear, and highly encouraging (explain why the correct answer is right and why others are wrong in a child-friendly mascot way). CRITICAL: Do NOT start explanations with congratulatory words like 'Parabéns!', 'Congratulations!', or 'Herzlichen Glückwunsch!', because these explanations are shown even when the student chooses the wrong answer.\n"
+        "4. Set 'correct_option_index' to the exact 0-based index of the correct option inside the options array. CRITICAL: Double-check that your 'correct_option_index' points exactly to the mathematically or factually correct option among the provided options, and matches the correct answer stated in your explanation.\n"
+        "5. Keep the explanations warm, educational, clear, and highly encouraging (explain why the correct answer is right and why others are wrong in a child-friendly mascot way). CRITICAL: Do NOT start explanations with affirmative or congratulatory words like 'Parabéns!', 'Isso mesmo!', 'Congratulations!', 'Exactly!', 'Herzlichen Glückwunsch!', or 'Richtig!', because these explanations are shown even when the student chooses the wrong answer. Start directly with the factual explanation (e.g. 'Células-tronco são...' instead of 'Isso mesmo! Células-tronco são...').\n"
     )
 
     adaptation_instructions = ""
@@ -728,7 +728,9 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         f"2. Does it cover the subject '{subject}' and topic '{topic}' accurately?\n"
         "3. Does the quiz contain exactly 10 questions?\n"
         "4. Does each question contain between 3 and 5 options, with exactly ONE correct choice?\n"
-        "5. Is the correct_option_index mathematically and factually correct?\n\n"
+        "5. Is the 'correct_option_index' mathematically and factually correct? "
+        "CRITICAL: For each question, you MUST independently determine the factually correct answer (whether it is a mathematical calculation, a historical date, a biological definition, etc.). Then, verify that the 'correct_option_index' points EXACTLY to that correct answer inside the 0-based options array. "
+        "If there is any mismatch between the factually correct answer, the option at 'correct_option_index', or the correct answer described in your explanation, you MUST set passed to false.\n\n"
         f"Quiz JSON:\n{json.dumps(quiz_dict)}\n"
     )
 
