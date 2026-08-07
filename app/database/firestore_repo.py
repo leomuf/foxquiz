@@ -21,6 +21,7 @@ from google.cloud import firestore
 
 logger = logging.getLogger(__name__)
 
+SHARED_QUIZ_TTL_DAYS = 30
 TRANSIENT_BUDGET_TTL_DAYS = 7
 
 
@@ -164,7 +165,10 @@ class FirestoreRepository:
             self._raise_persistence_error(f"read shared quiz {quiz_id}", e)
 
     def save_shared_quiz(
-        self, quiz_id: str, quiz_data: dict[str, Any], ttl_days: int = 30
+        self,
+        quiz_id: str,
+        quiz_data: dict[str, Any],
+        ttl_days: int = SHARED_QUIZ_TTL_DAYS,
     ) -> bool:
         """Store a frozen quiz object in Firestore with an expiration timestamp."""
         now = datetime.datetime.now(datetime.UTC)
