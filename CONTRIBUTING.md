@@ -34,8 +34,10 @@ To work on the codebase locally, we use `uv` (a fast Python package installer an
 2. **Install Dependencies:**
    Make sure you have [uv](https://github.com/astral-sh/uv) installed, then run:
    ```bash
-   uv sync
+   uv sync --locked
    ```
+   The `--locked` option ensures that `uv.lock` matches `pyproject.toml`
+   and fails instead of modifying the lockfile. Without it, `uv` could silently update `uv.lock`, causing local and CI environments to use different dependency versions.
 
 3. **Configure Environment Variables:**
    Copy the example environment file and fill in your credentials:
