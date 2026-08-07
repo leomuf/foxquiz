@@ -39,7 +39,7 @@ eval = [
 lint = [
     "ruff>=0.4.6,<1.0.0",
     "ty>=0.0.1a0",
-    "codespell>=2.2.0,<3.0.0",
+    "codespell>=2.4.3,<3.0.0",
 ]
 
 [tool.ruff]
