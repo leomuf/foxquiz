@@ -38,7 +38,10 @@ from app.app_utils.request_context import (
 )
 from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
-from app.database.firestore_repo import FirestoreRepository
+from app.database.firestore_repo import (
+    FirestorePersistenceError,
+    FirestoreRepository,
+)
 
 setup_telemetry()
 
@@ -288,6 +291,25 @@ async def handle_security_block(request: Request, exc: SecurityBlockException):
             "block_type": exc.block_type,
             "message": exc.message,
         },
+    )
+
+
+@app.exception_handler(FirestorePersistenceError)
+async def handle_firestore_persistence_error(
+    request: Request, exc: FirestorePersistenceError
+):
+    """Return an explicit service error instead of reporting an in-memory write as saved."""
+    logger.log_struct(
+        {
+            "event": "firestore_persistence_error",
+            "path": request.url.path,
+            "message": str(exc),
+        },
+        severity="ERROR",
+    )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "Persistent storage is temporarily unavailable."},
     )
 
 
