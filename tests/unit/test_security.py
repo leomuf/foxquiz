@@ -50,6 +50,12 @@ def test_firestore_repo_quiz(mock_repo):
     success = mock_repo.save_shared_quiz(quiz_id, quiz_data)
     assert success is True
 
+    stored_quiz = mock_repo._get_mock_doc("quizzes", quiz_id)
+    expires_at = datetime.datetime.fromisoformat(stored_quiz["expires_at"])
+    remaining = expires_at - datetime.datetime.now(datetime.UTC)
+    assert datetime.timedelta(days=29, hours=23) < remaining
+    assert remaining <= datetime.timedelta(days=30)
+
     # Retrieve shared quiz
     retrieved = mock_repo.get_shared_quiz(quiz_id)
     assert retrieved == quiz_data
@@ -82,6 +88,17 @@ def test_firestore_repo_budgets(mock_repo):
     # Getting budget now should reset it back to 0
     assert budget["tokens_used"] == 0
     assert budget["last_reset_date"] == datetime.date.today().isoformat()
+
+
+def test_transient_budget_expires_after_seven_days(mock_repo):
+    """Verify transient budgets expire while the global budget remains permanent."""
+    budget = mock_repo.get_token_budget("budget_transient_test")
+    expires_at = datetime.datetime.fromisoformat(budget["expires_at"])
+    remaining = expires_at - datetime.datetime.now(datetime.UTC)
+
+    assert datetime.timedelta(days=6, hours=23) < remaining
+    assert remaining <= datetime.timedelta(days=7)
+    assert "expires_at" not in mock_repo.get_token_budget("global")
 
 
 def test_firestore_repo_feedback(mock_repo):

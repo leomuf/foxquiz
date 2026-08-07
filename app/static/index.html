@@ -1244,6 +1244,8 @@
                 congrats: ["Super gemacht!", "Unglaublich!", "Pfotenstark!", "Wunderbar!"],
                 congrats_desc: "Du hast alle 10 Fragen gemeistert! Hier ist dein Ergebnis:",
                 not_found: "Teilen-Link ist ungültig oder abgelaufen.",
+                storage_unavailable: "Der Speicher ist vorübergehend nicht verfügbar. Bitte versuche es später erneut.",
+                share_failed: "Das Quiz konnte nicht geteilt werden. Bitte versuche es erneut.",
                 loading_title: "Lernstoff wird zusammengestellt...",
                 loading_subtitle: "Ich suche gerade auf Wikipedia und in Lehrplänen nach passenden Inhalten, um dir das perfekte Quiz zu bauen!",
                 correct_encouragement: {
@@ -1314,6 +1316,8 @@
                 congrats: ["Outstanding job!", "Magnificent!", "Awesome work!", "Great effort!"],
                 congrats_desc: "You successfully completed all 10 questions! Here is your score:",
                 not_found: "Share link is invalid or expired.",
+                storage_unavailable: "Persistent storage is temporarily unavailable. Please try again later.",
+                share_failed: "The quiz could not be shared. Please try again.",
                 loading_title: "Preparing study materials...",
                 loading_subtitle: "I'm searching Wikipedia and curricula to build the perfect quiz for you!",
                 correct_encouragement: {
@@ -1384,6 +1388,8 @@
                 congrats: ["Excelente trabalho!", "Incrível!", "Espetacular!", "Muito bem!"],
                 congrats_desc: "Você completou todas as 10 perguntas! Aqui está o seu resultado:",
                 not_found: "O link de compartilhamento é inválido ou expirou.",
+                storage_unavailable: "O armazenamento está temporariamente indisponível. Tente novamente mais tarde.",
+                share_failed: "Não foi possível compartilhar o quiz. Tente novamente.",
                 loading_title: "Preparando o conteúdo de estudo...",
                 loading_subtitle: "Estou pesquisando na Wikipédia e em currículos escolares para criar o quiz perfeito para você!",
                 correct_encouragement: {
@@ -1614,8 +1620,12 @@
             
             try {
                 const response = await fetch(`/quiz/${quizId}`);
+                if (response.status === 404) {
+                    showBlockScreen("🛑", translations[currentLanguage].not_found);
+                    return;
+                }
                 if (!response.ok) {
-                    throw new Error("Quiz not found");
+                    throw new Error(`Shared quiz request failed with status ${response.status}`);
                 }
                 const data = await response.json();
                 if (data.status === "success" && data.quiz_data) {
@@ -1627,7 +1637,7 @@
                 }
             } catch (e) {
                 console.error(e);
-                showBlockScreen("🛑", translations[currentLanguage].not_found);
+                showBlockScreen("⚠️", translations[currentLanguage].storage_unavailable);
             }
         }
 
@@ -2006,7 +2016,7 @@
                 }
             } catch (e) {
                 console.error(e);
-                alert("Sharing failed. Please check internet connections.");
+                showToast(translations[currentLanguage].share_failed);
             }
         }
 
@@ -2167,7 +2177,7 @@
             }
 
             try {
-                await fetch("/feedback", {
+                const response = await fetch("/feedback", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
@@ -2180,6 +2190,10 @@
                         quiz_data: scoreValue === 0 ? currentQuizData : null
                     })
                 });
+                if (!response.ok) {
+                    throw new Error("Feedback request failed");
+                }
+
 
                 let msg = "";
                 if (scoreValue === 1) {
@@ -2202,6 +2216,17 @@
                 showToast(msg);
             } catch (e) {
                 console.error(e);
+                hasSubmittedFeedback = false;
+                upBtn.style.pointerEvents = "auto";
+                downBtn.style.pointerEvents = "auto";
+                upBtn.classList.remove("liked");
+                downBtn.classList.remove("disliked");
+                const errorMsg = currentLanguage === "de"
+                    ? "Deine Bewertung konnte nicht gespeichert werden. Bitte versuche es erneut."
+                    : currentLanguage === "pt"
+                        ? "Nao foi possivel salvar sua avaliacao. Tente novamente."
+                        : "Your feedback could not be saved. Please try again.";
+                showToast(errorMsg);
             }
         }
 

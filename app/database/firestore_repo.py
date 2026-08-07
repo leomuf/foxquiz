@@ -15,11 +15,18 @@
 import datetime
 import logging
 import os
-from typing import Any
+from typing import Any, NoReturn
 
 from google.cloud import firestore
 
 logger = logging.getLogger(__name__)
+
+TRANSIENT_BUDGET_TTL_DAYS = 7
+
+
+class FirestorePersistenceError(RuntimeError):
+    """Raised when an operation against the configured Firestore database fails."""
+
 
 # Fallback in-memory database for testing and local runs without Google Cloud credentials
 _mock_db: dict[str, dict[str, Any]] = {
@@ -71,16 +78,10 @@ _mock_db: dict[str, dict[str, Any]] = {
 
 
 class FirestoreRepository:
-    """Repository class for interacting with Google Cloud Firestore or an in-memory mock fallback."""
-
-    _global_mock_active = False
+    """Repository for Firestore, with an explicit in-memory mode for tests."""
 
     def __init__(self, force_mock: bool = False):
-        self.use_mock = (
-            force_mock
-            or os.getenv("INTEGRATION_TEST") == "TRUE"
-            or FirestoreRepository._global_mock_active
-        )
+        self.use_mock = force_mock or os.getenv("INTEGRATION_TEST") == "TRUE"
         self.client = None
 
         if not self.use_mock:
@@ -89,11 +90,11 @@ class FirestoreRepository:
                 self.client = firestore.Client()
                 logger.info("Firestore client initialized successfully.")
             except Exception as e:
-                logger.warning(
-                    f"Failed to initialize Firestore Client ({e}). Falling back to in-memory mock database."
-                )
-                self.use_mock = True
-                FirestoreRepository._global_mock_active = True
+                self._raise_persistence_error("initialize Firestore client", e)
+
+    def _raise_persistence_error(self, operation: str, error: Exception) -> NoReturn:
+        logger.exception("Failed to %s.", operation, exc_info=error)
+        raise FirestorePersistenceError(f"Failed to {operation}.") from error
 
     def _get_mock_doc(self, collection: str, doc_id: str) -> dict[str, Any] | None:
         return _mock_db.get(collection, {}).get(doc_id)
@@ -107,6 +108,27 @@ class FirestoreRepository:
             _mock_db[collection][doc_id].update(data)
         else:
             _mock_db[collection][doc_id] = data
+
+    def _transient_budget_expiration(
+        self, budget_id: str
+    ) -> datetime.datetime | str | None:
+        if not budget_id.startswith("budget_transient_"):
+            return None
+
+        expires_at = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
+            days=TRANSIENT_BUDGET_TTL_DAYS
+        )
+        return expires_at.isoformat() if self.use_mock else expires_at
+
+    def _new_budget_data(self, budget_id: str, today_iso: str) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "tokens_used": 0,
+            "last_reset_date": today_iso,
+        }
+        expires_at = self._transient_budget_expiration(budget_id)
+        if expires_at is not None:
+            data["expires_at"] = expires_at
+        return data
 
     # --- 1. Shared Quizzes ---
     def get_shared_quiz(self, quiz_id: str) -> dict[str, Any] | None:
@@ -139,21 +161,7 @@ class FirestoreRepository:
                 return data.get("quiz_data")
             return None
         except Exception as e:
-            logger.warning(
-                f"Failed to read shared quiz from real Firestore ({e}). Falling back to mock database."
-            )
-            FirestoreRepository._global_mock_active = True
-            self.use_mock = True
-            quiz = self._get_mock_doc("quizzes", quiz_id)
-            if quiz:
-                expires_at_str = quiz.get("expires_at")
-                if expires_at_str:
-                    expires_at = datetime.datetime.fromisoformat(expires_at_str)
-                    if datetime.datetime.now(datetime.UTC) > expires_at:
-                        _mock_db["quizzes"].pop(quiz_id, None)
-                        return None
-                return quiz.get("quiz_data")
-            return None
+            self._raise_persistence_error(f"read shared quiz {quiz_id}", e)
 
     def save_shared_quiz(
         self, quiz_id: str, quiz_data: dict[str, Any], ttl_days: int = 30
@@ -177,21 +185,13 @@ class FirestoreRepository:
             doc_ref.set(data)
             return True
         except Exception as e:
-            logger.warning(
-                f"Failed to save shared quiz {quiz_id} in real Firestore ({e}). Falling back to mock database."
-            )
-            FirestoreRepository._global_mock_active = True
-            self.use_mock = True
-            data["created_at"] = now.isoformat()
-            data["expires_at"] = expires_at.isoformat()
-            self._set_mock_doc("quizzes", quiz_id, data, merge=False)
-            return True
+            self._raise_persistence_error(f"save shared quiz {quiz_id}", e)
 
     # --- 2. Token Budgets ---
     def get_token_budget(self, budget_id: str) -> dict[str, Any]:
         """Fetch token budget stats for a user (anonymous_id) or the global key."""
         today_iso = datetime.date.today().isoformat()
-        default_budget = {"tokens_used": 0, "last_reset_date": today_iso}
+        default_budget = self._new_budget_data(budget_id, today_iso)
 
         if self.use_mock:
             budget = self._get_mock_doc("budgets", budget_id)
@@ -210,21 +210,18 @@ class FirestoreRepository:
                     # Daily reset required
                     doc_ref.set(default_budget)
                     return default_budget
+
+                # Backfill TTL on legacy transient documents when next accessed.
+                expires_at = self._transient_budget_expiration(budget_id)
+                if expires_at is not None and not data.get("expires_at"):
+                    doc_ref.set({"expires_at": expires_at}, merge=True)
+                    data["expires_at"] = expires_at
                 return data
             # Initialize new budget entry
             doc_ref.set(default_budget)
             return default_budget
         except Exception as e:
-            logger.warning(
-                f"Failed to get budget {budget_id} from real Firestore ({e}). Falling back to mock database."
-            )
-            FirestoreRepository._global_mock_active = True
-            self.use_mock = True
-            budget = self._get_mock_doc("budgets", budget_id)
-            if not budget or budget.get("last_reset_date") != today_iso:
-                self._set_mock_doc("budgets", budget_id, default_budget, merge=False)
-                return default_budget
-            return budget
+            self._raise_persistence_error(f"get budget {budget_id}", e)
 
     def increment_token_budget(self, budget_id: str, tokens_to_add: int) -> bool:
         """Atomically increment token usage for a user or global budget."""
@@ -240,31 +237,29 @@ class FirestoreRepository:
             doc_ref = self.client.collection("budgets").document(budget_id)
 
             # Use transactional / atomic update if reset date is correct
+            @firestore.transactional
             def update_tx(transaction, ref, tokens):
                 snapshot = ref.get(transaction=transaction)
                 data = snapshot.to_dict() if snapshot.exists else {}
                 if not snapshot.exists or data.get("last_reset_date") != today_iso:
                     # Reset
-                    transaction.set(
-                        ref, {"tokens_used": tokens, "last_reset_date": today_iso}
-                    )
+                    reset_budget = self._new_budget_data(budget_id, today_iso)
+                    reset_budget["tokens_used"] = tokens
+                    transaction.set(ref, reset_budget)
                 else:
-                    new_tokens = data.get("tokens_used", 0) + tokens
-                    transaction.update(ref, {"tokens_used": new_tokens})
+                    updates: dict[str, Any] = {
+                        "tokens_used": data.get("tokens_used", 0) + tokens
+                    }
+                    expires_at = self._transient_budget_expiration(budget_id)
+                    if expires_at is not None and not data.get("expires_at"):
+                        updates["expires_at"] = expires_at
+                    transaction.update(ref, updates)
 
             transaction = self.client.transaction()
             update_tx(transaction, doc_ref, tokens_to_add)
             return True
         except Exception as e:
-            logger.warning(
-                f"Failed to increment budget {budget_id} in real Firestore ({e}). Falling back to mock database."
-            )
-            FirestoreRepository._global_mock_active = True
-            self.use_mock = True
-            budget = self.get_token_budget(budget_id)
-            budget["tokens_used"] += tokens_to_add
-            self._set_mock_doc("budgets", budget_id, budget)
-            return True
+            self._raise_persistence_error(f"increment budget {budget_id}", e)
 
     # --- 3. Feedback Logs ---
     def save_feedback_log(
@@ -296,18 +291,7 @@ class FirestoreRepository:
                 metrics_ref.set({"thumbs_up_count": firestore.Increment(1)}, merge=True)
                 return log_id
             except Exception as e:
-                logger.warning(
-                    f"Failed to increment satisfied metrics in real Firestore ({e}). Falling back to mock."
-                )
-                FirestoreRepository._global_mock_active = True
-                self.use_mock = True
-                metrics = self._get_mock_doc("feedback_metrics", "satisfaction") or {
-                    "thumbs_up_count": 0,
-                    "thumbs_down_count": 0,
-                }
-                metrics["thumbs_up_count"] += 1
-                self._set_mock_doc("feedback_metrics", "satisfaction", metrics)
-                return log_id
+                self._raise_persistence_error("increment thumbs-up metric", e)
 
         # 2. Thumbs-Down (Negative): Store detailed log with complete quiz context
         data = {
@@ -342,20 +326,7 @@ class FirestoreRepository:
             metrics_ref.set({"thumbs_down_count": firestore.Increment(1)}, merge=True)
             return log_id
         except Exception as e:
-            logger.warning(
-                f"Failed to save feedback log in real Firestore ({e}). Falling back to mock database."
-            )
-            FirestoreRepository._global_mock_active = True
-            self.use_mock = True
-            data["timestamp"] = now.isoformat()
-            self._set_mock_doc("feedback_logs", log_id, data, merge=False)
-            metrics = self._get_mock_doc("feedback_metrics", "satisfaction") or {
-                "thumbs_up_count": 0,
-                "thumbs_down_count": 0,
-            }
-            metrics["thumbs_down_count"] += 1
-            self._set_mock_doc("feedback_metrics", "satisfaction", metrics)
-            return log_id
+            self._raise_persistence_error("save thumbs-down feedback", e)
 
     def get_satisfaction_metrics(self) -> dict[str, int]:
         """Fetch the atomic thumbs up / down metrics."""
@@ -375,15 +346,7 @@ class FirestoreRepository:
                 return doc.to_dict()
             return default_metrics
         except Exception as e:
-            logger.warning(
-                f"Failed to get satisfaction metrics from real Firestore ({e}). Falling back to mock database."
-            )
-            FirestoreRepository._global_mock_active = True
-            self.use_mock = True
-            return (
-                self._get_mock_doc("feedback_metrics", "satisfaction")
-                or default_metrics
-            )
+            self._raise_persistence_error("get satisfaction metrics", e)
 
     # --- 4. Dynamic Security Configuration ---
     def get_security_config(self) -> dict[str, Any]:
@@ -405,12 +368,7 @@ class FirestoreRepository:
                 doc_ref.set(fallback_config)
                 return fallback_config
         except Exception as e:
-            logger.warning(
-                f"Failed to get security config from real Firestore ({e}). Falling back to mock database."
-            )
-            FirestoreRepository._global_mock_active = True
-            self.use_mock = True
-            return self._get_mock_doc("system_config", "security")
+            self._raise_persistence_error("get security configuration", e)
 
     # --- 5. Security Events (Violations) ---
     def log_security_event(
@@ -437,14 +395,7 @@ class FirestoreRepository:
             doc_ref.set(data)
             return event_id
         except Exception as e:
-            logger.warning(
-                f"Failed to log security event in real Firestore ({e}). Falling back to mock database."
-            )
-            FirestoreRepository._global_mock_active = True
-            self.use_mock = True
-            data["timestamp"] = now.isoformat()
-            self._set_mock_doc("security_events", event_id, data, merge=False)
-            return event_id
+            self._raise_persistence_error("log security event", e)
 
     def get_recent_violations_count(self, hashed_ip: str, hours: int = 1) -> int:
         """Retrieve the count of security violations for a hashed IP signature in the past hour."""
@@ -467,18 +418,9 @@ class FirestoreRepository:
             docs = query.stream()
             return len(list(docs))
         except Exception as e:
-            logger.warning(
-                f"Failed to check recent violations from real Firestore ({e}). Falling back to mock database."
+            self._raise_persistence_error(
+                f"check recent violations for signature {hashed_ip}", e
             )
-            FirestoreRepository._global_mock_active = True
-            self.use_mock = True
-            count = 0
-            for event in _mock_db.get("security_events", {}).values():
-                if event.get("hashed_ip") == hashed_ip:
-                    evt_time = datetime.datetime.fromisoformat(event.get("timestamp"))
-                    if evt_time > cutoff:
-                        count += 1
-            return count
 
     # --- 6. Banned Signatures ---
     def is_signature_banned(self, hashed_ip: str) -> bool:
@@ -511,19 +453,7 @@ class FirestoreRepository:
                 return True
             return False
         except Exception as e:
-            logger.warning(
-                f"Failed to check banned signature {hashed_ip} in real Firestore ({e}). Falling back to mock database."
-            )
-            FirestoreRepository._global_mock_active = True
-            self.use_mock = True
-            ban = self._get_mock_doc("banned_signatures", hashed_ip)
-            if ban:
-                expires_at = datetime.datetime.fromisoformat(ban.get("expires_at"))
-                if now > expires_at:
-                    _mock_db["banned_signatures"].pop(hashed_ip, None)
-                    return False
-                return True
-            return False
+            self._raise_persistence_error(f"check banned signature {hashed_ip}", e)
 
     def ban_signature(self, hashed_ip: str, duration_hours: int = 24) -> bool:
         """Ban a hashed IP signature for a specified duration."""
@@ -544,10 +474,4 @@ class FirestoreRepository:
             doc_ref.set(data)
             return True
         except Exception as e:
-            logger.warning(
-                f"Failed to ban signature {hashed_ip} in real Firestore ({e}). Falling back to mock database."
-            )
-            FirestoreRepository._global_mock_active = True
-            self.use_mock = True
-            self._set_mock_doc("banned_signatures", hashed_ip, data, merge=False)
-            return True
+            self._raise_persistence_error(f"ban signature {hashed_ip}", e)
