@@ -26,3 +26,11 @@ resource "google_storage_bucket" "logs_data_bucket" {
 
   depends_on = [resource.google_project_service.services]
 }
+
+# Scope artifact and prompt-response log access to the application bucket
+# instead of granting project-wide Storage Admin permissions.
+resource "google_storage_bucket_iam_member" "default_compute_sa_logs_object_admin" {
+  bucket = google_storage_bucket.logs_data_bucket.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${local.default_compute_service_account}"
+}

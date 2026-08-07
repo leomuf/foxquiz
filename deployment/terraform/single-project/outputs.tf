@@ -13,8 +13,8 @@
 # limitations under the License.
 
 output "app_service_account_email" {
-  description = "Application service account email"
-  value       = google_service_account.app_sa.email
+  description = "Default Compute service account used by the application"
+  value       = local.default_compute_service_account
 }
 
 output "logs_bucket_name" {
