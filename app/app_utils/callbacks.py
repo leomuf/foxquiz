@@ -19,6 +19,9 @@ import re
 from typing import Any
 
 from google.adk.agents.callback_context import CallbackContext
+from google.adk.agents.context import Context
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.plugins.base_plugin import BasePlugin
 from google.genai import Client
 from google.genai import types as genai_types
 
@@ -38,6 +41,11 @@ _cached_time: datetime.datetime | None = None
 # Local TTL banned signatures cache to guarantee exactly 0 DB/token cost for active bans
 _local_banned_cache: dict[str, datetime.datetime] = {}
 
+# Invocation-local accounting state. The `temp:` prefix prevents these values
+# from being persisted as durable session state by ADK session services.
+_TOKEN_USAGE_STATE_KEY = "temp:foxquiz_token_usage"
+_TOKEN_USAGE_FLUSHED_STATE_KEY = "temp:foxquiz_token_usage_flushed"
+
 
 class SecurityBlockException(Exception):
     """Exception raised when a request is blocked by the security checkpoint or token budgets."""
@@ -48,6 +56,18 @@ class SecurityBlockException(Exception):
         self.block_type = (
             block_type  # "BANNED", "MALICIOUS", "OFF_TOPIC", "BUDGET_EXCEEDED"
         )
+
+
+def record_token_usage(callback_context: CallbackContext, response: Any) -> int:
+    """Accumulate token usage from a direct Google GenAI response."""
+    usage_metadata = getattr(response, "usage_metadata", None)
+    tokens = getattr(usage_metadata, "total_token_count", 0) or 0
+    if tokens <= 0:
+        return 0
+
+    current_total = callback_context.state.get(_TOKEN_USAGE_STATE_KEY, 0) or 0
+    callback_context.state[_TOKEN_USAGE_STATE_KEY] = current_total + tokens
+    return tokens
 
 
 def get_cached_security_config(repo: FirestoreRepository) -> dict[str, Any]:
@@ -192,6 +212,7 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
                 temperature=0.0, max_output_tokens=10
             ),
         )
+        record_token_usage(callback_context, response)
         decision = response.text.strip().upper()
         logger.info(f"Lightweight semantic classifier safety decision: {decision}")
 
@@ -270,11 +291,15 @@ async def _handle_safety_violation(
 async def after_agent_callback(
     callback_context: CallbackContext,
 ) -> genai_types.Content | None:
-    """ADK 2.0 Downstream Tracker: Accumulates and logs actual token usage metrics in Firestore."""
-    invocation_id = callback_context.invocation_id
-    total_tokens = 0
+    """Flush invocation token usage to the user and global Firestore budgets."""
+    if callback_context.state.get(_TOKEN_USAGE_FLUSHED_STATE_KEY, False):
+        return None
 
-    # Retrieve and aggregate usage metadata across all events inside the current invocation
+    invocation_id = callback_context.invocation_id
+    total_tokens = callback_context.state.get(_TOKEN_USAGE_STATE_KEY, 0) or 0
+
+    # Include usage emitted by any ADK-managed model calls that may be added to
+    # the workflow in the future. Direct GenAI calls are accumulated above.
     for event in callback_context.session.events:
         if event.invocation_id == invocation_id and event.usage_metadata:
             total_tokens += event.usage_metadata.total_token_count or 0
@@ -288,4 +313,40 @@ async def after_agent_callback(
         repo.increment_token_budget(f"budget_{anon_id}", total_tokens)
         repo.increment_token_budget("global", total_tokens)
 
+    callback_context.state[_TOKEN_USAGE_STATE_KEY] = 0
+    callback_context.state[_TOKEN_USAGE_FLUSHED_STATE_KEY] = True
     return None
+
+
+class FoxQuizSecurityPlugin(BasePlugin):
+    """Run FoxQuiz security and budget checkpoints around each invocation."""
+
+    def __init__(self) -> None:
+        super().__init__(name="foxquiz_security_and_budget")
+
+    async def before_run_callback(
+        self, *, invocation_context: InvocationContext
+    ) -> genai_types.Content | None:
+        callback_context = Context(invocation_context)
+        callback_context.state[_TOKEN_USAGE_STATE_KEY] = 0
+        callback_context.state[_TOKEN_USAGE_FLUSHED_STATE_KEY] = False
+        await before_agent_callback(callback_context)
+        return None
+
+    async def after_run_callback(
+        self, *, invocation_context: InvocationContext
+    ) -> None:
+        await after_agent_callback(Context(invocation_context))
+
+    async def on_run_error_callback(
+        self,
+        *,
+        invocation_context: InvocationContext,
+        error: Exception,
+    ) -> None:
+        logger.warning(
+            "Flushing token usage after failed invocation %s: %s",
+            invocation_context.invocation_id,
+            error,
+        )
+        await after_agent_callback(Context(invocation_context))
