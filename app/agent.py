@@ -32,10 +32,11 @@ from google.genai import Client, types
 from google.adk.models import Gemini
 from google.adk.workflow import Workflow, START, node, FunctionNode, Edge
 from google.adk.events.event import Event
+from google.adk.events.event_actions import EventActions
 from google.adk.agents.context import Context
 from google.adk.apps import App
 
-from app.app_utils.callbacks import before_agent_callback, after_agent_callback
+from app.app_utils.callbacks import FoxQuizSecurityPlugin, record_token_usage
 from app.app_utils.request_context import get_client_locale
 
 # Setup project configuration
@@ -282,6 +283,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     temperature=0.0,
                 ),
             )
+            record_token_usage(ctx, response)
             extracted = ExtractedQuizInfo.model_validate_json(response.text.strip())
             logger.info(f"Extracted parameters: {extracted}")
 
@@ -340,6 +342,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     temperature=0.0,
                 ),
             )
+            record_token_usage(ctx, response)
             compatibility = CurriculumCompatibility.model_validate_json(
                 response.text.strip()
             )
@@ -348,7 +351,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
             )
 
             if compatibility.is_compatible:
-                return Event(route="generate_quiz")
+                return Event(actions=EventActions(route="generate_quiz"))
             else:
                 # Clear incompatible topic from state so they can enter a new one
                 ctx.state["topic"] = None
@@ -401,18 +404,19 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                         temperature=0.7,
                     ),
                 )
+                record_token_usage(ctx, mascot_resp)
                 msg_text = mascot_resp.text.strip()
                 return Event(
                     content=types.Content(
                         role="model", parts=[types.Part.from_text(text=msg_text)]
                     ),
-                    route="ask_more",
+                    actions=EventActions(route="ask_more"),
                 )
         except Exception as e:
             logger.error(
                 f"Error during upfront curriculum check: {e}. Defaulting to allowing quiz generation."
             )
-            return Event(route="generate_quiz")
+            return Event(actions=EventActions(route="generate_quiz"))
 
     # Otherwise, ask conversationally for what is missing in their language
     mascots = [
@@ -484,6 +488,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 system_instruction=system_conv_prompt, temperature=0.7
             ),
         )
+        record_token_usage(ctx, response)
         msg_text = response.text.strip()
     except Exception as e:
         logger.error(f"Mascot prompt generation error: {e}. Using fallback.")
@@ -498,7 +503,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         content=types.Content(
             role="model", parts=[types.Part.from_text(text=msg_text)]
         ),
-        route="ask_more",
+        actions=EventActions(route="ask_more"),
     )
 
 
@@ -656,6 +661,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
                 temperature=0.7 if attempt == 1 else 0.8,
             ),
         )
+        record_token_usage(ctx, response)
         quiz_dict = json.loads(response.text.strip())
         # Ensure difficulty field is set in quiz_dict
         if "difficulty" not in quiz_dict or not quiz_dict["difficulty"]:
@@ -701,7 +707,7 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
     ctx.state["judge_attempts"] = attempts
 
     if not quiz_dict:
-        return Event(route="retry")
+        return Event(actions=EventActions(route="retry"))
 
     # Optimization: In Reinforcement Mode (score <= 3), we shuffle the previously validated questions.
     # We can skip the LLM Judge review call completely to save token usage and cut latency by 1.5 - 2.5 seconds!
@@ -710,12 +716,12 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         logger.info(
             "Reinforcement mode: skipping LLM-as-a-judge review on shuffled questions."
         )
-        return Event(route="success")
+        return Event(actions=EventActions(route="success"))
 
     if attempts >= 3:
         logger.warning("Max quality judge iterations reached. Releasing current quiz.")
         ctx.state["judge_attempts"] = 0
-        return Event(route="success")
+        return Event(actions=EventActions(route="success"))
 
     grade = ctx.state.get("grade")
     subject = ctx.state.get("subject")
@@ -745,21 +751,22 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
                 temperature=0.1,
             ),
         )
+        record_token_usage(ctx, response)
         assessment = JudgeAssessment.model_validate_json(response.text.strip())
         logger.info(
             f"LLM Judge Quality Review (Attempt {attempts}): Passed={assessment.passed}. Reason: {assessment.reason}"
         )
 
         if assessment.passed:
-            return Event(route="success")
+            return Event(actions=EventActions(route="success"))
         else:
             logger.warning(
                 f"Judge failed validation. Triggering loop retry. Reason: {assessment.reason}"
             )
-            return Event(route="retry")
+            return Event(actions=EventActions(route="retry"))
     except Exception as e:
         logger.error(f"LLM Judge error: {e}. Defaulting to safe release.")
-        return Event(route="success")
+        return Event(actions=EventActions(route="success"))
 
 
 @node
@@ -818,11 +825,10 @@ root_agent = Workflow(
         Edge(from_node=llm_as_a_judge, to_node=quiz_generation, route="retry"),
         Edge(from_node=llm_as_a_judge, to_node=quiz_output_node, route="success"),
     ],
-    before_agent_callback=before_agent_callback,
-    after_agent_callback=after_agent_callback,
 )
 
 app = App(
     root_agent=root_agent,
     name="app",
+    plugins=[FoxQuizSecurityPlugin()],
 )
