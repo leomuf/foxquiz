@@ -44,7 +44,7 @@ resource "google_cloud_run_v2_service" "app" {
       }
     }
 
-    service_account = google_service_account.app_sa.email
+    service_account = local.default_compute_service_account
     max_instance_request_concurrency = 8
     startup_cpu_boost = true
     execution_environment = "EXECUTION_ENVIRONMENT_GEN1"
