@@ -25,6 +25,29 @@ If you find a bug or have a great idea for a new mascot, educational topic, or U
 ### 2. Local Development Setup
 To work on the codebase locally, we use `uv` (a fast Python package installer and resolver) to manage dependencies.
 
+#### Install and Update Development Tools
+
+Run the following commands inside Ubuntu or WSL. Installing these tools only on
+Windows does not make them available to commands executed in the Linux project
+environment.
+
+Install Agents CLI with `uv` when it is not already available:
+```bash
+uv tool install google-agents-cli
+```
+
+Upgrade an existing Agents CLI installation and verify the installed version:
+```bash
+uv tool upgrade google-agents-cli
+agents-cli info
+```
+
+The CLI package and its coding-agent skills are updated separately. After
+upgrading the package, refresh the installed skills when required:
+```bash
+agents-cli update
+```
+
 1. **Fork and Clone the Repository:**
    ```bash
    git clone https://github.com/your-username/foxquiz.git
@@ -65,15 +88,14 @@ Before submitting your changes, please ensure that all tests and code quality ch
 
 ### 4. Deploying & Infrastructure Optimization (For Maintainers)
 Application deployment and infrastructure configuration are separate operations.
-After deploying the container, choose exactly one infrastructure path below:
-Terraform-managed or manual. Do not routinely combine both paths because manual
-changes to Terraform-managed resources create configuration drift.
+After deploying the container, complete the manual infrastructure steps below.
+FoxQuiz intentionally does not use the optional Terraform infrastructure stack;
+do not run `agents-cli infra single-project` for this project.
 
 #### Step 1: Initialize Firestore (One-Time Project Prerequisite)
 
-The Terraform configuration manages Firestore time-to-live (TTL) fields but
-does not create the Firestore database itself. Create the Native Mode database
-once for every new Google Cloud project:
+Create the Native Mode Firestore database once for every new Google Cloud
+project:
 ```bash
 gcloud firestore databases create \
   --project=<YOUR_PROJECT_ID> \
@@ -91,48 +113,14 @@ agents-cli deploy --no-confirm-project
 ```
 
 This deploys application code and uses the project's default Compute service
-account. It does not apply files under
-`deployment/terraform/single-project/`.
+account.
 
-#### Step 3: Configure Infrastructure — Choose Path A or Path B
+#### Step 3: Configure Required Infrastructure Manually
 
-Both paths configure the Cloud Run cost and startup settings, OpenTelemetry
-export permissions, and Firestore Time To Live (TTL) policies. Choose either
-Terraform automation or manual configuration.
+Complete the following Cloud Run, OpenTelemetry, and Firestore configuration
+topics after deployment.
 
-##### Path A: Apply All Terraform-Managed Infrastructure (Recommended)
-
-Use this path when bootstrapping a maintained environment or whenever a
-Terraform file changes. It configures required APIs, the default Compute
-service account and its IAM roles, Cloud Run runtime settings, telemetry
-resources, the logs bucket, and Firestore TTL policies.
-
-Preview the complete plan:
-```bash
-agents-cli infra single-project \
-  --project <YOUR_PROJECT_ID>
-```
-
-After reviewing every proposed action, apply the plan:
-```bash
-agents-cli infra single-project \
-  --project <YOUR_PROJECT_ID> \
-  --apply
-```
-
-Without `--apply`, the command only initializes Terraform and displays the
-plan. The apply command can modify every resource in the single-project
-Terraform configuration, not only the file that most recently changed.
-
-If you choose Path A, skip the manual Cloud Run, telemetry IAM, and Firestore
-TTL commands in Path B.
-
-##### Path B: Configure Individual Infrastructure Topics Manually
-
-Use this path only when Terraform is not managing the environment, or for
-targeted recovery after an incomplete deployment.
-
-###### Path B.1: Cloud Run Cost and Startup Settings
+##### Step 3.1: Cloud Run Cost and Startup Settings
 ```bash
 gcloud run services update foxquiz \
   --project <YOUR_PROJECT_ID> \
@@ -146,7 +134,7 @@ gcloud run services update foxquiz \
 - `--cpu-boost` allocates additional CPU during startup.
 - `--execution-environment gen1` selects the lightweight Gen1 environment.
 
-###### Path B.2: OpenTelemetry Export Permissions
+##### Step 3.2: OpenTelemetry Export Permissions
 
 Retrieve the project number instead of hard-coding it:
 ```bash
@@ -183,7 +171,7 @@ Without these roles, OpenTelemetry exporters repeatedly log HTTP
 `403 Forbidden` errors. Repeat these grants only if the project or runtime
 service account changes.
 
-###### Path B.3: Firestore Time To Live (TTL) Policies
+##### Step 3.3: Firestore Time To Live (TTL) Policies
 ```bash
 gcloud firestore fields ttls update expires_at \
   --collection-group=budgets \
@@ -204,8 +192,7 @@ deletion.
 
 #### Step 4: Ensure Public Accessibility
 
-Public invocation is currently a post-deployment command for both
-infrastructure paths:
+Public invocation is a post-deployment command:
 ```bash
 gcloud run services add-iam-policy-binding foxquiz \
   --member='allUsers' \
