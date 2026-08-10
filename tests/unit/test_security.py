@@ -64,6 +64,18 @@ def _configure_semantic_classifier_repo(mock_repo_inst: MagicMock) -> None:
     }
 
 
+def test_security_block_exception_strips_legacy_mascot_glyphs():
+    """Keep old Firestore response values from rendering vendor emoji artwork."""
+    glyphs = "".join(
+        chr(codepoint) for codepoint in (0x1F98A, 0x1F989, 0x1F409, 0x1F432)
+    )
+
+    error = SecurityBlockException(f"Blocked{glyphs}", "MALICIOUS")
+
+    assert error.message == "Blocked"
+    assert str(error) == "Blocked"
+
+
 def test_firestore_repo_quiz(mock_repo):
     """Verify storing, retrieving, and expiration behavior for shared quizzes."""
     quiz_id = "test_quiz_123"

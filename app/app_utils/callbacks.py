@@ -47,10 +47,14 @@ _TOKEN_USAGE_STATE_KEY = "temp:foxquiz_token_usage"
 _TOKEN_USAGE_FLUSHED_STATE_KEY = "temp:foxquiz_token_usage_flushed"
 
 
+_MASCOT_EMOJI_TRANSLATION = dict.fromkeys((0x1F98A, 0x1F989, 0x1F409, 0x1F432))
+
+
 class SecurityBlockException(Exception):
     """Exception raised when a request is blocked by the security checkpoint or token budgets."""
 
     def __init__(self, message: str, block_type: str):
+        message = message.translate(_MASCOT_EMOJI_TRANSLATION)
         super().__init__(message)
         self.message = message
         self.block_type = (
@@ -143,7 +147,7 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
         logger.warning("Global application token budget limit reached.")
         msg = config.get("responses", {}).get(
             f"budget_global_{locale_suffix}",
-            "Heute waren besonders viele fleißige Lernende unterwegs! 🦉 Bitte versuch es morgen noch einmal.",
+            "Heute waren besonders viele fleißige Lernende unterwegs! Bitte versuch es morgen noch einmal.",
         )
         raise SecurityBlockException(msg, "BUDGET_EXCEEDED")
 

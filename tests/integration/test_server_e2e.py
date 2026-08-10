@@ -210,14 +210,28 @@ def test_chat_stream_error_handling(server_fixture: subprocess.Popen[str]) -> No
 def test_public_static_assets(server_fixture: subprocess.Popen[str]) -> None:
     """Verify social-preview and favicon assets are packaged and publicly served."""
     social_preview = requests.get(
-        BASE_URL + "/static/assets/foxquiz_github_social_preview.jpg", timeout=10
+        BASE_URL + "/static/assets/foxquiz_social_preview.jpg", timeout=10
     )
     assert social_preview.status_code == 200
     assert social_preview.headers["content-type"].startswith("image/jpeg")
 
     favicon_response = requests.get(BASE_URL + "/favicon.ico", timeout=10)
     assert favicon_response.status_code == 200
-    assert favicon_response.headers["content-type"].startswith("image/svg+xml")
+    assert favicon_response.headers["content-type"].startswith("image/x-icon")
+
+    manifest_response = requests.get(BASE_URL + "/static/site.webmanifest", timeout=10)
+    assert manifest_response.status_code == 200
+    assert manifest_response.headers["content-type"].startswith(
+        "application/manifest+json"
+    )
+
+    for mascot in ("felix", "olivia", "dino"):
+        mascot_response = requests.get(
+            BASE_URL + f"/static/assets/mascots/{mascot}-face-128.png",
+            timeout=10,
+        )
+        assert mascot_response.status_code == 200
+        assert mascot_response.headers["content-type"].startswith("image/png")
 
 
 def test_deployed_version_metadata(server_fixture: subprocess.Popen[str]) -> None:

@@ -360,21 +360,18 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 mascots = [
                     {
                         "id": "fox",
-                        "emoji": "🦊",
                         "name": "Felix der Fuchs",
                         "name_pt": "Felix, a Raposa",
                         "name_en": "Felix the Fox",
                     },
                     {
                         "id": "owl",
-                        "emoji": "🦉",
                         "name": "Olivia die Eule",
                         "name_pt": "Olivia, a Coruja",
                         "name_en": "Olivia the Owl",
                     },
                     {
                         "id": "dragon",
-                        "emoji": "🐉",
                         "name": "Dino der Drache",
                         "name_pt": "Dino, o Dragão",
                         "name_en": "Dino the Dragon",
@@ -388,10 +385,9 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     if lang == "pt"
                     else mascot["name_en"]
                 )
-                mascot_emoji = mascot["emoji"]
 
                 mascot_prompt = (
-                    f"You are {mascot_name} {mascot_emoji}, a friendly, encouraging school learning companion mascot speaking directly to a child.\n"
+                    f"You are {mascot_name}, a friendly, encouraging school learning companion mascot speaking directly to a child.\n"
                     f"The child asked for a quiz about '{topic}' in Grade '{grade}' and Subject '{subject}', but this topic is too complex or not appropriate (Explanation: {compatibility.explanation}).\n"
                     f"In a playful, extremely encouraging, and kind tone, explain in language '{lang}' that this topic is usually learned by older students, and suggest these age-appropriate alternatives: {', '.join(compatibility.suggested_topics)}.\n"
                     f"Ask them which of these cool topics they would like to do instead, or if they want to choose a different grade/topic. Keep the response short, clear, and full of positive energy!"
@@ -422,21 +418,18 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     mascots = [
         {
             "id": "fox",
-            "emoji": "🦊",
             "name": "Felix der Fuchs",
             "name_pt": "Felix, a Raposa",
             "name_en": "Felix the Fox",
         },
         {
             "id": "owl",
-            "emoji": "🦉",
             "name": "Olivia die Eule",
             "name_pt": "Olivia, a Coruja",
             "name_en": "Olivia the Owl",
         },
         {
             "id": "dragon",
-            "emoji": "🐉",
             "name": "Dino der Drache",
             "name_pt": "Dino, o Dragão",
             "name_en": "Dino the Dragon",
@@ -450,7 +443,6 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         if lang == "pt"
         else mascot["name_en"]
     )
-    mascot_emoji = mascot["emoji"]
 
     missing_fields = []
     if not grade:
@@ -473,10 +465,10 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     missing_str = ", ".join(missing_fields)
 
     system_conv_prompt = (
-        f"You are {mascot_name} {mascot_emoji}, a playful, friendly learning companion for kids.\n"
+        f"You are {mascot_name}, a playful, friendly learning companion for kids.\n"
         f"The user wants a quiz but some info is missing: ({missing_str}).\n"
         f"Ask them conversationally to fill in these missing values. Speak directly to them in '{lang}'.\n"
-        f"Keep your message encouraging, short, clear, and full of positive vibes! Use appropriate emojis."
+        f"Keep your message encouraging, short, and clear. Do not use animal emoji because the frontend renders the selected mascot artwork separately."
     )
 
     client = Client()
@@ -493,11 +485,11 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     except Exception as e:
         logger.error(f"Mascot prompt generation error: {e}. Using fallback.")
         if lang == "de":
-            msg_text = f"Hallo! {mascot_emoji} Ich bin {mascot_name}. Um dein cooles Quiz vorzubereiten, brauche ich noch folgende Infos: {missing_str}! Lass es mich wissen!"
+            msg_text = f"Hallo! Ich bin {mascot_name}. Um dein cooles Quiz vorzubereiten, brauche ich noch folgende Infos: {missing_str}! Lass es mich wissen!"
         elif lang == "pt":
-            msg_text = f"Olá! {mascot_emoji} Eu sou o {mascot_name}. Para montar seu super quiz, ainda preciso saber: {missing_str}! Me conta!"
+            msg_text = f"Olá! Eu sou o {mascot_name}. Para montar seu super quiz, ainda preciso saber: {missing_str}! Me conta!"
         else:
-            msg_text = f"Hello! {mascot_emoji} I'm {mascot_name}. To build your awesome quiz, I still need: {missing_str}! Tell me about it!"
+            msg_text = f"Hello! I'm {mascot_name}. To build your awesome quiz, I still need: {missing_str}! Tell me about it!"
 
     return Event(
         content=types.Content(
@@ -781,11 +773,11 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     logger.info(f"Finalizing validated quiz: '{quiz_dict.get('title')}'")
 
     if lang == "de":
-        msg = "🎉 **Dein personalisiertes Quiz ist fertig!**\n\nKlicke unten auf den Knopf, um loszulegen! Ich drücke dir ganz fest die Pfoten! 🦊✨"
+        msg = "🎉 **Dein personalisiertes Quiz ist fertig!**\n\nKlicke unten auf den Knopf, um loszulegen! Ich drücke dir ganz fest die Pfoten! ✨"
     elif lang == "pt":
-        msg = "🎉 **Seu quiz personalizado está pronto!**\n\nClique no botão abaixo para começar a jogar! Boa sorte! 🐉✨"
+        msg = "🎉 **Seu quiz personalizado está pronto!**\n\nClique no botão abaixo para começar a jogar! Boa sorte! ✨"
     else:
-        msg = "🎉 **Your customized quiz is ready!**\n\nClick the button below to start solving! Good luck! 🦉✨"
+        msg = "🎉 **Your customized quiz is ready!**\n\nClick the button below to start solving! Good luck! ✨"
 
     # Stream friendly greeting to user chat
     yield Event(

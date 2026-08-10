@@ -151,8 +151,8 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 def favicon() -> FileResponse:
     """Serve the FoxQuiz favicon from the packaged static assets."""
     return FileResponse(
-        os.path.join(static_dir, "assets", "favicon.svg"),
-        media_type="image/svg+xml",
+        os.path.join(static_dir, "assets", "favicon.ico"),
+        media_type="image/x-icon",
     )
 
 
@@ -181,15 +181,15 @@ def read_root(request: Request):
     # Social Preview Meta Tags Meta Data
     meta_data = {
         "de": {
-            "title": "FoxQuiz 🦊 — Dein spielerischer Lernbegleiter!",
+            "title": "FoxQuiz — Dein spielerischer Lernbegleiter!",
             "description": "Intelligente, maskottchengeführte Prüfungsvorbereitung für die Klassen 5-12. Kostenlos, sicher, werbefrei und perfekt auf den Lehrplan abgestimmt!",
         },
         "pt": {
-            "title": "FoxQuiz 🦊 — Seu companheiro de estudos divertido!",
+            "title": "FoxQuiz — Seu companheiro de estudos divertido!",
             "description": "Preparação inteligente para avaliações guiada por mascotes da 5º série até o 3º ano do ensino médio. Gratuito, seguro, sem anúncios e alinhado ao currículo escolar!",
         },
         "en": {
-            "title": "FoxQuiz 🦊 — Your Playful Exam Prep Companion!",
+            "title": "FoxQuiz — Your Playful Exam Prep Companion!",
             "description": "Intelligent, mascot-guided exam preparation for grades 5-12. Free, safe, ad-free, and perfectly aligned with school curriculums!",
         },
     }
@@ -206,14 +206,20 @@ def read_root(request: Request):
     <meta property="og:url" content="{canonical_url}">
     <meta property="og:title" content="{selected["title"]}">
     <meta property="og:description" content="{selected["description"]}">
-    <meta property="og:image" content="https://foxquiz.app/static/assets/foxquiz_github_social_preview.jpg">
+    <meta property="og:image" content="https://foxquiz.app/static/assets/foxquiz_social_preview.jpg">
+    <meta property="og:image:secure_url" content="https://foxquiz.app/static/assets/foxquiz_social_preview.jpg">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1280">
+    <meta property="og:image:height" content="640">
+    <meta property="og:image:alt" content="Felix, Olivia, and Dino learning together with FoxQuiz">
 
     <!-- Twitter / X -->
     <meta property="twitter:card" content="summary_large_image">
     <meta property="twitter:url" content="{canonical_url}">
     <meta property="twitter:title" content="{selected["title"]}">
     <meta property="twitter:description" content="{selected["description"]}">
-    <meta property="twitter:image" content="https://foxquiz.app/static/assets/foxquiz_github_social_preview.jpg">
+    <meta property="twitter:image" content="https://foxquiz.app/static/assets/foxquiz_social_preview.jpg">
+    <meta property="twitter:image:alt" content="Felix, Olivia, and Dino learning together with FoxQuiz">
     """
 
     # Read the base index.html file

@@ -61,11 +61,11 @@ _mock_db: dict[str, dict[str, Any]] = {
                 r"(?i)\b(ignore previous instructions|disregard all instructions|override rules)\b"
             ],
             "responses": {
-                "injection_de": "Dieser Assistent kann dich nur bei der Vorbereitung auf deine Prüfungen unterstützen. 🦊",
-                "injection_pt": "Este assistente só pode apoiar você na preparação para seus exames. 🐉",
+                "injection_de": "Dieser Assistent kann dich nur bei der Vorbereitung auf deine Prüfungen unterstützen.",
+                "injection_pt": "Este assistente só pode apoiar você na preparação para seus exames.",
                 "injection_en": "This assistant can only support you in preparing for your exams.",
-                "off_topic_de": "Dieser Assistent kann dir leider nur bei der Vorbereitung auf Prüfungen helfen! 🦉",
-                "off_topic_pt": "Este assistente infelizmente só pode ajudar na preparação para exames! 🦉",
+                "off_topic_de": "Dieser Assistent kann dir leider nur bei der Vorbereitung auf Prüfungen helfen!",
+                "off_topic_pt": "Este assistente infelizmente só pode ajudar na preparação para exames!",
                 "off_topic_en": "This assistant can only help you prepare for exams!",
                 "classifier_unavailable_de": "Die Sicherheitsprüfung ist vorübergehend nicht verfügbar. Bitte versuche es gleich noch einmal.",
                 "classifier_unavailable_pt": "A verificação de segurança está temporariamente indisponível. Tente novamente em instantes.",

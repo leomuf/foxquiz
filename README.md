@@ -188,6 +188,18 @@ Built-in telemetry exports to Cloud Trace, BigQuery, and Cloud Logging.
 
 ---
 
+## Mascot Artwork License
+
+The original Felix, Olivia, and Dino artwork, favicon/mobile icons, and social
+preview derivatives are dedicated to the public domain under
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/), to the
+extent that applicable rights exist and can be waived. The artwork is
+AI-assisted and includes a detailed human-contribution and generation
+provenance notice in
+[`assets/brand_sources/README.md`](assets/brand_sources/README.md).
+
+---
+
 ## 💖 Acknowledgments & Recognition
 This project was developed as a capstone project for [**Kaggle’s 5-Day AI Agents: Intensive Vibe Coding Course with Google**](https://www.kaggle.com/competitions/5-day-ai-agents-intensive-vibecoding-course-with-google) and is directly inspired by the concepts, techniques and best practices taught throughout the course.
 
