@@ -72,6 +72,9 @@ def start_server() -> subprocess.Popen[str]:
     ]
     env = os.environ.copy()
     env["INTEGRATION_TEST"] = "TRUE"
+    env["AGENT_VERSION"] = "integration-test"
+    env["COMMIT_SHA"] = "0123456789abcdef0123456789abcdef01234567"
+    env["BUILD_TIME"] = "2026-08-10T12:00:00Z"
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -152,7 +155,7 @@ def test_chat_stream(server_fixture: subprocess.Popen[str]) -> None:
         "session_id": session_id,
         "new_message": {
             "role": "user",
-            "parts": [{"text": "Hi!"}],
+            "parts": [{"text": "Create a short biology quiz about cells."}],
         },
         "streaming": True,
     }
@@ -202,6 +205,41 @@ def test_chat_stream_error_handling(server_fixture: subprocess.Popen[str]) -> No
         f"Expected status code 422, got {response.status_code}"
     )
     logger.info("Error handling test completed successfully")
+
+
+def test_public_static_assets(server_fixture: subprocess.Popen[str]) -> None:
+    """Verify social-preview and favicon assets are packaged and publicly served."""
+    social_preview = requests.get(
+        BASE_URL + "/static/assets/foxquiz_github_social_preview.jpg", timeout=10
+    )
+    assert social_preview.status_code == 200
+    assert social_preview.headers["content-type"].startswith("image/jpeg")
+
+    favicon_response = requests.get(BASE_URL + "/favicon.ico", timeout=10)
+    assert favicon_response.status_code == 200
+    assert favicon_response.headers["content-type"].startswith("image/svg+xml")
+
+
+def test_deployed_version_metadata(server_fixture: subprocess.Popen[str]) -> None:
+    """Verify the API, footer, and response header identify the deployed commit."""
+    response = requests.get(BASE_URL + "/version", timeout=10)
+    assert response.status_code == 200
+    assert response.json() == {
+        "version": "integration-test",
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "short_commit_sha": "0123456",
+        "commit_url": (
+            "https://github.com/leomuf/foxquiz/commit/"
+            "0123456789abcdef0123456789abcdef01234567"
+        ),
+        "build_time": "2026-08-10T12:00:00Z",
+    }
+
+    root_response = requests.get(BASE_URL, timeout=10)
+    assert root_response.status_code == 200
+    assert "FoxQuiz vintegration-test" in root_response.text
+    assert ">0123456</a>" in root_response.text
+    assert root_response.headers["X-FoxQuiz-Version"] == ("integration-test (0123456)")
 
 
 def test_collect_feedback(server_fixture: subprocess.Popen[str]) -> None:

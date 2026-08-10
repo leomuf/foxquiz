@@ -1,0 +1,51 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from unittest.mock import patch
+
+from app.app_utils.build_info import get_build_info
+
+
+def test_build_info_uses_deployment_environment(monkeypatch):
+    """Verify deployment metadata identifies the exact public Git revision."""
+    commit_sha = "5b1b1ed5c11eeaab77430bf304311610c8a0cefa"
+    monkeypatch.setenv("AGENT_VERSION", "1.0.4")
+    monkeypatch.setenv("COMMIT_SHA", commit_sha)
+    monkeypatch.setenv("BUILD_TIME", "2026-08-10T12:00:00Z")
+
+    info = get_build_info()
+
+    assert info == {
+        "version": "1.0.4",
+        "commit_sha": commit_sha,
+        "short_commit_sha": "5b1b1ed",
+        "commit_url": f"https://github.com/leomuf/foxquiz/commit/{commit_sha}",
+        "build_time": "2026-08-10T12:00:00Z",
+    }
+
+
+def test_build_info_has_safe_local_defaults(monkeypatch):
+    """Verify local runs remain identifiable without injected deployment values."""
+    monkeypatch.delenv("AGENT_VERSION", raising=False)
+    monkeypatch.delenv("COMMIT_SHA", raising=False)
+    monkeypatch.delenv("BUILD_TIME", raising=False)
+
+    with patch("app.app_utils.build_info.metadata_version", return_value="1.0.4"):
+        info = get_build_info()
+
+    assert info["version"] == "1.0.4"
+    assert info["commit_sha"] == "dev"
+    assert info["short_commit_sha"] == "dev"
+    assert info["commit_url"] is None
+    assert info["build_time"] is None

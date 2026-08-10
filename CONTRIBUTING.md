@@ -109,11 +109,24 @@ Skip this command when the `(default)` database already exists.
 #### Step 2: Deploy the Application Container
 
 ```bash
-agents-cli deploy --no-confirm-project
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "Refusing production deployment: commit or remove all workspace changes."
+  exit 1
+fi
+
+COMMIT_SHA="$(git rev-parse HEAD)"
+AGENT_VERSION="$(uv version --short)"
+BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+agents-cli deploy \
+  --no-confirm-project \
+  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME}"
 ```
 
-This deploys application code and uses the project's default Compute service
-account.
+The clean-worktree check ensures the commit identifies every deployed source
+change. The version, full commit SHA, and UTC build time are exposed at
+`/version`, in the page footer, and in telemetry. The deploy uses the
+project's default Compute service account.
 
 #### Step 3: Configure Required Infrastructure Manually
 

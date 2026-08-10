@@ -41,6 +41,29 @@ def mock_repo():
     return FirestoreRepository(force_mock=True)
 
 
+def _semantic_classifier_context() -> MagicMock:
+    context = MagicMock()
+    part = MagicMock()
+    part.text = "Create a biology quiz."
+    context.user_content.parts = [part]
+    context.state = {}
+    return context
+
+
+def _configure_semantic_classifier_repo(mock_repo_inst: MagicMock) -> None:
+    mock_repo_inst.is_signature_banned.return_value = False
+    mock_repo_inst.get_token_budget.return_value = {
+        "tokens_used": 0,
+        "last_reset_date": datetime.date.today().isoformat(),
+    }
+    mock_repo_inst.get_security_config.return_value = {
+        "classification_prompt": "Return SAFE, OFF_TOPIC, or MALICIOUS.",
+        "blocklist_keywords": [],
+        "injection_regexes": [],
+        "responses": {},
+    }
+
+
 def test_firestore_repo_quiz(mock_repo):
     """Verify storing, retrieving, and expiration behavior for shared quizzes."""
     quiz_id = "test_quiz_123"
@@ -248,6 +271,67 @@ async def test_before_agent_callback_sheriff_auto_ban():
         assert "permanent gesperrt" in exc_info.value.message
         # Verify ban_signature was automatically triggered
         mock_repo_inst.ban_signature.assert_called_once()
+
+    client_ip_ctx.reset(t1)
+    anonymous_id_ctx.reset(t2)
+    client_locale_ctx.reset(t3)
+
+
+@pytest.mark.asyncio
+async def test_semantic_classifier_safe_response_uses_bounded_thinking():
+    """Verify a valid SAFE decision uses a bounded thinking budget."""
+    t1 = client_ip_ctx.set("127.0.0.1")
+    t2 = anonymous_id_ctx.set("test_anon_id")
+    t3 = client_locale_ctx.set("en")
+
+    with (
+        patch("app.app_utils.callbacks.FirestoreRepository") as MockRepo,
+        patch("app.app_utils.callbacks.Client") as MockClient,
+    ):
+        _configure_semantic_classifier_repo(MockRepo.return_value)
+        response = MagicMock()
+        response.text = "SAFE"
+        response.usage_metadata.total_token_count = 7
+        MockClient.return_value.models.generate_content.return_value = response
+
+        context = _semantic_classifier_context()
+        await before_agent_callback(context)
+
+        generate_config = (
+            MockClient.return_value.models.generate_content.call_args.kwargs["config"]
+        )
+        assert generate_config.max_output_tokens == 512
+        assert generate_config.thinking_config.thinking_budget == 256
+        assert context.state[callbacks._TOKEN_USAGE_STATE_KEY] == 7
+
+    client_ip_ctx.reset(t1)
+    anonymous_id_ctx.reset(t2)
+    client_locale_ctx.reset(t3)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("classifier_text", [None, "", "UNKNOWN"])
+async def test_semantic_classifier_invalid_response_fails_closed(classifier_text):
+    """Verify missing or invalid classifier output never receives safe passage."""
+    t1 = client_ip_ctx.set("127.0.0.1")
+    t2 = anonymous_id_ctx.set("test_anon_id")
+    t3 = client_locale_ctx.set("en")
+
+    with (
+        patch("app.app_utils.callbacks.FirestoreRepository") as MockRepo,
+        patch("app.app_utils.callbacks.Client") as MockClient,
+    ):
+        _configure_semantic_classifier_repo(MockRepo.return_value)
+        response = MagicMock()
+        response.text = classifier_text
+        response.usage_metadata.total_token_count = 7
+        MockClient.return_value.models.generate_content.return_value = response
+
+        with pytest.raises(SecurityBlockException) as exc_info:
+            await before_agent_callback(_semantic_classifier_context())
+
+        assert exc_info.value.block_type == "CLASSIFIER_UNAVAILABLE"
+        assert "temporarily unavailable" in exc_info.value.message
 
     client_ip_ctx.reset(t1)
     anonymous_id_ctx.reset(t2)

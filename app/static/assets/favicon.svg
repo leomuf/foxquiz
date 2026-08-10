@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!--
+    FoxQuiz favicon
+
+    Generated using a Google Antigravity AI agent with Google ADK 2.0
+    and google-agents-cli. Reviewed and selected for FoxQuiz by
+    Leonardo Muffato / AUTOSOFT Engineering.
+
+    To the extent that copyright or related rights exist in this work,
+    they are waived under CC0 1.0 Universal.
+
+    SPDX-License-Identifier: CC0-1.0
+    License: https://creativecommons.org/publicdomain/zero/1.0/
+  -->
+  <text x="32" y="52"
+        font-family="'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif"
+        font-size="54"
+        text-anchor="middle"
+        role="img"
+        aria-label="Fox">🦊</text>
+</svg>

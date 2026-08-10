@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FoxQuiz — Your Playful Exam Prep Companion!</title>
+    <link rel="icon" type="image/svg+xml" href="/static/assets/favicon.svg">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -913,6 +914,21 @@
             -webkit-text-fill-color: transparent;
         }
 
+        .footer-build {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .footer-build a {
+            color: var(--text-muted);
+            text-decoration: underline;
+            text-underline-offset: 0.2rem;
+        }
+
+        .footer-build a:hover {
+            color: var(--active-theme);
+        }
+
         .footer-links {
             display: flex;
             gap: 1.5rem;
@@ -1180,6 +1196,7 @@
                 <span>💖</span> <span data-translate="btn_donate">Projekt unterstützen</span>
             </a>
         </div>
+        <div class="footer-build">{{FOXQUIZ_BUILD_INFO}}</div>
         <div class="footer-links">
             <a href="https://github.com/leomuf/foxquiz" target="_blank" rel="noopener noreferrer" class="footer-link">
                 <span>💻</span> <span data-translate="footer_github">GitHub Repository</span>

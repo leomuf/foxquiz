@@ -19,17 +19,19 @@
 # are licensed under CC BY 4.0. See global LICENSE file for details.
 # ==============================================================================
 
+import html
 import logging as python_logging
 import os
 import uuid
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk.cli.fast_api import get_fast_api_app
 from google.cloud import logging as google_cloud_logging
 
+from app.app_utils.build_info import get_build_info
 from app.app_utils.callbacks import SecurityBlockException
 from app.app_utils.request_context import (
     anonymous_id_ctx,
@@ -127,15 +129,15 @@ app: FastAPI = get_fast_api_app(
     artifact_service_uri=artifact_service_uri,
     allow_origins=allow_origins,
     session_service_uri=session_service_uri,
-    otel_to_cloud=True,
+    otel_to_cloud=os.getenv("INTEGRATION_TEST") != "TRUE",
 )
 app.title = "foxquiz"
 app.description = "API for interacting with the Agent foxquiz"
 
-# Dynamically remove the default "/" route registered by ADK to expose our own UI
+# Remove inherited routes that FoxQuiz replaces with its UI and build metadata.
 # Modify app.routes list in-place because it has no setter in newer FastAPI/Starlette versions.
 for r in list(app.routes):
-    if getattr(r, "path", None) == "/":
+    if getattr(r, "path", None) in {"/", "/version"}:
         app.routes.remove(r)
 
 # Mount static files and serve SPA frontend
@@ -143,6 +145,21 @@ static_dir = os.path.join(AGENT_DIR, "app", "static")
 if not os.path.exists(static_dir):
     os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    """Serve the FoxQuiz favicon from the packaged static assets."""
+    return FileResponse(
+        os.path.join(static_dir, "assets", "favicon.svg"),
+        media_type="image/svg+xml",
+    )
+
+
+@app.get("/version", include_in_schema=False)
+def version_info() -> dict[str, str | None]:
+    """Expose public metadata for the currently deployed build."""
+    return get_build_info()
 
 
 @app.get("/")
@@ -219,7 +236,27 @@ def read_root(request: Request):
     # Dynamically inject the Social Preview Meta Tags right before </head>
     html_content = html_content.replace("</head>", f"{og_tags}\n</head>")
 
-    return HTMLResponse(html_content)
+    build_info = get_build_info()
+    version_label = html.escape(build_info["version"] or "dev")
+    commit_label = html.escape(build_info["short_commit_sha"] or "dev")
+    commit_url = build_info["commit_url"]
+    if commit_url:
+        commit_markup = (
+            f'<a href="{html.escape(commit_url)}" target="_blank" '
+            f'rel="noopener noreferrer">{commit_label}</a>'
+        )
+    else:
+        commit_markup = f"<span>{commit_label}</span>"
+
+    html_content = html_content.replace(
+        "{{FOXQUIZ_BUILD_INFO}}",
+        f"FoxQuiz v{version_label} · {commit_markup}",
+    )
+    response_version = f"{version_label} ({commit_label})"
+    return HTMLResponse(
+        html_content,
+        headers={"X-FoxQuiz-Version": response_version},
+    )
 
 
 # --- ContextVar Injection Middleware ---

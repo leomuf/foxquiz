@@ -5,9 +5,10 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 def main():
-    base_dir = (
-        "/home/lmuff/projects/Kaggle_Google_AIAgents/capstone_project/foxquiz/assets"
-    )
+    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    base_dir = os.path.join(project_dir, "assets")
+    output_dir = os.path.join(project_dir, "app", "static", "assets")
+    os.makedirs(output_dir, exist_ok=True)
     input_path = os.path.join(base_dir, "foxquiz_mascots_performing_quiz.png")
 
     if not os.path.exists(input_path):
@@ -97,8 +98,8 @@ def main():
     final_img = Image.alpha_composite(resized_img, overlay).convert("RGB")
 
     # 8. Save final image as social preview (both optimized PNG and JPEG to ensure <1MB)
-    output_path_png = os.path.join(base_dir, "foxquiz_github_social_preview.png")
-    output_path_jpg = os.path.join(base_dir, "foxquiz_github_social_preview.jpg")
+    output_path_png = os.path.join(output_dir, "foxquiz_github_social_preview.png")
+    output_path_jpg = os.path.join(output_dir, "foxquiz_github_social_preview.jpg")
 
     print(f"Saving final social preview as optimized PNG to {output_path_png}...")
     final_img.save(output_path_png, "PNG", optimize=True)
