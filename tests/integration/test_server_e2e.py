@@ -15,6 +15,7 @@
 import json
 import logging
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -30,22 +31,13 @@ from requests.exceptions import RequestException
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Skip integration tests in CI/GitHub Actions when no Google Cloud / Gemini credentials are present
-skip_integration = os.environ.get("GITHUB_ACTIONS") == "true" and not any(
-    os.environ.get(var)
-    for var in [
-        "GEMINI_API_KEY",
-        "GOOGLE_API_KEY",
-        "GOOGLE_APPLICATION_CREDENTIALS",
-    ]
-)
 
-pytestmark = pytest.mark.skipif(
-    skip_integration,
-    reason="Skipping integration tests in GitHub Actions because Google Cloud/Gemini credentials are not configured.",
-)
+with socket.socket() as port_socket:
+    port_socket.bind(("127.0.0.1", 0))
+    TEST_PORT = port_socket.getsockname()[1]
 
-BASE_URL = "http://127.0.0.1:8000"
+
+BASE_URL = f"http://127.0.0.1:{TEST_PORT}"
 STREAM_URL = BASE_URL + "/run_sse"
 FEEDBACK_URL = BASE_URL + "/feedback"
 
@@ -68,7 +60,7 @@ def start_server() -> subprocess.Popen[str]:
         "--host",
         "0.0.0.0",
         "--port",
-        "8000",
+        str(TEST_PORT),
     ]
     env = os.environ.copy()
     env["INTEGRATION_TEST"] = "TRUE"
@@ -100,7 +92,7 @@ def wait_for_server(timeout: int = 90, interval: int = 1) -> bool:
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            response = requests.get("http://127.0.0.1:8000/docs", timeout=10)
+            response = requests.get(BASE_URL + "/docs", timeout=10)
             if response.status_code == 200:
                 logger.info("Server is ready")
                 return True
@@ -130,6 +122,7 @@ def server_fixture(request: Any) -> Iterator[subprocess.Popen[str]]:
     yield server_process
 
 
+@pytest.mark.google_cloud
 def test_chat_stream(server_fixture: subprocess.Popen[str]) -> None:
     """Test the chat stream functionality."""
     logger.info("Starting chat stream test")

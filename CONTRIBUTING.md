@@ -127,10 +127,39 @@ Also open the browser developer tools (`F12`) while reproducing the problem:
 ### 3. Running Quality Checks
 Before submitting your changes, please ensure that all tests and code quality checks pass.
 
-* **Run unit and integration tests:**
+* **Install the Chromium browser used by the frontend tests (one-time):**
   ```bash
-  uv run python -m pytest tests/unit tests/integration
+  uv run playwright install chromium
   ```
+
+* **Run all credential-free tests:**
+  ```bash
+  uv run python -m pytest \
+    tests/unit tests/integration tests/browser \
+    -m "not google_cloud"
+  ```
+
+  This is the same test boundary used by GitHub Actions. It runs the unit,
+  deterministic server, and mocked browser tests without contacting Google
+  Cloud.
+
+  The browser tests mock the session, Server-Sent Events (SSE), and persistence
+  responses. They verify language and mascot selection, grade/subject/topic
+  submission, completion of a ten-question quiz, scoring, negative-feedback
+  context, and blocked-response handling without calling Gemini, Vertex AI, or
+  Firestore.
+
+* **Run Google-dependent integration tests locally:**
+  ```bash
+  GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID> \
+  GCLOUD_PROJECT=<YOUR_PROJECT_ID> \
+  uv run python -m pytest tests/integration -m google_cloud
+  ```
+
+  These tests invoke the real agent and require local Application Default
+  Credentials. They are deliberately excluded from GitHub Actions; never add
+  Google credentials or service-account keys to the repository.
+
 * **Run the code linter:**
   ```bash
   agents-cli lint
