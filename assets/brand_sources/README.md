@@ -13,7 +13,7 @@ waived.
 This CC0 dedication applies only to:
 
 - `assets/brand_sources/**`
-- `assets/foxquiz_mascots_performing_quiz.png`
+- `assets/brand_sources/marketing/foxquiz_mascots_performing_quiz.png`
 - `app/static/assets/mascots/**`
 - `app/static/assets/favicon.ico`
 - `app/static/assets/favicon-16x16.png`
@@ -46,7 +46,8 @@ Human contribution included defining the characters and constraints, selecting
 the warm storybook-explorer direction, reviewing the generated designs,
 directing the individual face/full-body and group compositions, and approving
 their use in FoxQuiz.
-On 2026-08-11, `assets/foxquiz_mascots_performing_quiz.png` was regenerated
+On 2026-08-11,
+`assets/brand_sources/marketing/foxquiz_mascots_performing_quiz.png` was regenerated
 with OpenAI's image-generation tooling by combining the established Felix,
 Olivia, and Dino character designs with the composition, study-room background,
 and floating quiz panels of the previous FoxQuiz marketing artwork. Human
@@ -56,11 +57,12 @@ Production processing removed flat chroma-key backgrounds, cleaned and
 despilled the edges, created transparent square exports, resized browser/mobile
 variants, and added the exact FoxQuiz wordmark to the social preview.
 
-The high-resolution source masters are in `assets/brand_sources/mascots/`.
+The high-resolution mascot and marketing masters are in
+`assets/brand_sources/mascots/` and `assets/brand_sources/marketing/`.
 Deterministic production exports can be rebuilt with:
 
 ```bash
-python assets/build_brand_assets.py
+uv run --with pillow python assets/build_brand_assets.py
 ```
 
 The builder requires Pillow. AI provenance is disclosed for transparency; it

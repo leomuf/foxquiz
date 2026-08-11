@@ -2,7 +2,8 @@
 
 The high-resolution, transparent mascot masters live in
 ``assets/brand_sources``. The social preview uses the canonical marketing image
-at ``assets/foxquiz_mascots_performing_quiz.png``. Running this script creates
+at
+``assets/brand_sources/marketing/foxquiz_mascots_performing_quiz.png``. Running this script creates
 deterministic web-sized exports under ``app/static/assets`` without altering
 the source artwork.
 """
@@ -16,7 +17,13 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_SOURCE_DIR = PROJECT_DIR / "assets" / "brand_sources"
-DEFAULT_SOCIAL_SOURCE = PROJECT_DIR / "assets" / "foxquiz_mascots_performing_quiz.png"
+DEFAULT_SOCIAL_SOURCE = (
+    PROJECT_DIR
+    / "assets"
+    / "brand_sources"
+    / "marketing"
+    / "foxquiz_mascots_performing_quiz.png"
+)
 DEFAULT_OUTPUT_DIR = PROJECT_DIR / "app" / "static" / "assets"
 MASCOTS = ("felix", "olivia", "dino")
 VARIANTS = ("face", "full")

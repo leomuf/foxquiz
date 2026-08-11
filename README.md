@@ -1,6 +1,6 @@
 # 🦊 FoxQuiz: Dynamic Interactive Exam Prep Companion
 
-![FoxQuiz Cover Art](assets/foxquiz_mascots_performing_quiz.png)
+![FoxQuiz Cover Art](assets/brand_sources/marketing/foxquiz_mascots_performing_quiz.png)
 
 🌐 **Play Online Now:** [https://foxquiz.app](https://foxquiz.app)
 
