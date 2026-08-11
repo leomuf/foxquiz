@@ -229,3 +229,50 @@ def test_upfront_curriculum_validation_mismatch() -> None:
     assert final_session.state.get("topic") is None, (
         "Incompatible topic should be cleared from state"
     )
+
+
+def test_upfront_curriculum_validation_clarifies_broad_advanced_topic() -> None:
+    """Avoid generating before an ambiguous topic has a grade-appropriate scope."""
+    import json
+
+    session_service = InMemorySessionService()
+    session = session_service.create_session_sync(user_id="test_user", app_name="test")
+    runner = Runner(agent=root_agent, session_service=session_service, app_name="test")
+
+    payload = {
+        "grade": "Grade 12",
+        "subject": "Math",
+        "topic": "Multiplication",
+        "preferred_language": "en",
+    }
+    message = types.Content(
+        role="user", parts=[types.Part.from_text(text=json.dumps(payload))]
+    )
+
+    events = list(
+        runner.run(
+            new_message=message,
+            user_id="test_user",
+            session_id=session.id,
+            run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+        )
+    )
+
+    has_clarification = any(
+        event.content
+        and event.content.parts
+        and any(part.text for part in event.content.parts)
+        for event in events
+    )
+    has_quiz_output = any(
+        event.output and isinstance(event.output, dict) and "questions" in event.output
+        for event in events
+    )
+    final_session = session_service.get_session_sync(
+        user_id="test_user", session_id=session.id, app_name="test"
+    )
+
+    assert has_clarification
+    assert not has_quiz_output
+    assert final_session.state.get("curriculum_status") == "needs_clarification"
+    assert final_session.state.get("topic") is None

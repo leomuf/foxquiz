@@ -27,7 +27,7 @@ import os
 import re
 import unicodedata
 from difflib import SequenceMatcher
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -121,14 +121,23 @@ class JudgeAssessment(BaseModel):
 
 
 class CurriculumCompatibility(BaseModel):
-    is_compatible: bool = Field(
-        description="True if the chosen topic is cognitively, pedagogically, and curriculum-wise appropriate for the requested school grade and subject. False otherwise."
+    status: Literal["compatible", "needs_clarification", "incompatible"] = Field(
+        description="Whether the request is ready for generation, needs a narrower scope, or is incompatible with the grade and subject."
     )
     explanation: str = Field(
-        description="A helpful, kind, and pedagogically sound explanation of why the topic is or is not compatible with the grade. If incompatible, state clearly why (e.g., differential equations is university-level math, not for 5th graders)."
+        description="A concise, friendly, user-facing explanation in the requested language."
+    )
+    difficulty_guidance: str = Field(
+        default="",
+        description="Concrete scope, concepts, and exclusions needed to keep the quiz aligned with the requested grade. Required when status is compatible.",
+    )
+    clarification_question: str = Field(
+        default="",
+        description="A short localized question that helps the user narrow an ambiguous or overly broad topic.",
     )
     suggested_topics: List[str] = Field(
-        description="If is_compatible is False, provide 2 to 3 alternative topics in the requested language that are age-appropriate and curriculum-aligned for this grade and subject."
+        default_factory=list,
+        description="Two or three localized scopes or alternative topics when clarification is needed or the request is incompatible.",
     )
 
 
@@ -314,6 +323,8 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     # Reset quality diagnostics on any fresh start or new turn.
     ctx.state["judge_attempts"] = 0
     ctx.state["judge_reasons"] = []
+    ctx.state["curriculum_status"] = None
+    ctx.state["curriculum_guidance"] = ""
     ctx.state["quality_failure_type"] = None
     ctx.state["grounding_title"] = None
     ctx.state["grounding_discarded"] = False
@@ -410,18 +421,19 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         client = Client()
         try:
             validation_prompt = (
-                f"You are an expert, supportive school curriculum evaluator. Assess whether the school topic '{topic}' "
-                f"can be taught in an age-appropriate, simplified, and engaging way to a student "
-                f"in school grade '{grade}' and subject '{subject}'.\n\n"
-                f"GUIDELINES FOR LENIENCY & ENCOURAGEMENT:\n"
-                f"1. Adopt a highly supportive, 'lenient-by-default' approach. If a complex scientific, historical, or geological topic "
-                f"(e.g., 'Explosão cambriana' or evolutionary milestones in 5th Grade Sciences) can be explained in simplified, "
-                f"fun, and conceptual terms without using heavy academic jargon, mark it as compatible (is_compatible = True).\n"
-                f"2. Only mark a topic as incompatible (is_compatible = False) if it is egregiously inappropriate, cognitively impossible, "
-                f"or completely outside school standards for that age group (e.g., advanced university-level differential calculus, "
-                f"complex organic chemistry synthesis, or highly graphic/inappropriate adult themes).\n"
-                f"3. Ensure the assessment, explanation, and suggestions are fully written in language '{lang}' (either 'de', 'pt', or 'en').\n\n"
-                f"Return a structured JSON matching the CurriculumCompatibility schema."
+                "You are a strict but supportive school curriculum scope evaluator.\n"
+                f"Grade/Year: {grade}\nSubject: {subject}\nTopic: {topic}\n\n"
+                "Decide whether this exact combination is ready for quiz generation.\n"
+                "Use status='compatible' only when the topic has a clear interpretation at the requested grade level without silently changing the requested topic. "
+                "Provide difficulty_guidance with concrete grade-level concepts to include and elementary or overly advanced concepts to exclude.\n"
+                "Use status='needs_clarification' when the topic is valid for the subject but too broad, elementary, ambiguous, or level-dependent to infer the intended grade-level scope safely. "
+                "For example, Grade 12 Mathematics plus 'Multiplication' needs clarification between matrix multiplication, polynomial multiplication, complex-number multiplication, or another advanced scope; it must not generate elementary multiplication questions. "
+                "Provide a short clarification_question and two or three suggested_topics/scopes.\n"
+                "Use status='incompatible' when the topic is fundamentally outside the subject, cognitively inappropriate for the grade, or not a suitable school-learning topic. "
+                "Provide two or three age-appropriate alternatives.\n"
+                "Do not accept a combination merely because the topic could be simplified or made harder. First require enough scope to produce a genuinely grade-aligned quiz.\n"
+                f"Write explanation, clarification_question, suggested_topics, and difficulty_guidance in language '{lang}' ('de', 'pt', or 'en').\n"
+                "Return structured JSON matching CurriculumCompatibility."
             )
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -437,11 +449,29 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 response.text.strip()
             )
             logger.info(
-                f"Upfront curriculum check results: is_compatible={compatibility.is_compatible}, explanation='{compatibility.explanation}', suggestions={compatibility.suggested_topics}"
+                "Upfront curriculum check results: status=%s, explanation=%r, "
+                "guidance=%r, suggestions=%s",
+                compatibility.status,
+                compatibility.explanation,
+                compatibility.difficulty_guidance,
+                compatibility.suggested_topics,
             )
+            ctx.state["curriculum_status"] = compatibility.status
+            ctx.state["curriculum_guidance"] = compatibility.difficulty_guidance
 
-            if compatibility.is_compatible:
+            if compatibility.status == "compatible":
                 return Event(actions=EventActions(route="generate_quiz"))
+            elif compatibility.status == "needs_clarification":
+                ctx.state["topic"] = None
+                msg_text = (
+                    compatibility.clarification_question or compatibility.explanation
+                )
+                return Event(
+                    content=types.Content(
+                        role="model", parts=[types.Part.from_text(text=msg_text)]
+                    ),
+                    actions=EventActions(route="ask_more"),
+                )
             else:
                 # Clear incompatible topic from state so they can enter a new one
                 ctx.state["topic"] = None
@@ -498,11 +528,29 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     ),
                     actions=EventActions(route="ask_more"),
                 )
-        except Exception as e:
-            logger.error(
-                f"Error during upfront curriculum check: {e}. Defaulting to allowing quiz generation."
+        except Exception:
+            logger.exception(
+                "Error during upfront curriculum check. Blocking generation until "
+                "the request can be evaluated."
             )
-            return Event(actions=EventActions(route="generate_quiz"))
+            unavailable_messages = {
+                "de": "Ich konnte die Klassenstufe und das Thema gerade nicht zuverl\u00e4ssig pr\u00fcfen. Bitte versuche es gleich noch einmal.",
+                "pt": "N\u00e3o consegui verificar com seguran\u00e7a o ano escolar e o tema agora. Tente novamente em instantes.",
+                "en": "I could not reliably verify the grade and topic right now. Please try again shortly.",
+            }
+            return Event(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part.from_text(
+                            text=unavailable_messages.get(
+                                lang, unavailable_messages["en"]
+                            )
+                        )
+                    ],
+                ),
+                actions=EventActions(route="ask_more"),
+            )
 
     # Otherwise, ask conversationally for what is missing in their language
     mascots = [
@@ -631,6 +679,8 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     previous_score = ctx.state.get("previous_score")
     previous_questions = ctx.state.get("previous_questions")
     previous_quiz_json = ctx.state.get("previous_quiz_json")
+    curriculum_guidance = ctx.state.get("curriculum_guidance", "")
+    judge_reasons = list(ctx.state.get("judge_reasons") or [])
 
     logger.info(
         f"Generating Quiz (Attempt {attempt}) for Grade={grade}, Subject={subject}, Topic={topic}, previous_score={previous_score}"
@@ -646,6 +696,20 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         f"- For younger students (Grades 5-8, ages 10-14): Keep the tone highly playful, simplified, full of positive emojis, and kid-friendly.\n"
         f"- For older students (Grades 9-12, ages 14-18): Switch to a supportive peer-mentor tone. Keep the mascot identity (e.g. Felix/Olivia/Dino) but communicate with intellectual respect, using advanced, clear explanations without sounding overly simple or talking down to them.\n"
     )
+
+    if curriculum_guidance:
+        prompt += (
+            "\n--- AUTHORITATIVE CURRICULUM SCOPE ---\n"
+            f"{curriculum_guidance}\n"
+            "Every question must follow this grade-level scope. Do not replace it with a simpler interpretation of the topic.\n"
+        )
+
+    if judge_reasons:
+        prompt += (
+            "\n--- REQUIRED RETRY CORRECTION ---\n"
+            f"The previous quiz attempt was rejected by the academic reviewer: {judge_reasons[-1]}\n"
+            "Generate a materially corrected quiz that resolves this feedback. Do not repeat the rejected difficulty, scope, or factual issue.\n"
+        )
 
     if search_context:
         prompt += (
@@ -820,6 +884,7 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
     grade = ctx.state.get("grade")
     subject = ctx.state.get("subject")
     topic = ctx.state.get("topic")
+    curriculum_guidance = ctx.state.get("curriculum_guidance", "")
 
     judge_prompt = (
         "You are a strict, professional school academic reviewer (LLM-as-a-judge).\n"
@@ -831,6 +896,8 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         "5. Is the 'correct_option_index' mathematically and factually correct? "
         "CRITICAL: For each question, you MUST independently determine the factually correct answer (whether it is a mathematical calculation, a historical date, a biological definition, etc.). Then, verify that the 'correct_option_index' points EXACTLY to that correct answer inside the 0-based options array. "
         "If there is any mismatch between the factually correct answer, the option at 'correct_option_index', or the correct answer described in your explanation, you MUST set passed to false.\n\n"
+        "The upfront curriculum evaluator supplied this authoritative grade-level scope. The quiz must comply with it:\n"
+        f"{curriculum_guidance or 'No additional scope guidance was available.'}\n\n"
         f"Quiz JSON:\n{json.dumps(quiz_dict)}\n"
     )
 

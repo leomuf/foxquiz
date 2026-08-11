@@ -10,6 +10,17 @@
           }
         ]
       }
+    },
+    {
+      "eval_case_id": "en_grade12_multiplication_needs_clarification",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Grade 12\",\"subject\":\"Math\",\"topic\":\"Multiplication\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      }
     }
   ]
 }

@@ -14,7 +14,11 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+from pydantic import ValidationError
+
 from app.agent import (
+    CurriculumCompatibility,
     _is_wikipedia_title_relevant,
     _route_after_failed_judge,
     _save_quality_failure_best_effort,
@@ -81,6 +85,31 @@ def test_wikipedia_search_skips_irrelevant_first_result() -> None:
 def test_judge_retries_once_then_fails_closed() -> None:
     assert _route_after_failed_judge(1) == "retry"
     assert _route_after_failed_judge(2) == "quality_failure"
+
+
+def test_curriculum_compatibility_supports_clarification_gate() -> None:
+    assessment = CurriculumCompatibility(
+        status="needs_clarification",
+        explanation="Multiplication is too broad for Grade 12.",
+        clarification_question="Do you mean matrices, polynomials, or complex numbers?",
+        suggested_topics=[
+            "Matrix multiplication",
+            "Polynomial multiplication",
+            "Complex-number multiplication",
+        ],
+    )
+
+    assert assessment.status == "needs_clarification"
+    assert assessment.difficulty_guidance == ""
+    assert len(assessment.suggested_topics) == 3
+
+
+def test_curriculum_compatibility_rejects_unknown_status() -> None:
+    with pytest.raises(ValidationError):
+        CurriculumCompatibility(
+            status="maybe",
+            explanation="Unknown decision",
+        )
 
 
 def test_quality_failure_persistence_is_best_effort() -> None:
