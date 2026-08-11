@@ -17,13 +17,14 @@
 
 ## 1. Overview
 
-**Goal:** A web application that helps school students (ages 10–16) prepare
+**Goal:** A web application that helps school students (ages 10–18, grades
+5–12) prepare
 for exams by generating an interactive multiple-choice quiz based on grade,
 subject, and topic.
 
 **Technology base:** Google ADK 2.0 (Agent Development Kit) for agent
-orchestration; deployment to Google Cloud (Vertex AI Agent Engine / Agent
-Runtime).
+orchestration; containerized deployment to Google Cloud Run, with Vertex AI
+providing the Gemini models used for LLM processing.
 
 **Guiding principles:**
 
@@ -33,8 +34,8 @@ Runtime).
 - **No sign-in required** — no accounts, no login, data-minimal.
 - Security first: every user prompt is screened before it reaches the LLM.
 - Deterministic, quality-gated quiz creation (LLM-as-a-judge).
-- Curriculum source is switchable: LLM knowledge by default, optional
-  country-specific curriculum via MCP.
+- Grounding uses relevance-filtered localized Wikipedia with internal model
+  knowledge as fallback; other providers remain controlled extension points.
 
 ---
 
@@ -53,26 +54,26 @@ production child-facing web UI. Two layers are therefore kept separate:
                             │  API (HTTP / streaming)
 ┌───────────────────────────┴─────────────────────────────┐
 │  AGENT LAYER (Google ADK 2.0)                            │
-│  - Security checkpoint (guard)                           │
-│  - Token-budget guard                                    │
+│  - App plugin: security checkpoint + token-budget guard  │
 │  - Conversation agent (collect info)                     │
-│  - Quiz-creation workflow (graph, 6 steps)               │
-│  - Tools: web search, MCP servers, knowledge sources     │
+│  - Curriculum preflight + quiz workflow graph            │
+│  - Relevance-filtered Wikipedia + extension points       │
 └───────────────────────────┬─────────────────────────────┘
                             │
 ┌───────────────────────────┴─────────────────────────────┐
 │  PERSISTENCE / CLOUD                                      │
 │  - Quiz store (frozen quizzes for share links)           │
-│  - Admin log (thumbs-down, thumbs-up counter, security)  │
+│  - Admin log (feedback, security, quality failures)      │
 │  - Usage counters (per-anonymous-user + global)          │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Note on quiz creation as a graph:** The six steps are described
-logically (see Section 6). The concrete realization as ADK workflow nodes,
-loops, and human-in-the-loop pauses is left to the building AI. ADK 2.0
-natively supports routing, loops, retry, state management, and
-human-in-the-loop.
+**ADK integration requirement:** Quiz creation is implemented as an ADK 2.0
+`Workflow` graph (Section 6). Cross-cutting security and token-budget hooks
+must not be passed as extra `Workflow` constructor fields because unsupported
+Pydantic fields can be discarded. They are registered globally on the ADK
+`App` through a `BasePlugin`, with checks before a run and token accounting
+after success or failure.
 
 ---
 
@@ -91,10 +92,10 @@ theme:
   variants:
     playful:        # younger children (10-13)
       mascots_visible: true
-      emoji_density: high
-    cool:           # older students (14-16); feels more grown-up
+      decorative_icon_density: high
+    cool:           # older students (14-18); feels more grown-up
       mascots_visible: false
-      emoji_density: low
+      decorative_icon_density: low
 
   colors:
     primary:    "#FF6B35"   # warm orange
@@ -110,15 +111,16 @@ theme:
     body:    "Nunito"       # highly readable (Google Fonts)
 
   mascots:
-    # Mascot display names are USER-FACING — DO NOT TRANSLATE the names.
+    # Original, application-owned artwork; never render mascots as
+    # operating-system/vendor Unicode animal characters.
     - id: "fox"
-      emoji: "🦊"
+      asset_name: "felix"
       name: "Felix der Fuchs"
     - id: "owl"
-      emoji: "🦉"
+      asset_name: "olivia"
       name: "Olivia die Eule"
     - id: "dragon"
-      emoji: "🐉"
+      asset_name: "dino"
       name: "Dino der Drache"
 
   difficulty_emojis:
@@ -136,20 +138,35 @@ theme:
 To keep children motivated, each mascot delivers localized correctness and incorrectness phrases. 
 
 The Portuguese correctness phrases are:
-- **Felix der Fuchs (Fox)**: `"🦊 Fantástico! Está absolutamente correto!"`
-- **Olivia die Eule (Owl)**: `"🦉 Fantástico! Você entendeu perfeitamente!"`
-- **Dino der Drache (Dragon)**: `"🐉 Força de Dragão! Você é genial!"`
+- **Felix der Fuchs (Fox)**: `"Fantástico! Está absolutamente correto!"`
+- **Olivia die Eule (Owl)**: `"Fantástico! Você entendeu perfeitamente!"`
+- **Dino der Drache (Dragon)**: `"Força de Dragão! Você é genial!"`
 
 The Portuguese incorrectness phrases are:
-- **Felix der Fuchs (Fox)**: `"🦊 Quase lá! Erros nos ajudam a aprender!"`
-- **Olivia die Eule (Owl)**: `"🦉 Cabeça erguida! Vamos aprender isso juntos!"`
-- **Dino der Drache (Dragon)**: `"🐉 Não desanime! Na próxima você consegue!"`
+- **Felix der Fuchs (Fox)**: `"Quase lá! Erros nos ajudam a aprender!"`
+- **Olivia die Eule (Owl)**: `"Cabeça erguida! Vamos aprender isso juntos!"`
+- **Dino der Drache (Dragon)**: `"Não desanime! Na próxima você consegue!"`
 
-**Free template sources** (no need to build from scratch):
+### 3.2 Cross-platform Brand Asset Set
 
-- Fonts: Google Fonts (Baloo 2, Nunito, Fredoka) — free.
-- Illustrations/mascots: unDraw, Open Peeps — free to use.
-- Components: shadcn/ui or DaisyUI as a base.
+The web UI uses original storybook-explorer artwork for
+Felix, Olivia, and Dino so the characters look consistent on Linux, macOS,
+Windows, Android, and iOS. Transparent face and full-body exports are provided
+at 64, 128, 256, and 512 pixels. The face variants are used in mascot
+selection, the loader, and answer explanations.
+
+The same asset family provides `favicon.ico`, 16/32-pixel favicons, an Apple
+touch icon, 192/512-pixel application icons, and 1280×640 PNG/JPEG social
+preview images. The favicon must be available at `/favicon.ico`; Open Graph
+and Twitter metadata must reference the public JPEG preview. Source masters
+and a deterministic Pillow build script are retained in `assets/`.
+
+The mascot sources and listed production derivatives are dedicated under
+**CC0 1.0 Universal (CC0-1.0)**. The repository must retain the accompanying
+AI-provenance notice describing the original character direction, human
+selection/review, generation date, and production processing. This asset
+license does not replace the license governing other repository content and
+does not grant trademark or patent rights.
 
 ---
 
@@ -248,6 +265,13 @@ terminology:
   user_facing_term_de: "Quiz"
 ```
 
+The browser submits its predefined form values as structured JSON containing
+`grade`, `subject`, `topic`, and `preferred_language`. The agent parses this
+deterministically and skips the additional LLM extraction call. Natural
+language chat remains supported and uses structured LLM extraction only when
+the prompt is not a valid frontend payload. Missing language values always
+fall back to English.
+
 ```gherkin
 Feature: Information gathering before quiz creation
 
@@ -266,10 +290,13 @@ Feature: Information gathering before quiz creation
 
 ---
 
-## 6. Quiz creation: the 6-step workflow
+## 6. Quiz creation: the quality-gated workflow
 
-Logical description. The realization as an ADK 2.0 workflow graph (nodes,
-loops, HITL pauses) is chosen by the building AI.
+The ADK `Workflow` graph separates request collection, curriculum preflight,
+optional grounding, generation, judging, validated output, clarification, and
+quality-failure terminals. Request-scoped state includes a typed `QuizContext`
+(`grade`, `subject`, `topic`, and `preferred_language`) that is reused by
+feedback and quality diagnostics.
 
 ```yaml
 # quiz-config.yaml
@@ -283,48 +310,47 @@ quiz:
   selection: "single_click"
 
 judge:
-  # Recommendation: same model type, separate judge role, strict review
-  # prompt, lower temperature. Model kept configurable.
   enabled: true
-  model: "configurable"               # e.g. a different Gemini variant
+  model: "gemini-2.5-flash"
   temperature: 0.1
   checks:
-    - "Questions fit grade, subject, and topic"
+    - "Questions fit grade, subject, topic, and curriculum guidance"
     - "Exactly one answer is correct"
-    - "The correct answer is factually right"
+    - "The correct index points to the factually correct option"
     - "Difficulty matches the grade level"
-  on_fail: "regenerate_until_valid"   # loop back to generation
-  max_iterations: 5                   # guard against infinite loops
+  on_first_rejection: "regenerate_with_judge_reason"
+  max_attempts: 2
+  on_second_rejection: "fail_closed"
+  on_exception: "fail_closed"
 
 knowledge_sources:
-  # Agent dynamically decides if external knowledge is required (Section 7).
-  default_llm_only:
+  default:
     - "llm_internal"
-  when_search_skill_invoked:
-    - "mcp_curriculum"
-    - "web_search"
-    - "wikipedia"
-    - "llm_internal"
+  optional_grounding:
+    - "localized_wikipedia"
 ```
 
-**The six steps:**
+**The principal stages:**
 
-1. **Knowledge gathering.** The agent dynamically decides whether to use
-   only its internal LLM knowledge or to invoke the "Curriculum Search Skill"
-   (web search / Wikipedia / MCP servers) to gather country-specific and
-   curriculum-appropriate facts.
-2. **Quiz generation.** Ten multiple-choice questions, 3–5 options each,
-   exactly one correct.
-3. **Quality check (LLM-as-a-judge).** A second agent in a judge role
-   verifies questions and answers for correctness and fit. On failure: loop
-   back to step 2 until the quiz passes (bounded by `max_iterations`).
-4. **Presentation.** The validated quiz is rendered; the user answers
-   question by question.
-5. **Result.** The score is shown. Depending on the grade, a friendly
-   congratulation or an encouraging message. The user can navigate all
-   questions and see the correct answers.
-6. **Continue dialog.** The chat asks whether to continue and what
-   difficulty to use next (same / easier / harder). Then back to step 1.
+1. **Information collection.** Parse deterministic frontend JSON directly, or
+   extract missing values from natural language.
+2. **Curriculum preflight.** Classify the exact grade/subject/topic combination
+   as `compatible`, `needs_clarification`, or `incompatible` before grounding
+   and generation (Section 6.3).
+3. **Knowledge grounding.** Search localized Wikipedia and retain content only
+   when the article title is relevant to every meaningful topic term.
+4. **Quiz generation.** Generate exactly ten multiple-choice questions under
+   the preflight's authoritative `difficulty_guidance`.
+5. **Quality check.** A separate judge verifies structure, factual correctness,
+   exact topic fit, and grade-level scope. The first rejection reason is passed
+   to the generator for one materially corrected retry.
+6. **Terminal routing.** Only a passed quiz reaches the presentation layer.
+   A second rejection or judge exception routes to a localized fail-closed
+   response and diagnostic persistence. The generation node may keep a
+   candidate in `temp_quiz` but must not publish it through `Event.output`;
+   only the validated success terminal may emit quiz JSON to the browser.
+7. **Presentation and continuation.** The user completes the quiz, sees the
+   result, and may continue with adaptive difficulty.
 
 ```gherkin
 Feature: Quiz solving and result
@@ -357,7 +383,7 @@ Feature: Quiz solving and result
 
 ### 6.1 Asymptotic Progress Loader Overlay
 
-To address long generation times (10 to 20 seconds) and enhance user experience, a rich progressive visual loader is displayed during the quiz-creation state:
+To make longer generation times understandable, a rich progressive visual loader targets approximately 95% after **30 seconds** and remains below completion until the API returns:
 
 1. **Visual Elements**:
    - **Central Mascot**: The chosen learning buddy mascot (*Felix, Olivia, or Dino*) remains static and non-rotating in the center.
@@ -365,9 +391,12 @@ To address long generation times (10 to 20 seconds) and enhance user experience,
    - **Circular Overlay**: An SVG progress ring overlay that fills progressively from 0 degrees (0% progress) to 360 degrees (100% progress) using the mascot's brand color.
 
 2. **Asymptotic Progression Formula**:
-   - The progress percentage increments client-side at fixed 200ms intervals using a smooth mathematical asymptotic function to simulate activity without hitting a hard ceiling before the API responds:
-     $$\text{NewProgress} = \text{CurrentProgress} + (98 - \text{CurrentProgress}) \times 0.035$$
-   - This ensures the bar starts fast, then tapers off near 98% during very long waits, maintaining user patience.
+   - The progress percentage updates every 200ms and approaches a 98% ceiling.
+     Its growth factor is calibrated so the display reaches about 95% at the
+     30-second target:
+     $$g = 1 - \left(\frac{98 - 95}{98}\right)^{200/30000}$$
+     $$\text{NewProgress} = \text{CurrentProgress} + (98 - \text{CurrentProgress}) \times g$$
+   - The indicator never reports completion while the backend is still working.
 
 3. **API Success Snapping**:
    - Immediately upon receiving the fully generated quiz payload, the progress bar snaps to 100% (360 degrees complete).
@@ -490,126 +519,140 @@ Feature: Adaptive learning progression and localized difficulty indicators
     And the difficulty is shown as localized "🚀 Hard" (e.g. "🚀 Schwer" in German)
 ```
 
-### 6.3 Upfront Curriculum Validation & Mascot Age-Appropriateness Guidance
+### 6.3 Upfront Curriculum Validation and Scope Guidance
 
-To prevent long loading delays, resource waste, and slow retry loops inside the quality checking (judge) phase, the agent incorporates an **Upfront Curriculum Validation** checkpoint.
+The application validates `grade`, `subject`, and `topic` immediately after all
+three fields are available and **before** Wikipedia lookup, quiz generation, or
+the academic judge. This reduces latency and cost for requests that cannot yet
+produce a trustworthy grade-aligned quiz.
 
-#### 6.3.1 Early Compatibility Verification
-Before transitioning from information gathering (`gather_and_route`) to quiz generation (`quiz_generation`), the system performs a lightweight validation check on the extracted variables: `grade`, `subject`, and `topic`.
+A deterministic `gemini-2.5-flash` call uses temperature 0.0 and the following
+structured result:
 
-1. **Execution**:
-   - The validation runs as soon as all three fields are successfully parsed.
-   - It executes a fast `gemini-2.5-flash` model call with `temperature=0.0` and a strict schema mapping.
-   
-2. **Schema Reference**:
-   ```python
-   class CurriculumCompatibility(BaseModel):
-       is_compatible: bool
-       explanation: str
-       suggested_topics: list[str]
-   ```
+```python
+class CurriculumCompatibility(BaseModel):
+    status: Literal["compatible", "needs_clarification", "incompatible"]
+    explanation: str
+    difficulty_guidance: str = ""
+    clarification_question: str = ""
+    suggested_topics: list[str] = []
+```
 
-3. **Check Criteria**:
-   - Is the chosen `topic` cognitively, pedagogically, and curriculum-wise appropriate for the requested school `grade` and `subject`?
-   - Mismatches like *Grade 5 Math -> Differential Equations* or *Grade 2 Science -> Quantum Field Theory* are flagged as incompatible.
+Routing requirements:
 
-4. **Failure Resolution (Mascot Dialogue)**:
-   - If `is_compatible` is `False`, quiz generation is aborted immediately.
-   - The agent routes to `ask_more` rather than `generate_quiz`.
-   - The system state for the incompatible `topic` is cleared so the user can provide a new one.
-   - The chosen mascot (*Felix*, *Olivia*, or *Dino*) delivers a friendly, encouraging explanation in the user's selected language, noting that the topic is usually learned by older students.
-   - The mascot presents the `suggested_topics` (e.g. *Fractions*, *Long Division* for Grade 5 Math) as kid-friendly alternative choices.
+- `compatible`: continue only when the exact request has a clear grade-level
+  interpretation. Persist concrete concepts and exclusions as
+  `curriculum_guidance` for both generator and judge.
+- `needs_clarification`: use this for a valid subject/topic combination that is
+  broad, elementary, ambiguous, or level-dependent. Clear the current topic,
+  ask the localized clarification question, and show two or three possible
+  grade-appropriate scopes without running later quiz nodes.
+- `incompatible`: clear the topic and return a short, encouraging,
+  mascot-guided explanation plus two or three suitable alternatives.
+- Evaluator exception, empty response, or invalid schema: fail closed, show a
+  localized temporary-unavailability message, and do not generate a quiz.
 
-5. **Success Routing**:
-   - If `is_compatible` is `True`, the graph proceeds directly to quiz generation with zero extra user interaction.
+The evaluator must never silently reinterpret a topic to make it fit. For
+example, Grade 12 Mathematics plus "Multiplication" needs clarification between
+matrix, polynomial, complex-number, or another advanced interpretation; it must
+not produce elementary multiplication questions. A legitimate educational
+topic such as financial education for a graduating class may be compatible
+when the evaluator provides an appropriate scope.
 
 ```gherkin
-Feature: Upfront Curriculum Validation
+Feature: Upfront curriculum validation
 
-  Scenario: Incompatible grade and topic mismatch
-    Given the user has selected Grade "5"
-    And Subject "Math"
-    And entered "Differential Equations" as the Topic
-    When the upfront curriculum validation check is performed
-    Then the compatibility check flags the inputs as incompatible (is_compatible = false)
-    And quiz generation is aborted before starting
-    And the mascot explains the mismatch in the user's language
-    And provides 2 to 3 age-appropriate topic alternatives (e.g. "Fractions", "Decimals")
-    And the state's topic is reset to allow a new choice
+  Scenario: Compatible request supplies authoritative guidance
+    Given the user requests Grade "5", Subject "Math", Topic "Fractions"
+    When curriculum preflight succeeds
+    Then the status is "compatible"
+    And concrete grade-level guidance is passed to generation and judging
 
-  Scenario: Compatible grade and topic
-    Given the user has selected Grade "5"
-    And Subject "Math"
-    And entered "Fractions" as the Topic
-    When the upfront curriculum validation check is performed
-    Then the compatibility check flags the inputs as compatible (is_compatible = true)
-    And the system transitions seamlessly to quiz generation
+  Scenario: Ambiguous level-dependent topic needs clarification
+    Given the user requests Grade "12", Subject "Math", Topic "Multiplication"
+    When curriculum preflight runs
+    Then the status is "needs_clarification"
+    And no grounding, generation, or judging call occurs
+    And the user is asked to choose an advanced scope
+
+  Scenario: Incompatible subject/topic combination
+    Given the request is not a suitable school-learning combination
+    When curriculum preflight runs
+    Then the status is "incompatible"
+    And the topic is cleared
+    And the user receives localized alternatives
+
+  Scenario: Curriculum evaluator is unavailable
+    Given the curriculum model returns an error or invalid response
+    When preflight cannot establish compatibility
+    Then quiz generation is blocked
+    And the user receives a localized retry message
 ```
 
 ---
 
+### 6.4 Quality Failure Diagnostics
 
-## 7. Dynamic Curriculum-Gathering Skill
+A quiz that cannot pass review is never released to the browser. The terminal
+`quality_failure_node` removes the temporary quiz, resets the attempt counter,
+returns a localized retry message, and writes a best-effort diagnostic to
+`quiz_quality_failures`.
 
-There is **no manual curriculum toggle on the UI**. Instead, the ADK Agent is equipped with a specialized **"Curriculum Search Skill"** tool. The agent dynamically decides whether to generate the quiz using purely its internal LLM knowledge or to invoke the search skill to query external resources (MCP servers, web search, Wikipedia) for localized curriculum facts.
+Each diagnostic contains:
 
-```yaml
-# curriculum-skill-config.yaml
-curriculum_skill:
-  decision_logic:
-    criteria: "Is the internal knowledge sufficient and up-to-date for country-specific (DE/BR/US) school curriculum?"
-    threshold_on_uncertainty: "invoke_search_skill"
-  behavior:
-    internal_only:
-      knowledge_sources: ["llm_internal"]
-    skill_invoked:
-      country_source: "selected_or_detected_locale"  # see Section 4
-      knowledge_sources: ["mcp_curriculum", "web_search", "wikipedia"]
-  fallback:
-    # If search skill fails or returns no relevant data:
-    on_search_failed: "fall_back_to_llm_internal"
-    inform_user: false  # Silent fallback, user-experience remains seamless
-```
+- nested `quiz_context` with grade, subject, topic, and preferred language;
+- `failure_type` (`judge_rejected` or `judge_exception`);
+- the number of judge attempts and every judge reason;
+- accepted Wikipedia title, if any, and whether grounding was discarded;
+- a UTC timestamp.
+
+Persistence failure is logged but must not replace the user-facing quality
+message. No automatic Firestore Time To Live (TTL) policy is currently defined
+for this diagnostic collection; its retention must be governed operationally.
+
+---
+
+## 7. Localized Wikipedia Grounding and Relevance Filtering
+
+After a compatible preflight, the workflow searches the Wikipedia edition that
+matches the preferred language. It evaluates at most five search results and
+accepts an article only when every meaningful topic word matches the title
+exactly, partially, or above the configured similarity threshold. Common stop
+words are ignored. This prevents a loosely related result from replacing the
+requested subject or topic (for example, an unrelated legal-informatics article
+for an economics request).
+
+Accepted content is stored as `search_context` together with
+`grounding_title`. If no relevant result exists, the result is discarded,
+`grounding_discarded` is set, and generation continues from internal model
+knowledge without changing the requested subject/topic. Network calls use a
+five-second timeout and the context is reused within the same session to avoid
+duplicate lookups.
+
+External curriculum MCP servers and other search providers remain extension
+points, but any future provider must meet the same relevance, timeout, privacy,
+and authoritative-topic requirements.
 
 ```gherkin
-Feature: Autonomous Curriculum Search Skill Decision
+Feature: Grounding relevance
 
-  Scenario: Agent uses internal LLM knowledge
-    Given the user requests a quiz on a standard school topic (e.g., Grade 5, Math, Fractions)
-    When the workflow starts
-    Then the agent decides that its internal knowledge is highly accurate and sufficient
-    And the agent does not call the external curriculum search skill
-    And the quiz is generated instantly using internal knowledge
+  Scenario: Relevant localized article is used
+    Given curriculum preflight accepted the request
+    And Wikipedia returns a title matching every meaningful topic term
+    When grounding completes
+    Then the article extract is supplied to quiz generation
+    And the requested subject and topic remain authoritative
 
-  Scenario: Agent dynamically invokes the search skill
-    Given the user requests a quiz with country-specific or complex topics (e.g., Grade 9, History, Weimar Republic in Germany)
-    When the workflow starts
-    Then the agent decides it needs to verify or gather localized curriculum guidelines
-    And the agent invokes the "Curriculum Search Skill"
-    And the workflow queries the external search/MCP tools for Germany (DE)
-    And the quiz is generated using the retrieved curriculum data
+  Scenario: Unrelated search result is discarded
+    Given Wikipedia returns an article whose title does not match the topic
+    When relevance filtering runs
+    Then no article context is supplied
+    And the quiz may use internal knowledge without changing the topic
 
-  Scenario: Agent dynamically invokes the search skill for US curriculum
-    Given the user requests a quiz with US-specific topics (e.g., Grade 8, History, American Civil War in the US)
-    When the workflow starts
-    Then the agent decides it needs to verify or gather localized US curriculum standards (Common Core or State standards)
-    And the agent invokes the "Curriculum Search Skill"
-    And the workflow queries the external search/MCP tools for the United States (US)
-    And the quiz is generated using the retrieved US curriculum data
-
-  Scenario: Agent dynamically invokes the search skill for Brazilian curriculum (Sambaquis)
-    Given the user requests a quiz with Brazilian-specific archaeological topics (e.g., Grade 6, History, Sambaquis no Brasil)
-    When the workflow starts
-    Then the agent decides it needs to verify or gather localized Brazilian BNCC curriculum standards
-    And the agent invokes the "Curriculum Search Skill"
-    And the workflow queries the external search/MCP tools (including pt.wikipedia.org/wiki/Sambaquis_no_Brasil) for Brazil (BR)
-    And the quiz is generated using the retrieved Brazilian historical curriculum data
-
-  Scenario: Search skill fallback
-    Given the agent decides to invoke the search skill
-    When the search or MCP tools return no relevant data or fail
-    Then the workflow seamlessly falls back to the agent's internal LLM knowledge
-    And the quiz is generated without interrupting the user's flow
+  Scenario: Wikipedia is unavailable
+    Given the request times out or returns no useful result
+    When grounding completes
+    Then the user flow continues without external context
 ```
 
 ---
@@ -628,9 +671,22 @@ Feature: Quiz feedback
   Scenario: Negative feedback is stored for review
     Given the user has finished a quiz
     When the user selects "thumbs down"
-    Then the quiz, its questions, and answers are written to a log for admin review
+    Then the quiz, its questions, and answers are written to `feedback_logs`
+    And grade, subject, topic, and preferred language are stored as queryable fields
     And the aggregated feedback counts are updated
+
+  Scenario: Feedback storage is unavailable
+    Given a feedback write fails in Firestore
+    When the API returns a service-unavailable response
+    Then the success message is not shown
+    And the localized error toast asks the user to try again
+    And the feedback controls are enabled for a retry
 ```
+
+The frontend keeps a typed `QuizContext` while the quiz is created. Negative
+feedback sends this context as a nested object; the repository flattens
+`grade`, `subject`, `topic`, and `preferred_language` into the Firestore
+document for querying. Positive feedback remains aggregate-only.
 
 ### 8.1 Anti-Spam Protection & Localized Toast Feedback
 
@@ -652,9 +708,9 @@ Instead of static responses, toast notifications are dynamically translated at r
   - **English (ENFallback)**: `"Thank you for your rating! ❤️"`
 
 - **Thumbs Down Negative Feedback Toast Copy**:
-  - **Deutsch (DE)**: `"Vielen Dank für deine Bewertung, wir werden das Quiz prüfen und versuchen Quiz Buddy zu verbessern! 🦊"`
-  - **Português (PT)**: `"Obrigado pela sua avaliação, nós vamos analisar o quiz e tentar melhorar o Quiz Buddy! 🦊"`
-  - **English (ENFallback)**: `"Thank you for your rating, we will check the quiz and try to improve Quiz Buddy! 🦊"`
+  - **Deutsch (DE)**: `"Vielen Dank für deine Bewertung, wir werden das Quiz prüfen und versuchen FoxQuiz zu verbessern!"`
+  - **Português (PT)**: `"Obrigado pela sua avaliação, nós vamos analisar o quiz e tentar melhorar o FoxQuiz!"`
+  - **English (ENFallback)**: `"Thank you for your rating, we will check the quiz and try to improve FoxQuiz!"`
 
 ---
 
@@ -671,8 +727,10 @@ export:
     enabled: true
     button: true
     freeze: true            # current state is frozen
-    cloud_storage: true     # second instance stored in the cloud
+    cloud_storage: true     # second instance stored in Firestore
     direct_start: true      # recipient starts immediately, no chat questions
+    expires_after_days: 30
+    ttl_field: "expires_at"
 ```
 
 ```gherkin
@@ -687,7 +745,7 @@ Feature: Share and freeze a quiz
     Given a quiz has been created
     When the user clicks "Share"
     Then the quiz is frozen in its current state
-    And a second instance is stored in the cloud
+    And a second instance is stored in Firestore with a 30-day expiration
     And a link is generated
 
   Scenario: Recipient opens the share link
@@ -708,16 +766,35 @@ The offline HTML export must be fully localized to prevent any mixed-language ex
      - **Português (PT)**: `"Faixa Etária"`
      - **English (EN)**: `"Age Group"`
 2. **Footer Attribution Localization**:
-   - The footer attribution formerly displaying static English/German text must dynamically resolve `"Created with Quiz Buddy"` based on the active export language:
-     - **Deutsch (DE)**: `"Erstellt mit Quiz Buddy"`
-     - **Português (PT)**: `"Criado com Quiz Buddy"`
-     - **English (EN)**: `"Created with Quiz Buddy"`
+   - The footer attribution formerly displaying static English/German text must dynamically resolve `"Created with FoxQuiz"` based on the active export language:
+     - **Deutsch (DE)**: `"Erstellt mit FoxQuiz"`
+     - **Português (PT)**: `"Criado com FoxQuiz"`
+     - **English (EN)**: `"Created with FoxQuiz"`
+
+---
+
+### 9.2 Shared-link Expiration and Social Preview
+
+Every shared quiz receives `created_at` and `expires_at` timestamps. The API
+logically rejects an expired link even if Firestore's asynchronous Time To Live
+(TTL) deletion has not yet removed the document. A Firestore Time To Live (TTL)
+policy on `quizzes.expires_at` performs eventual physical deletion.
+
+The root page must return localized Open Graph and Twitter metadata for normal
+and `?quiz_id=...` URLs so WhatsApp and other crawlers receive HTTP 200 instead
+of 404. Metadata uses the 1280×640 FoxQuiz JPEG preview, an absolute
+`https://foxquiz.app/...` image URL, and an English canonical URL by default.
 
 ---
 
 ## 10. Security checkpoint & Dynamic Security Configuration
 
-Every user prompt is screened **before** it reaches the LLM. In ADK 2.0, this is implemented as an upstream guard node and/or via the `BeforeAgentCallback` interface — not by overriding internal execution methods.
+Every user prompt is screened **before** it reaches the quiz workflow. The
+cross-cutting implementation is a `FoxQuizSecurityPlugin(BasePlugin)`
+registered in `App.plugins`. Its `before_run_callback` performs the security
+and budget checks; `after_run_callback` and `on_run_error_callback` flush token
+usage after successful and failed invocations. Unsupported callback fields must
+not be passed to the `Workflow` model.
 
 To support making the GitHub repository **public** without exposing defensive configurations (heuristics, classification prompts, system instructions, regexes, and sensitive keyword list), the application uses a **Private Firestore Security Configuration**.
 
@@ -754,7 +831,8 @@ responses:
 
 ### 10.2 Guardrail Execution Workflow
 
-The security checkpoint executes in a multi-stage fashion within `BeforeAgentCallback`:
+The security checkpoint executes in a multi-stage fashion inside the
+application plugin's `before_run_callback`:
 
 1. **Lazy Loading & Caching**: The callback fetches `system_config/security` from Firestore. To avoid sub-second latency overhead on every user message, it caches the configuration in memory with a short TTL (e.g., 5 minutes) or simple in-memory session lifetime.
 2. **Stage 1: Local Regex & Keyword Scanning (Fast Filter)**:
@@ -762,8 +840,15 @@ The security checkpoint executes in a multi-stage fashion within `BeforeAgentCal
    - Evaluate the prompt against `injection_regexes`.
    - If a match is found, immediately classify as `MALICIOUS` and short-circuit.
 3. **Stage 2: LLM Classification (Semantic Filter)**:
-   - If Stage 1 passes, send the prompt to a fast, cost-effective classifier model using the `classification_prompt` template fetched from Firestore.
-   - If the classifier returns `MALICIOUS` or `OFF_TOPIC`, block and short-circuit.
+   - If Stage 1 passes, use `gemini-2.5-flash` with temperature 0.0,
+     `max_output_tokens=512`, and a small `thinking_budget=256`. Limited
+     thinking improves semantic verification while keeping latency and cost
+     bounded.
+   - Accept only the exact decisions `SAFE`, `MALICIOUS`, or `OFF_TOPIC`.
+   - If the result is empty, invalid, or the classifier raises an exception,
+     fail closed with a localized temporary-unavailability message.
+   - If the classifier returns `MALICIOUS` or `OFF_TOPIC`, block and
+     short-circuit.
 4. **Action on Violation**:
    - **Block Prompt**: The prompt is not sent to the main Quiz Generator.
    - **Log Security Event**: If classified as `MALICIOUS`, write a log entry to the `security_events` Firestore collection (storing timestamp, blocked input, violation type, e.g. `RegexMatch`, `KeywordMatch`, `ClassifierBlock`, and anonymous ID).
@@ -773,7 +858,7 @@ The security checkpoint executes in a multi-stage fashion within `BeforeAgentCal
 
 To prevent malicious actors from repeatedly attempting prompt injections and wasting our precious LLM token budget, the security checkpoint includes an automated defense subsystem code-named **The Sheriff Guard** 🤠.
 
-The Sheriff operates directly inside `BeforeAgentCallback` and uses secure, GDPR/LGPD-compliant hashed IP signatures:
+The Sheriff operates inside the plugin's pre-run security check and uses secure, GDPR/LGPD-compliant hashed IP signatures:
 
 1. **Secure Client Fingerprinting**:
    - For every incoming request, the server extracts the user's IP address and runs it through a one-way secure hash function with a secret salt fetched from Firestore (`hashed_ip = SHA-256(IP + salt)`).
@@ -846,31 +931,27 @@ Feature: Security checkpoint & Malicious prompt detection
 
 ---
 
-## 11. MCP servers
+## 11. External Knowledge Extension Points
 
-MCP servers serve step 1 (knowledge gathering). The **curriculum** server
-and other search tools are part of the "Curriculum Search Skill" and are
-queried dynamically when the agent decides external grounding is required.
+The current implementation uses localized Wikipedia grounding directly. MCP
+curriculum servers, web search, and private question banks are optional future
+providers rather than active prerequisites. Any provider added later must run
+after curriculum preflight, preserve the requested grade/subject/topic as
+authoritative, enforce bounded timeouts, and expose provenance suitable for
+quality diagnostics.
 
 ```yaml
-# mcp-config.yaml
-mcp_servers:
-  - name: "curriculum"
-    required_when: "agent_invokes_curriculum_search_skill == true"
-    purpose: "Country-specific curriculum content (e.g. DE vs. BR)"
-    note: >
-      Select the concrete MCP server/provider that exposes curriculum data
-      for the supported countries. Country derived from selected/detected
-      locale.
-  - name: "web_search"
-    optional: true
-    purpose: "Current facts; supports curriculum lookups"
+# knowledge-extension-config.yaml
+providers:
   - name: "wikipedia"
-    optional: true
-    purpose: "Solid, free knowledge source for school topics"
-  - name: "filesystem"
-    optional: true
-    purpose: "Bring in your own curriculum docs / question banks"
+    status: "active"
+    relevance_filter: "required"
+  - name: "curriculum_mcp"
+    status: "optional_future"
+  - name: "web_search"
+    status: "optional_future"
+  - name: "private_question_bank"
+    status: "optional_future"
 ```
 
 ---
@@ -889,13 +970,13 @@ not abuse prevention. A **global daily limit for the whole application** is
 added as a reliable **cost-protection net**, independent of recognizing
 individual users. IP-based counting is **not** recommended as the primary
 mechanism: schools and families share IPs (false blocks), and IP addresses
-are sensitive for minors (see Section 13).
+are sensitive for minors (see Section 14).
 
-**ADK 2.0 implementation hint:** fits well as an `AfterAgentCallback`
-(accumulates tokens after each LLM call) combined with an upstream check in
-the guard node that verifies both the personal and global budget **before**
-quiz creation. ADK 2.0 tracks token usage natively; read and aggregate
-those values.
+**ADK 2.0 implementation:** token usage is accumulated for every model call
+and flushed by the application plugin after a successful invocation and also
+from its run-error callback. The same plugin checks both personal and global
+budgets before the workflow starts. This ensures failed curriculum, safety,
+generation, and judge calls are still counted.
 
 ```yaml
 # token-budget-config.yaml
@@ -936,12 +1017,17 @@ token_budget:
     block_new_quiz: true
     # USER-FACING — DO NOT TRANSLATE.
     message_de: >
-      Heute waren besonders viele fleißige Lernende unterwegs! 🦉
+      Heute waren besonders viele fleißige Lernende unterwegs!
       Bitte versuch es morgen noch einmal – dann geht es weiter.
 
   storage:
-    persistence: "required"             # e.g. Firestore / Redis / Cloud SQL
-    note: "Store anonymized, with a short retention limit."
+    persistence: "firestore"
+    transient_budget_ttl_days: 7
+    ttl_field: "expires_at"
+    global_budget_expires: false
+    note: >
+      Only budget_transient_* documents receive the seven-day expiration.
+      Firestore Time To Live (TTL) performs eventual physical deletion.
 ```
 
 ```gherkin
@@ -990,19 +1076,57 @@ Feature: Daily token budget
 
 ---
 
-## 13. Deployment
+## 13. Deployment, Build Identity, and Observability
 
-```yaml
-# deployment-config.yaml
-deployment:
-  framework: "Google ADK 2.0"        # e.g. 2.3.x
-  python: "3.10+"
-  target: "Vertex AI Agent Engine"   # Agent Runtime
-  alternatives: ["Cloud Run", "GKE"]
-  note: >
-    Verify the exact CLI syntax against the current ADK docs, as 2.x
-    commands are still evolving. Deployment target is one-command
-    deployment to Vertex AI Agent Engine.
+FoxQuiz supports Python 3.10+ and is packaged in a Python 3.12 image with
+`uv==0.12.2`, then deployed to Google Cloud Run with `agents-cli deploy`.
+The project uses manual infrastructure configuration documented in `CONTRIBUTING.md`; the
+optional `agents-cli infra single-project` Terraform stack is not used.
+
+A production deployment must start from a clean worktree and inject:
+
+- `COMMIT_SHA`: the exact full Git commit being deployed;
+- `AGENT_VERSION`: the application/package version;
+- `BUILD_TIME`: the UTC build timestamp.
+
+These values are public release-identification metadata, not secrets. They are
+available from `/version`, the `X-FoxQuiz-Version` response header, and the page
+footer. When the SHA is valid, the footer links directly to the corresponding
+GitHub commit so users can identify code deployed from any branch or tag.
+
+Required post-deployment configuration:
+
+- Cloud Run service `foxquiz` in `us-east1` with zero minimum instances,
+  startup CPU boost, and the Gen1 execution environment;
+- public invocation through `roles/run.invoker` for `allUsers`;
+- the project's default Compute service account as the runtime identity;
+- one-time runtime roles `roles/monitoring.metricWriter`,
+  `roles/telemetry.tracesWriter`, and
+  `roles/serviceusage.serviceUsageConsumer`;
+- Firestore Time To Live (TTL) policies on `budgets.expires_at` and
+  `quizzes.expires_at`.
+
+OpenTelemetry prompt-response export is enabled only when a logs bucket and
+capture setting are configured. Capture is forced to `NO_CONTENT` so exported
+records contain metadata rather than prompts or responses. Telemetry resource
+attributes include the application version and commit SHA. Missing runtime
+roles cause repeated exporter HTTP 403 errors and must be fixed at IAM level,
+not hidden by deleting log entries.
+
+```gherkin
+Feature: Deployed source identification
+
+  Scenario: User identifies the running build
+    Given FoxQuiz was deployed with release metadata
+    When the user opens the page or requests /version
+    Then the application version and commit are visible
+    And a valid commit links to the exact public GitHub revision
+
+  Scenario: Telemetry is enabled without message content
+    Given a telemetry bucket is configured
+    When the application starts
+    Then the capture mode is NO_CONTENT
+    And version and commit metadata identify the emitting build
 ```
 
 ---
@@ -1020,13 +1144,18 @@ still requires:
   is kept minimal: a random id with no personal reference and a short
   lifetime.
 - **IP addresses** are personal data under GDPR and especially sensitive
-  for minors — do **not** use them to identify users for the token limit;
-  use them only briefly and non-persistently for language geolocation
-  (Section 4).
+  for minors. Do not use raw IPs for token-budget identity. Geolocation uses
+  them only briefly; security rate-limiting uses a salted one-way hash and
+  stores only that signature (Sections 4 and 10).
 - The security checkpoint already prevents personal data from reaching the
   LLM or logs (Section 10).
-- Admin logs (thumbs-down, security events) should be anonymized with a
-  retention limit.
+- Shared quiz documents expire logically after 30 days and are physically
+  removed by Firestore Time To Live (TTL).
+- Transient anonymous budget documents expire after seven days; the global
+  budget document does not expire.
+- Negative feedback and quiz-quality/security diagnostics are anonymized.
+  Their retention is an explicit operational policy because no automatic Time
+  To Live (TTL) is currently configured for those collections.
 - A cookie/storage notice may be required once client-side ids are set.
 - Depending on the design, parental consent may be legally required for
   minors.
