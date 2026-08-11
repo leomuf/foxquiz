@@ -74,13 +74,92 @@ agents-cli update
    uv run uvicorn app.fast_api_app:app --reload
    ```
 
+#### Inspecting Local Quiz Logs
+
+For troubleshooting a complete quiz request, run the application in the
+foreground and save the backend output at the same time:
+
+```bash
+GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID> \
+GCLOUD_PROJECT=<YOUR_PROJECT_ID> \
+uv run uvicorn app.fast_api_app:app \
+  --reload \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --log-level debug \
+  2>&1 | tee /tmp/foxquiz-local.log
+```
+
+These environment variable assignments apply only to the launched process and
+do not write the project ID to a repository file.
+
+Follow the complete log from a second terminal while performing the quiz:
+
+```bash
+tail -f /tmp/foxquiz-local.log
+```
+
+Filter the saved log for the most relevant agent stages and failures:
+
+```bash
+grep -Ei \
+  "Raw prompt|Extracted parameters|curriculum|compatib|Generating Quiz|Judge|ERROR|WARNING" \
+  /tmp/foxquiz-local.log
+```
+
+For curriculum-routing problems, inspect these messages in order:
+
+- `Gather and Route. Raw prompt`
+- `Extracted parameters`
+- `Performing upfront curriculum validation check`
+- `Upfront curriculum check results`
+- `Curriculum Search Skill invoked`
+- `Generating Quiz`
+
+Also open the browser developer tools (`F12`) while reproducing the problem:
+
+- **Console** shows JavaScript and response-processing errors.
+- **Network > `run_sse`** shows the prompt sent to FoxQuiz and all returned
+  agent events.
+- **Response** helps determine whether incorrect content came from the backend
+  or was interpreted incorrectly by the frontend.
+
 ### 3. Running Quality Checks
 Before submitting your changes, please ensure that all tests and code quality checks pass.
 
-* **Run unit and integration tests:**
+* **Install the Chromium browser used by the frontend tests (one-time):**
   ```bash
-  uv run python -m pytest tests/unit tests/integration
+  uv run playwright install chromium
   ```
+
+* **Run all credential-free tests:**
+  ```bash
+  uv run python -m pytest \
+    tests/unit tests/integration tests/browser \
+    -m "not google_cloud"
+  ```
+
+  This is the same test boundary used by GitHub Actions. It runs the unit,
+  deterministic server, and mocked browser tests without contacting Google
+  Cloud.
+
+  The browser tests mock the session, Server-Sent Events (SSE), and persistence
+  responses. They verify language and mascot selection, grade/subject/topic
+  submission, completion of a ten-question quiz, scoring, negative-feedback
+  context, and blocked-response handling without calling Gemini, Vertex AI, or
+  Firestore.
+
+* **Run Google-dependent integration tests locally:**
+  ```bash
+  GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID> \
+  GCLOUD_PROJECT=<YOUR_PROJECT_ID> \
+  uv run python -m pytest tests/integration -m google_cloud
+  ```
+
+  These tests invoke the real agent and require local Application Default
+  Credentials. They are deliberately excluded from GitHub Actions; never add
+  Google credentials or service-account keys to the repository.
+
 * **Run the code linter:**
   ```bash
   agents-cli lint
@@ -109,11 +188,24 @@ Skip this command when the `(default)` database already exists.
 #### Step 2: Deploy the Application Container
 
 ```bash
-agents-cli deploy --no-confirm-project
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "Refusing production deployment: commit or remove all workspace changes."
+  exit 1
+fi
+
+COMMIT_SHA="$(git rev-parse HEAD)"
+AGENT_VERSION="$(uv version --short)"
+BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+agents-cli deploy \
+  --no-confirm-project \
+  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME}"
 ```
 
-This deploys application code and uses the project's default Compute service
-account.
+The clean-worktree check ensures the commit identifies every deployed source
+change. The version, full commit SHA, and UTC build time are exposed at
+`/version`, in the page footer, and in telemetry. The deploy uses the
+project's default Compute service account.
 
 #### Step 3: Configure Required Infrastructure Manually
 

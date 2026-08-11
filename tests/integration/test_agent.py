@@ -19,7 +19,6 @@
 # are licensed under CC BY 4.0. See global LICENSE file for details.
 # ==============================================================================
 
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -30,20 +29,7 @@ from google.genai import types
 
 from app.agent import root_agent
 
-# Skip integration tests in CI/GitHub Actions when no Google Cloud / Gemini credentials are present
-skip_integration = os.environ.get("GITHUB_ACTIONS") == "true" and not any(
-    os.environ.get(var)
-    for var in [
-        "GEMINI_API_KEY",
-        "GOOGLE_API_KEY",
-        "GOOGLE_APPLICATION_CREDENTIALS",
-    ]
-)
-
-pytestmark = pytest.mark.skipif(
-    skip_integration,
-    reason="Skipping integration tests in GitHub Actions because Google Cloud/Gemini credentials are not configured.",
-)
+pytestmark = pytest.mark.google_cloud
 
 
 @pytest.fixture(autouse=True)
@@ -161,13 +147,18 @@ def test_adaptive_quiz_generation() -> None:
         )
     )
 
-    quiz_output = None
-    for ev in events:
-        if ev.output and "questions" in ev.output:
-            quiz_output = ev.output
-            break
+    quiz_outputs = [
+        event.output
+        for event in events
+        if event.output
+        and isinstance(event.output, dict)
+        and "questions" in event.output
+    ]
 
-    assert quiz_output is not None, "Expected structured quiz output"
+    assert len(quiz_outputs) == 1, (
+        "Only the validated terminal node may expose quiz JSON"
+    )
+    quiz_output = quiz_outputs[0]
     assert quiz_output.get("difficulty") == "🌱 Easy", (
         f"Expected '🌱 Easy', got {quiz_output.get('difficulty')}"
     )
@@ -229,3 +220,50 @@ def test_upfront_curriculum_validation_mismatch() -> None:
     assert final_session.state.get("topic") is None, (
         "Incompatible topic should be cleared from state"
     )
+
+
+def test_upfront_curriculum_validation_clarifies_broad_advanced_topic() -> None:
+    """Avoid generating before an ambiguous topic has a grade-appropriate scope."""
+    import json
+
+    session_service = InMemorySessionService()
+    session = session_service.create_session_sync(user_id="test_user", app_name="test")
+    runner = Runner(agent=root_agent, session_service=session_service, app_name="test")
+
+    payload = {
+        "grade": "Grade 12",
+        "subject": "Math",
+        "topic": "Multiplication",
+        "preferred_language": "en",
+    }
+    message = types.Content(
+        role="user", parts=[types.Part.from_text(text=json.dumps(payload))]
+    )
+
+    events = list(
+        runner.run(
+            new_message=message,
+            user_id="test_user",
+            session_id=session.id,
+            run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+        )
+    )
+
+    has_clarification = any(
+        event.content
+        and event.content.parts
+        and any(part.text for part in event.content.parts)
+        for event in events
+    )
+    has_quiz_output = any(
+        event.output and isinstance(event.output, dict) and "questions" in event.output
+        for event in events
+    )
+    final_session = session_service.get_session_sync(
+        user_id="test_user", session_id=session.id, app_name="test"
+    )
+
+    assert has_clarification
+    assert not has_quiz_output
+    assert final_session.state.get("curriculum_status") == "needs_clarification"
+    assert final_session.state.get("topic") is None

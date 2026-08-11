@@ -19,17 +19,19 @@
 # are licensed under CC BY 4.0. See global LICENSE file for details.
 # ==============================================================================
 
+import html
 import logging as python_logging
 import os
 import uuid
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk.cli.fast_api import get_fast_api_app
 from google.cloud import logging as google_cloud_logging
 
+from app.app_utils.build_info import get_build_info
 from app.app_utils.callbacks import SecurityBlockException
 from app.app_utils.request_context import (
     anonymous_id_ctx,
@@ -127,15 +129,15 @@ app: FastAPI = get_fast_api_app(
     artifact_service_uri=artifact_service_uri,
     allow_origins=allow_origins,
     session_service_uri=session_service_uri,
-    otel_to_cloud=True,
+    otel_to_cloud=os.getenv("INTEGRATION_TEST") != "TRUE",
 )
 app.title = "foxquiz"
 app.description = "API for interacting with the Agent foxquiz"
 
-# Dynamically remove the default "/" route registered by ADK to expose our own UI
+# Remove inherited routes that FoxQuiz replaces with its UI and build metadata.
 # Modify app.routes list in-place because it has no setter in newer FastAPI/Starlette versions.
 for r in list(app.routes):
-    if getattr(r, "path", None) == "/":
+    if getattr(r, "path", None) in {"/", "/version"}:
         app.routes.remove(r)
 
 # Mount static files and serve SPA frontend
@@ -143,6 +145,21 @@ static_dir = os.path.join(AGENT_DIR, "app", "static")
 if not os.path.exists(static_dir):
     os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    """Serve the FoxQuiz favicon from the packaged static assets."""
+    return FileResponse(
+        os.path.join(static_dir, "assets", "favicon.ico"),
+        media_type="image/x-icon",
+    )
+
+
+@app.get("/version", include_in_schema=False)
+def version_info() -> dict[str, str | None]:
+    """Expose public metadata for the currently deployed build."""
+    return get_build_info()
 
 
 @app.get("/")
@@ -164,15 +181,15 @@ def read_root(request: Request):
     # Social Preview Meta Tags Meta Data
     meta_data = {
         "de": {
-            "title": "FoxQuiz 🦊 — Dein spielerischer Lernbegleiter!",
+            "title": "FoxQuiz — Dein spielerischer Lernbegleiter!",
             "description": "Intelligente, maskottchengeführte Prüfungsvorbereitung für die Klassen 5-12. Kostenlos, sicher, werbefrei und perfekt auf den Lehrplan abgestimmt!",
         },
         "pt": {
-            "title": "FoxQuiz 🦊 — Seu companheiro de estudos divertido!",
+            "title": "FoxQuiz — Seu companheiro de estudos divertido!",
             "description": "Preparação inteligente para avaliações guiada por mascotes da 5º série até o 3º ano do ensino médio. Gratuito, seguro, sem anúncios e alinhado ao currículo escolar!",
         },
         "en": {
-            "title": "FoxQuiz 🦊 — Your Playful Exam Prep Companion!",
+            "title": "FoxQuiz — Your Playful Exam Prep Companion!",
             "description": "Intelligent, mascot-guided exam preparation for grades 5-12. Free, safe, ad-free, and perfectly aligned with school curriculums!",
         },
     }
@@ -189,14 +206,20 @@ def read_root(request: Request):
     <meta property="og:url" content="{canonical_url}">
     <meta property="og:title" content="{selected["title"]}">
     <meta property="og:description" content="{selected["description"]}">
-    <meta property="og:image" content="https://foxquiz.app/static/assets/foxquiz_github_social_preview.jpg">
+    <meta property="og:image" content="https://foxquiz.app/static/assets/foxquiz_social_preview.jpg">
+    <meta property="og:image:secure_url" content="https://foxquiz.app/static/assets/foxquiz_social_preview.jpg">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1280">
+    <meta property="og:image:height" content="640">
+    <meta property="og:image:alt" content="Felix, Olivia, and Dino learning together with FoxQuiz">
 
     <!-- Twitter / X -->
     <meta property="twitter:card" content="summary_large_image">
     <meta property="twitter:url" content="{canonical_url}">
     <meta property="twitter:title" content="{selected["title"]}">
     <meta property="twitter:description" content="{selected["description"]}">
-    <meta property="twitter:image" content="https://foxquiz.app/static/assets/foxquiz_github_social_preview.jpg">
+    <meta property="twitter:image" content="https://foxquiz.app/static/assets/foxquiz_social_preview.jpg">
+    <meta property="twitter:image:alt" content="Felix, Olivia, and Dino learning together with FoxQuiz">
     """
 
     # Read the base index.html file
@@ -219,7 +242,27 @@ def read_root(request: Request):
     # Dynamically inject the Social Preview Meta Tags right before </head>
     html_content = html_content.replace("</head>", f"{og_tags}\n</head>")
 
-    return HTMLResponse(html_content)
+    build_info = get_build_info()
+    version_label = html.escape(build_info["version"] or "dev")
+    commit_label = html.escape(build_info["short_commit_sha"] or "dev")
+    commit_url = build_info["commit_url"]
+    if commit_url:
+        commit_markup = (
+            f'<a href="{html.escape(commit_url)}" target="_blank" '
+            f'rel="noopener noreferrer">{commit_label}</a>'
+        )
+    else:
+        commit_markup = f"<span>{commit_label}</span>"
+
+    html_content = html_content.replace(
+        "{{FOXQUIZ_BUILD_INFO}}",
+        f"FoxQuiz v{version_label} · {commit_markup}",
+    )
+    response_version = f"{version_label} ({commit_label})"
+    return HTMLResponse(
+        html_content,
+        headers={"X-FoxQuiz-Version": response_version},
+    )
 
 
 # --- ContextVar Injection Middleware ---
@@ -241,12 +284,12 @@ async def inject_request_metadata(request: Request, call_next):
         anon_id = request.cookies.get("anon_id") or f"transient_{uuid.uuid4().hex[:12]}"
 
     # 3. Resolve Locale / Preferred Language
-    accept_language = request.headers.get("Accept-Language", "de")
-    locale = "de"
+    accept_language = request.headers.get("Accept-Language", "en")
+    locale = "en"
     if "pt" in accept_language.lower() or request.headers.get("X-Locale") == "pt":
         locale = "pt"
-    elif "en" in accept_language.lower() or request.headers.get("X-Locale") == "en":
-        locale = "en"
+    elif "de" in accept_language.lower() or request.headers.get("X-Locale") == "de":
+        locale = "de"
 
     # Token bounds: Bind these values to the current async context
     t1 = client_ip_ctx.set(client_ip)
@@ -327,6 +370,7 @@ def collect_feedback(feedback: Feedback) -> dict[str, str]:
         session_id=feedback.session_id,
         anonymous_id=feedback.user_id,
         quiz_data=feedback.quiz_data,
+        quiz_context=feedback.quiz_context,
     )
 
     logger.log_struct(

@@ -20,11 +20,15 @@
 # are licensed under CC BY 4.0. See global LICENSE file for details.
 # ==============================================================================
 
-import os
+import datetime
 import json
 import logging
-import datetime
-from typing import Any, Dict, List, Optional
+import os
+import re
+import unicodedata
+from difflib import SequenceMatcher
+from typing import Any, Dict, List, Literal, Optional
+
 from pydantic import BaseModel, Field
 
 import google.auth
@@ -38,6 +42,8 @@ from google.adk.apps import App
 
 from app.app_utils.callbacks import FoxQuizSecurityPlugin, record_token_usage
 from app.app_utils.request_context import get_client_locale
+from app.app_utils.typing import QuizContext, QuizQualityFailure
+from app.database.firestore_repo import FirestorePersistenceError, FirestoreRepository
 
 # Setup project configuration
 try:
@@ -115,21 +121,84 @@ class JudgeAssessment(BaseModel):
 
 
 class CurriculumCompatibility(BaseModel):
-    is_compatible: bool = Field(
-        description="True if the chosen topic is cognitively, pedagogically, and curriculum-wise appropriate for the requested school grade and subject. False otherwise."
+    status: Literal["compatible", "needs_clarification", "incompatible"] = Field(
+        description="Whether the request is ready for generation, needs a narrower scope, or is incompatible with the grade and subject."
     )
     explanation: str = Field(
-        description="A helpful, kind, and pedagogically sound explanation of why the topic is or is not compatible with the grade. If incompatible, state clearly why (e.g., differential equations is university-level math, not for 5th graders)."
+        description="A concise, friendly, user-facing explanation in the requested language."
+    )
+    difficulty_guidance: str = Field(
+        default="",
+        description="Concrete scope, concepts, and exclusions needed to keep the quiz aligned with the requested grade. Required when status is compatible.",
+    )
+    clarification_question: str = Field(
+        default="",
+        description="A short localized question that helps the user narrow an ambiguous or overly broad topic.",
     )
     suggested_topics: List[str] = Field(
-        description="If is_compatible is False, provide 2 to 3 alternative topics in the requested language that are age-appropriate and curriculum-aligned for this grade and subject."
+        default_factory=list,
+        description="Two or three localized scopes or alternative topics when clarification is needed or the request is incompatible.",
     )
 
 
 # --- Helper Function for Curriculum Search Skill ---
 
 
-def search_wikipedia(query: str, lang: str = "en") -> str:
+_WIKIPEDIA_TOPIC_STOP_WORDS = {
+    "and",
+    "das",
+    "der",
+    "die",
+    "ein",
+    "eine",
+    "for",
+    "the",
+    "und",
+}
+MIN_MEANINGFUL_TOPIC_WORD_LENGTH = 3
+MIN_PARTIAL_WORD_MATCH_LENGTH = 4
+MIN_TOPIC_TITLE_SIMILARITY_RATIO = 0.72
+MAX_WIKIPEDIA_SEARCH_RESULTS_TO_EVALUATE = 5
+WIKIPEDIA_REQUEST_TIMEOUT_SECONDS = 5
+
+
+def _normalized_words(value: str) -> list[str]:
+    """Return lowercase, accent-insensitive words for relevance comparisons."""
+    decomposed = unicodedata.normalize("NFKD", value)
+    without_accents = "".join(
+        character for character in decomposed if not unicodedata.combining(character)
+    )
+    return re.findall(r"[a-z0-9]+", without_accents.casefold())
+
+
+def _is_wikipedia_title_relevant(title: str, topic: str) -> bool:
+    """Require every meaningful topic term to match the article title."""
+    topic_words = [
+        word
+        for word in _normalized_words(topic)
+        if len(word) >= MIN_MEANINGFUL_TOPIC_WORD_LENGTH
+        and word not in _WIKIPEDIA_TOPIC_STOP_WORDS
+    ]
+    title_words = _normalized_words(title)
+    return bool(topic_words) and all(
+        any(
+            topic_word == title_word
+            or (
+                min(len(topic_word), len(title_word)) >= MIN_PARTIAL_WORD_MATCH_LENGTH
+                and (
+                    topic_word in title_word
+                    or title_word in topic_word
+                    or SequenceMatcher(None, topic_word, title_word).ratio()
+                    >= MIN_TOPIC_TITLE_SIMILARITY_RATIO
+                )
+            )
+            for title_word in title_words
+        )
+        for topic_word in topic_words
+    )
+
+
+def search_wikipedia(query: str, lang: str = "en", topic: str | None = None) -> str:
     """Real live Wikipedia search API call to gather localized curriculum context (GDPR-safe, zero model cost)."""
     try:
         import requests
@@ -148,16 +217,37 @@ def search_wikipedia(query: str, lang: str = "en") -> str:
             "utf8": 1,
             "formatversion": 2,
         }
-        r = requests.get(url, params=search_params, headers=headers, timeout=5)
+        r = requests.get(
+            url,
+            params=search_params,
+            headers=headers,
+            timeout=WIKIPEDIA_REQUEST_TIMEOUT_SECONDS,
+        )
         r.raise_for_status()
         data = r.json()
         search_results = data.get("query", {}).get("search", [])
         if not search_results:
-            return f"No direct Wikipedia articles found for search query: {query}"
+            return ""
+
+        relevant_result = next(
+            (
+                result
+                for result in search_results[:MAX_WIKIPEDIA_SEARCH_RESULTS_TO_EVALUATE]
+                if not topic
+                or _is_wikipedia_title_relevant(result.get("title", ""), topic)
+            ),
+            None,
+        )
+        if relevant_result is None:
+            logger.warning(
+                "Discarding Wikipedia grounding because no result title matched topic '%s'.",
+                topic,
+            )
+            return ""
 
         # Step 2: Extract article intro
-        page_id = search_results[0]["pageid"]
-        title = search_results[0]["title"]
+        page_id = relevant_result["pageid"]
+        title = relevant_result["title"]
         extract_params = {
             "action": "query",
             "format": "json",
@@ -167,7 +257,12 @@ def search_wikipedia(query: str, lang: str = "en") -> str:
             "explaintext": 1,
             "formatversion": 2,
         }
-        r = requests.get(url, params=extract_params, headers=headers, timeout=5)
+        r = requests.get(
+            url,
+            params=extract_params,
+            headers=headers,
+            timeout=WIKIPEDIA_REQUEST_TIMEOUT_SECONDS,
+        )
         r.raise_for_status()
         page_data = r.json().get("query", {}).get("pages", [{}])[0]
         extract = page_data.get("extract", "")
@@ -224,9 +319,15 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     if "topic" not in ctx.state:
         ctx.state["topic"] = None
     if "preferred_language" not in ctx.state:
-        ctx.state["preferred_language"] = get_client_locale() or "de"
-    # Reset judge attempts on any fresh start or new turn
+        ctx.state["preferred_language"] = get_client_locale() or "en"
+    # Reset quality diagnostics on any fresh start or new turn.
     ctx.state["judge_attempts"] = 0
+    ctx.state["judge_reasons"] = []
+    ctx.state["curriculum_status"] = None
+    ctx.state["curriculum_guidance"] = ""
+    ctx.state["quality_failure_type"] = None
+    ctx.state["grounding_title"] = None
+    ctx.state["grounding_discarded"] = False
 
     lang = ctx.state["preferred_language"]
 
@@ -310,7 +411,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     grade = ctx.state.get("grade")
     subject = ctx.state.get("subject")
     topic = ctx.state.get("topic")
-    lang = ctx.state.get("preferred_language") or "de"
+    lang = ctx.state.get("preferred_language") or "en"
 
     if grade and subject and topic:
         # Perform Upfront Curriculum Validation Check to prevent mismatched/inappropriate topics
@@ -320,18 +421,19 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         client = Client()
         try:
             validation_prompt = (
-                f"You are an expert, supportive school curriculum evaluator. Assess whether the school topic '{topic}' "
-                f"can be taught in an age-appropriate, simplified, and engaging way to a student "
-                f"in school grade '{grade}' and subject '{subject}'.\n\n"
-                f"GUIDELINES FOR LENIENCY & ENCOURAGEMENT:\n"
-                f"1. Adopt a highly supportive, 'lenient-by-default' approach. If a complex scientific, historical, or geological topic "
-                f"(e.g., 'Explosão cambriana' or evolutionary milestones in 5th Grade Sciences) can be explained in simplified, "
-                f"fun, and conceptual terms without using heavy academic jargon, mark it as compatible (is_compatible = True).\n"
-                f"2. Only mark a topic as incompatible (is_compatible = False) if it is egregiously inappropriate, cognitively impossible, "
-                f"or completely outside school standards for that age group (e.g., advanced university-level differential calculus, "
-                f"complex organic chemistry synthesis, or highly graphic/inappropriate adult themes).\n"
-                f"3. Ensure the assessment, explanation, and suggestions are fully written in language '{lang}' (either 'de', 'pt', or 'en').\n\n"
-                f"Return a structured JSON matching the CurriculumCompatibility schema."
+                "You are a strict but supportive school curriculum scope evaluator.\n"
+                f"Grade/Year: {grade}\nSubject: {subject}\nTopic: {topic}\n\n"
+                "Decide whether this exact combination is ready for quiz generation.\n"
+                "Use status='compatible' only when the topic has a clear interpretation at the requested grade level without silently changing the requested topic. "
+                "Provide difficulty_guidance with concrete grade-level concepts to include and elementary or overly advanced concepts to exclude.\n"
+                "Use status='needs_clarification' when the topic is valid for the subject but too broad, elementary, ambiguous, or level-dependent to infer the intended grade-level scope safely. "
+                "For example, Grade 12 Mathematics plus 'Multiplication' needs clarification between matrix multiplication, polynomial multiplication, complex-number multiplication, or another advanced scope; it must not generate elementary multiplication questions. "
+                "Provide a short clarification_question and two or three suggested_topics/scopes.\n"
+                "Use status='incompatible' when the topic is fundamentally outside the subject, cognitively inappropriate for the grade, or not a suitable school-learning topic. "
+                "Provide two or three age-appropriate alternatives.\n"
+                "Do not accept a combination merely because the topic could be simplified or made harder. First require enough scope to produce a genuinely grade-aligned quiz.\n"
+                f"Write explanation, clarification_question, suggested_topics, and difficulty_guidance in language '{lang}' ('de', 'pt', or 'en').\n"
+                "Return structured JSON matching CurriculumCompatibility."
             )
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -347,11 +449,29 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 response.text.strip()
             )
             logger.info(
-                f"Upfront curriculum check results: is_compatible={compatibility.is_compatible}, explanation='{compatibility.explanation}', suggestions={compatibility.suggested_topics}"
+                "Upfront curriculum check results: status=%s, explanation=%r, "
+                "guidance=%r, suggestions=%s",
+                compatibility.status,
+                compatibility.explanation,
+                compatibility.difficulty_guidance,
+                compatibility.suggested_topics,
             )
+            ctx.state["curriculum_status"] = compatibility.status
+            ctx.state["curriculum_guidance"] = compatibility.difficulty_guidance
 
-            if compatibility.is_compatible:
+            if compatibility.status == "compatible":
                 return Event(actions=EventActions(route="generate_quiz"))
+            elif compatibility.status == "needs_clarification":
+                ctx.state["topic"] = None
+                msg_text = (
+                    compatibility.clarification_question or compatibility.explanation
+                )
+                return Event(
+                    content=types.Content(
+                        role="model", parts=[types.Part.from_text(text=msg_text)]
+                    ),
+                    actions=EventActions(route="ask_more"),
+                )
             else:
                 # Clear incompatible topic from state so they can enter a new one
                 ctx.state["topic"] = None
@@ -360,21 +480,18 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 mascots = [
                     {
                         "id": "fox",
-                        "emoji": "🦊",
                         "name": "Felix der Fuchs",
                         "name_pt": "Felix, a Raposa",
                         "name_en": "Felix the Fox",
                     },
                     {
                         "id": "owl",
-                        "emoji": "🦉",
                         "name": "Olivia die Eule",
                         "name_pt": "Olivia, a Coruja",
                         "name_en": "Olivia the Owl",
                     },
                     {
                         "id": "dragon",
-                        "emoji": "🐉",
                         "name": "Dino der Drache",
                         "name_pt": "Dino, o Dragão",
                         "name_en": "Dino the Dragon",
@@ -388,10 +505,9 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     if lang == "pt"
                     else mascot["name_en"]
                 )
-                mascot_emoji = mascot["emoji"]
 
                 mascot_prompt = (
-                    f"You are {mascot_name} {mascot_emoji}, a friendly, encouraging school learning companion mascot speaking directly to a child.\n"
+                    f"You are {mascot_name}, a friendly, encouraging school learning companion mascot speaking directly to a child.\n"
                     f"The child asked for a quiz about '{topic}' in Grade '{grade}' and Subject '{subject}', but this topic is too complex or not appropriate (Explanation: {compatibility.explanation}).\n"
                     f"In a playful, extremely encouraging, and kind tone, explain in language '{lang}' that this topic is usually learned by older students, and suggest these age-appropriate alternatives: {', '.join(compatibility.suggested_topics)}.\n"
                     f"Ask them which of these cool topics they would like to do instead, or if they want to choose a different grade/topic. Keep the response short, clear, and full of positive energy!"
@@ -412,31 +528,46 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     ),
                     actions=EventActions(route="ask_more"),
                 )
-        except Exception as e:
-            logger.error(
-                f"Error during upfront curriculum check: {e}. Defaulting to allowing quiz generation."
+        except Exception:
+            logger.exception(
+                "Error during upfront curriculum check. Blocking generation until "
+                "the request can be evaluated."
             )
-            return Event(actions=EventActions(route="generate_quiz"))
+            unavailable_messages = {
+                "de": "Ich konnte die Klassenstufe und das Thema gerade nicht zuverl\u00e4ssig pr\u00fcfen. Bitte versuche es gleich noch einmal.",
+                "pt": "N\u00e3o consegui verificar com seguran\u00e7a o ano escolar e o tema agora. Tente novamente em instantes.",
+                "en": "I could not reliably verify the grade and topic right now. Please try again shortly.",
+            }
+            return Event(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part.from_text(
+                            text=unavailable_messages.get(
+                                lang, unavailable_messages["en"]
+                            )
+                        )
+                    ],
+                ),
+                actions=EventActions(route="ask_more"),
+            )
 
     # Otherwise, ask conversationally for what is missing in their language
     mascots = [
         {
             "id": "fox",
-            "emoji": "🦊",
             "name": "Felix der Fuchs",
             "name_pt": "Felix, a Raposa",
             "name_en": "Felix the Fox",
         },
         {
             "id": "owl",
-            "emoji": "🦉",
             "name": "Olivia die Eule",
             "name_pt": "Olivia, a Coruja",
             "name_en": "Olivia the Owl",
         },
         {
             "id": "dragon",
-            "emoji": "🐉",
             "name": "Dino der Drache",
             "name_pt": "Dino, o Dragão",
             "name_en": "Dino the Dragon",
@@ -450,7 +581,6 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         if lang == "pt"
         else mascot["name_en"]
     )
-    mascot_emoji = mascot["emoji"]
 
     missing_fields = []
     if not grade:
@@ -473,10 +603,10 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     missing_str = ", ".join(missing_fields)
 
     system_conv_prompt = (
-        f"You are {mascot_name} {mascot_emoji}, a playful, friendly learning companion for kids.\n"
+        f"You are {mascot_name}, a playful, friendly learning companion for kids.\n"
         f"The user wants a quiz but some info is missing: ({missing_str}).\n"
         f"Ask them conversationally to fill in these missing values. Speak directly to them in '{lang}'.\n"
-        f"Keep your message encouraging, short, clear, and full of positive vibes! Use appropriate emojis."
+        f"Keep your message encouraging, short, and clear. Do not use animal emoji because the frontend renders the selected mascot artwork separately."
     )
 
     client = Client()
@@ -493,11 +623,11 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     except Exception as e:
         logger.error(f"Mascot prompt generation error: {e}. Using fallback.")
         if lang == "de":
-            msg_text = f"Hallo! {mascot_emoji} Ich bin {mascot_name}. Um dein cooles Quiz vorzubereiten, brauche ich noch folgende Infos: {missing_str}! Lass es mich wissen!"
+            msg_text = f"Hallo! Ich bin {mascot_name}. Um dein cooles Quiz vorzubereiten, brauche ich noch folgende Infos: {missing_str}! Lass es mich wissen!"
         elif lang == "pt":
-            msg_text = f"Olá! {mascot_emoji} Eu sou o {mascot_name}. Para montar seu super quiz, ainda preciso saber: {missing_str}! Me conta!"
+            msg_text = f"Olá! Eu sou o {mascot_name}. Para montar seu super quiz, ainda preciso saber: {missing_str}! Me conta!"
         else:
-            msg_text = f"Hello! {mascot_emoji} I'm {mascot_name}. To build your awesome quiz, I still need: {missing_str}! Tell me about it!"
+            msg_text = f"Hello! I'm {mascot_name}. To build your awesome quiz, I still need: {missing_str}! Tell me about it!"
 
     return Event(
         content=types.Content(
@@ -512,7 +642,7 @@ async def decision_and_search(ctx: Context, node_input: Any) -> Event:
     """Autonomous Curriculum Search Skill. Dynamically gathers actual curriculum standards and facts from Wikipedia."""
     subject = ctx.state.get("subject")
     topic = ctx.state.get("topic")
-    lang = ctx.state.get("preferred_language") or "de"
+    lang = ctx.state.get("preferred_language") or "en"
 
     # Optimization: if search_context is already present in state, reuse it to avoid duplicate network queries.
     if "search_context" in ctx.state:
@@ -525,9 +655,14 @@ async def decision_and_search(ctx: Context, node_input: Any) -> Event:
         f"Curriculum Search Skill invoked. Querying Wikipedia for subject='{subject}', topic='{topic}', lang='{lang}'"
     )
     search_query = f"{subject} {topic}"
-    wikipedia_data = search_wikipedia(search_query, lang=lang)
+    wikipedia_data = search_wikipedia(search_query, lang=lang, topic=topic)
+    title_match = re.match(
+        r"Grounding facts from Wikipedia page '([^']+)':", wikipedia_data
+    )
 
     ctx.state["search_context"] = wikipedia_data
+    ctx.state["grounding_title"] = title_match.group(1) if title_match else None
+    ctx.state["grounding_discarded"] = not bool(wikipedia_data)
     return Event()
 
 
@@ -537,13 +672,15 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     grade = ctx.state.get("grade")
     subject = ctx.state.get("subject")
     topic = ctx.state.get("topic")
-    lang = ctx.state.get("preferred_language") or "de"
+    lang = ctx.state.get("preferred_language") or "en"
     search_context = ctx.state.get("search_context", "")
     attempt = ctx.attempt_count or 1
 
     previous_score = ctx.state.get("previous_score")
     previous_questions = ctx.state.get("previous_questions")
     previous_quiz_json = ctx.state.get("previous_quiz_json")
+    curriculum_guidance = ctx.state.get("curriculum_guidance", "")
+    judge_reasons = list(ctx.state.get("judge_reasons") or [])
 
     logger.info(
         f"Generating Quiz (Attempt {attempt}) for Grade={grade}, Subject={subject}, Topic={topic}, previous_score={previous_score}"
@@ -560,8 +697,26 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         f"- For older students (Grades 9-12, ages 14-18): Switch to a supportive peer-mentor tone. Keep the mascot identity (e.g. Felix/Olivia/Dino) but communicate with intellectual respect, using advanced, clear explanations without sounding overly simple or talking down to them.\n"
     )
 
+    if curriculum_guidance:
+        prompt += (
+            "\n--- AUTHORITATIVE CURRICULUM SCOPE ---\n"
+            f"{curriculum_guidance}\n"
+            "Every question must follow this grade-level scope. Do not replace it with a simpler interpretation of the topic.\n"
+        )
+
+    if judge_reasons:
+        prompt += (
+            "\n--- REQUIRED RETRY CORRECTION ---\n"
+            f"The previous quiz attempt was rejected by the academic reviewer: {judge_reasons[-1]}\n"
+            "Generate a materially corrected quiz that resolves this feedback. Do not repeat the rejected difficulty, scope, or factual issue.\n"
+        )
+
     if search_context:
-        prompt += f"\nUse these verified curriculum grounding facts to shape your questions and answers correctly:\n{search_context}\n"
+        prompt += (
+            "\nThe requested Subject and Topic above are authoritative. Never replace "
+            "them with a different subject or topic from the reference material. Use only "
+            f"directly relevant facts from this Wikipedia grounding:\n{search_context}\n"
+        )
 
     prompt += (
         "\nRules & Schema requirements:\n"
@@ -691,10 +846,25 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             else:
                 quiz_dict["difficulty"] = "⭐ Medium"
         ctx.state["temp_quiz"] = quiz_dict
-        return Event(output=quiz_dict)
+        return _candidate_ready_event()
     except Exception as e:
         logger.error(f"Quiz generation failed: {e}")
         raise
+
+
+MAX_QUIZ_JUDGE_ATTEMPTS = 2
+
+
+def _candidate_ready_event() -> Event:
+    """Signal the judge without exposing unvalidated quiz JSON to clients."""
+    # A non-empty output traverses the unconditional workflow edge
+    # Edge(from_node=quiz_generation, to_node=llm_as_a_judge).
+    return Event(output={"status": "candidate_ready"})
+
+
+def _route_after_failed_judge(attempts: int) -> str:
+    """Retry once, then fail closed instead of releasing an unvalidated quiz."""
+    return "quality_failure" if attempts >= MAX_QUIZ_JUDGE_ATTEMPTS else "retry"
 
 
 @node
@@ -718,14 +888,10 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         )
         return Event(actions=EventActions(route="success"))
 
-    if attempts >= 3:
-        logger.warning("Max quality judge iterations reached. Releasing current quiz.")
-        ctx.state["judge_attempts"] = 0
-        return Event(actions=EventActions(route="success"))
-
     grade = ctx.state.get("grade")
     subject = ctx.state.get("subject")
     topic = ctx.state.get("topic")
+    curriculum_guidance = ctx.state.get("curriculum_guidance", "")
 
     judge_prompt = (
         "You are a strict, professional school academic reviewer (LLM-as-a-judge).\n"
@@ -737,6 +903,8 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         "5. Is the 'correct_option_index' mathematically and factually correct? "
         "CRITICAL: For each question, you MUST independently determine the factually correct answer (whether it is a mathematical calculation, a historical date, a biological definition, etc.). Then, verify that the 'correct_option_index' points EXACTLY to that correct answer inside the 0-based options array. "
         "If there is any mismatch between the factually correct answer, the option at 'correct_option_index', or the correct answer described in your explanation, you MUST set passed to false.\n\n"
+        "The upfront curriculum evaluator supplied this authoritative grade-level scope. The quiz must comply with it:\n"
+        f"{curriculum_guidance or 'No additional scope guidance was available.'}\n\n"
         f"Quiz JSON:\n{json.dumps(quiz_dict)}\n"
     )
 
@@ -760,20 +928,31 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         if assessment.passed:
             return Event(actions=EventActions(route="success"))
         else:
+            failure_route = _route_after_failed_judge(attempts)
+            judge_reasons = list(ctx.state.get("judge_reasons") or [])
+            judge_reasons.append(assessment.reason)
+            ctx.state["judge_reasons"] = judge_reasons
+            ctx.state["quality_failure_type"] = "judge_rejected"
             logger.warning(
-                f"Judge failed validation. Triggering loop retry. Reason: {assessment.reason}"
+                "Judge failed validation. Routing to %s. Reason: %s",
+                failure_route,
+                assessment.reason,
             )
-            return Event(actions=EventActions(route="retry"))
+            return Event(actions=EventActions(route=failure_route))
     except Exception as e:
-        logger.error(f"LLM Judge error: {e}. Defaulting to safe release.")
-        return Event(actions=EventActions(route="success"))
+        judge_reasons = list(ctx.state.get("judge_reasons") or [])
+        judge_reasons.append(f"Judge unavailable: {type(e).__name__}")
+        ctx.state["judge_reasons"] = judge_reasons
+        ctx.state["quality_failure_type"] = "judge_exception"
+        logger.error(f"LLM Judge error: {e}. Blocking release of unvalidated quiz.")
+        return Event(actions=EventActions(route="quality_failure"))
 
 
 @node
 async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     """Prepares and releases the validated quiz. Returns friendly message and frozen quiz JSON."""
     quiz_dict = ctx.state.get("temp_quiz")
-    lang = ctx.state.get("preferred_language") or "de"
+    lang = ctx.state.get("preferred_language") or "en"
 
     # Reset judge attempts as we successfully finalized the quiz
     ctx.state["judge_attempts"] = 0
@@ -781,11 +960,11 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     logger.info(f"Finalizing validated quiz: '{quiz_dict.get('title')}'")
 
     if lang == "de":
-        msg = "🎉 **Dein personalisiertes Quiz ist fertig!**\n\nKlicke unten auf den Knopf, um loszulegen! Ich drücke dir ganz fest die Pfoten! 🦊✨"
+        msg = "🎉 **Dein personalisiertes Quiz ist fertig!**\n\nKlicke unten auf den Knopf, um loszulegen! Ich drücke dir ganz fest die Pfoten! ✨"
     elif lang == "pt":
-        msg = "🎉 **Seu quiz personalizado está pronto!**\n\nClique no botão abaixo para começar a jogar! Boa sorte! 🐉✨"
+        msg = "🎉 **Seu quiz personalizado está pronto!**\n\nClique no botão abaixo para começar a jogar! Boa sorte! ✨"
     else:
-        msg = "🎉 **Your customized quiz is ready!**\n\nClick the button below to start solving! Good luck! 🦉✨"
+        msg = "🎉 **Your customized quiz is ready!**\n\nClick the button below to start solving! Good luck! ✨"
 
     # Stream friendly greeting to user chat
     yield Event(
@@ -801,6 +980,45 @@ async def ask_more_node(ctx: Context, node_input: Any) -> Event:
     """Terminal node for the 'ask_more' route. Gracefully ends the branch."""
     logger.info("Mascot prompt asking for more information.")
     return Event()
+
+
+def _save_quality_failure_best_effort(failure: QuizQualityFailure) -> None:
+    """Persist diagnostics without replacing the user-facing failure response."""
+    try:
+        failure_id = FirestoreRepository().save_quiz_quality_failure(failure)
+        logger.info("Saved quiz quality failure diagnostic: %s", failure_id)
+    except FirestorePersistenceError:
+        logger.exception("Could not persist quiz quality failure diagnostic.")
+
+
+@node
+async def quality_failure_node(ctx: Context, node_input: Any) -> Event:
+    """Fail closed with a localized retry message when quiz review cannot pass."""
+    lang = ctx.state.get("preferred_language") or "en"
+    failure = QuizQualityFailure(
+        quiz_context=QuizContext.from_state(ctx.state),
+        failure_type=ctx.state.get("quality_failure_type") or "judge_rejected",
+        judge_attempts=int(ctx.state.get("judge_attempts") or 0),
+        judge_reasons=list(ctx.state.get("judge_reasons") or []),
+        grounding_title=ctx.state.get("grounding_title"),
+        grounding_discarded=bool(ctx.state.get("grounding_discarded", False)),
+    )
+    _save_quality_failure_best_effort(failure)
+
+    ctx.state.pop("temp_quiz", None)
+    ctx.state["judge_attempts"] = 0
+
+    messages = {
+        "de": "Ich konnte dieses Quiz diesmal nicht zuverlässig prüfen. Bitte versuche es noch einmal – ich möchte dir nur ein fachlich passendes Quiz zeigen.",
+        "pt": "Não consegui verificar este quiz com segurança desta vez. Tente novamente — quero mostrar apenas um quiz que corresponda ao seu tema.",
+        "en": "I could not reliably verify this quiz this time. Please try again — I only want to show you a quiz that matches your topic.",
+    }
+    return Event(
+        content=types.Content(
+            role="model",
+            parts=[types.Part.from_text(text=messages.get(lang, messages["en"]))],
+        )
+    )
 
 
 # --- ADK 2.0 Workflow Definition ---
@@ -824,6 +1042,11 @@ root_agent = Workflow(
         Edge(from_node=quiz_generation, to_node=llm_as_a_judge),
         Edge(from_node=llm_as_a_judge, to_node=quiz_generation, route="retry"),
         Edge(from_node=llm_as_a_judge, to_node=quiz_output_node, route="success"),
+        Edge(
+            from_node=llm_as_a_judge,
+            to_node=quality_failure_node,
+            route="quality_failure",
+        ),
     ],
 )
 

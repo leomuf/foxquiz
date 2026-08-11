@@ -27,11 +27,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
-      - name: Run Pytest
-        run: |
-          # If credentials are required, we can mock them or skip integrations depending on configuration.
-          # For a basic run, we execute the pytest suite:
-          uv run python -m pytest tests/unit tests/integration
+      - name: Install Chromium for browser tests
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run credential-free tests
+        run: uv run python -m pytest tests/unit tests/integration tests/browser -m "not google_cloud"
 
       - name: Install Google Agents CLI
         run: uv tool install google-agents-cli

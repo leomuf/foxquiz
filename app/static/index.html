@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FoxQuiz — Your Playful Exam Prep Companion!</title>
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/assets/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/assets/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/assets/apple-touch-icon.png">
+    <link rel="manifest" href="/static/site.webmanifest">
+    <meta name="theme-color" content="#0f172a">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -69,6 +75,14 @@
             display: flex;
             align-items: center;
             gap: 0.5rem;
+        }
+
+        .brand-mark {
+            width: 42px;
+            height: 42px;
+            object-fit: contain;
+            flex: 0 0 auto;
+            filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.25));
         }
 
         .brand-group {
@@ -168,16 +182,18 @@
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
         }
 
-        .mascot-emoji {
-            font-size: 3.5rem;
+        .mascot-image {
+            width: clamp(68px, 9vw, 88px);
+            height: clamp(68px, 9vw, 88px);
+            object-fit: contain;
             filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.2));
             animation: bounce 3s infinite ease-in-out;
         }
 
-        .mascot-option:nth-child(2) .mascot-emoji {
+        .mascot-option:nth-child(2) .mascot-image {
             animation-delay: 0.5s;
         }
-        .mascot-option:nth-child(3) .mascot-emoji {
+        .mascot-option:nth-child(3) .mascot-image {
             animation-delay: 1s;
         }
 
@@ -352,12 +368,11 @@
 
         .loader-mascot-center {
             position: absolute;
-            font-size: 3rem;
+            width: 72px;
+            height: 72px;
+            object-fit: contain;
             animation: pulse-mascot 2s infinite ease-in-out;
             user-select: none;
-            display: flex;
-            align-items: center;
-            justify-content: center;
         }
 
         @keyframes pulse-mascot {
@@ -493,6 +508,13 @@
             font-size: 0.95rem;
             display: none;
             animation: slideDown 0.4s ease;
+        }
+
+        .explanation-mascot-image {
+            width: 36px;
+            height: 36px;
+            object-fit: contain;
+            flex: 0 0 auto;
         }
 
         .explanation-mascot {
@@ -913,6 +935,21 @@
             -webkit-text-fill-color: transparent;
         }
 
+        .footer-build {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .footer-build a {
+            color: var(--text-muted);
+            text-decoration: underline;
+            text-underline-offset: 0.2rem;
+        }
+
+        .footer-build a:hover {
+            color: var(--active-theme);
+        }
+
         .footer-links {
             display: flex;
             gap: 1.5rem;
@@ -936,6 +973,52 @@
         }
 
         @media (max-width: 600px) {
+            header {
+                padding: 1.25rem 1rem;
+                flex-direction: column;
+                align-items: stretch;
+                gap: 1rem;
+            }
+
+            .language-toggle {
+                align-self: stretch;
+                justify-content: center;
+            }
+
+            main {
+                padding: 0 1rem 2rem;
+            }
+
+            .glass-card {
+                padding: 1.5rem 1rem;
+            }
+
+            .mascot-grid {
+                grid-template-columns: 1fr;
+                gap: 0.75rem;
+            }
+
+            .mascot-option {
+                display: grid;
+                grid-template-columns: 72px minmax(0, 1fr);
+                grid-template-rows: auto auto;
+                column-gap: 1rem;
+                row-gap: 0.25rem;
+                padding: 0.85rem 1rem;
+                text-align: left;
+            }
+
+            .mascot-image {
+                grid-row: 1 / 3;
+                width: 68px;
+                height: 68px;
+            }
+
+            .mascot-title,
+            .mascot-desc {
+                width: 100%;
+            }
+
             footer {
                 padding: 2rem 1rem;
                 gap: 1.2rem;
@@ -952,7 +1035,17 @@
     <header>
         <div class="brand-group">
             <div class="logo">
-                <span>🦊</span> FoxQuiz
+                <img
+                    class="brand-mark"
+                    data-mascot="fox"
+                    src="/static/assets/mascots/felix-face-64.png"
+                    srcset="/static/assets/mascots/felix-face-64.png 64w, /static/assets/mascots/felix-face-128.png 128w"
+                    sizes="42px"
+                    width="64"
+                    height="64"
+                    alt="Felix the Fox"
+                >
+                <span>FoxQuiz</span>
             </div>
             <div class="brand-subtitle" data-translate="app_subtitle">Dein intelligenter Assistent für Schulprüfungen</div>
         </div>
@@ -970,18 +1063,18 @@
             <p style="color: var(--text-muted); text-align: center; font-size: 0.95rem; margin-bottom: 2rem;" data-translate="buddy_subtitle">Such dir einen coolen Lernbegleiter aus, der dich unterstützt!</p>
             
             <div class="mascot-grid">
-                <div class="mascot-option active" onclick="selectMascot('fox', '#ff6b35')">
-                    <span class="mascot-emoji">🦊</span>
+                <div class="mascot-option active" data-mascot="fox" onclick="selectMascot('fox', '#ff6b35')">
+                    <img class="mascot-image" data-mascot="fox" src="/static/assets/mascots/felix-face-128.png" srcset="/static/assets/mascots/felix-face-64.png 64w, /static/assets/mascots/felix-face-128.png 128w, /static/assets/mascots/felix-face-256.png 256w" sizes="88px" width="128" height="128" alt="Felix der Fuchs">
                     <span id="mascot-title-fox" class="mascot-title">Felix der Fuchs</span>
                     <span class="mascot-desc" data-translate="fox_desc">Verspielt, lustig und immer gut gelaunt!</span>
                 </div>
-                <div class="mascot-option" onclick="selectMascot('owl', '#a29bfe')">
-                    <span class="mascot-emoji">🦉</span>
+                <div class="mascot-option" data-mascot="owl" onclick="selectMascot('owl', '#a29bfe')">
+                    <img class="mascot-image" data-mascot="owl" src="/static/assets/mascots/olivia-face-128.png" srcset="/static/assets/mascots/olivia-face-64.png 64w, /static/assets/mascots/olivia-face-128.png 128w, /static/assets/mascots/olivia-face-256.png 256w" sizes="88px" width="128" height="128" alt="Olivia die Eule">
                     <span id="mascot-title-owl" class="mascot-title">Olivia die Eule</span>
                     <span class="mascot-desc" data-translate="owl_desc">Schlau, weise und super geduldig!</span>
                 </div>
-                <div class="mascot-option" onclick="selectMascot('dragon', '#4ecdc4')">
-                    <span class="mascot-emoji">🐉</span>
+                <div class="mascot-option" data-mascot="dragon" onclick="selectMascot('dragon', '#4ecdc4')">
+                    <img class="mascot-image" data-mascot="dragon" src="/static/assets/mascots/dino-face-128.png" srcset="/static/assets/mascots/dino-face-64.png 64w, /static/assets/mascots/dino-face-128.png 128w, /static/assets/mascots/dino-face-256.png 256w" sizes="88px" width="128" height="128" alt="Dino der Drache">
                     <span id="mascot-title-dragon" class="mascot-title">Dino der Drache</span>
                     <span class="mascot-desc" data-translate="dragon_desc">Abenteuerlustig, mutig und extrem cool!</span>
                 </div>
@@ -989,7 +1082,7 @@
 
             <div class="chat-section">
                 <div id="welcome-bubble" class="chat-bubble">
-                    Hallo! 🦊 Ich bin Felix der Fuchs. Lass uns zusammen für deine nächste Prüfung lernen! Für welches Fach und welches Thema soll ich dein Quiz erstellen?
+                    Hallo! Ich bin Felix der Fuchs. Lass uns zusammen für deine nächste Prüfung lernen! Für welches Fach und welches Thema soll ich dein Quiz erstellen?
                 </div>
                 
                 <div class="quick-form">
@@ -1033,7 +1126,7 @@
                         <circle class="progress-bg" cx="60" cy="60" r="54"></circle>
                         <circle id="progress-fill" class="progress-fill" cx="60" cy="60" r="54"></circle>
                     </svg>
-                    <div id="loader-mascot" class="loader-mascot-center">🦊</div>
+                    <img id="loader-mascot" class="loader-mascot-center" data-mascot="fox" src="/static/assets/mascots/felix-face-128.png" width="128" height="128" alt="Felix der Fuchs">
                     <div id="progress-text" class="progress-text">0%</div>
                 </div>
                 <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.5rem;" id="loading-title" data-translate="loading_title">Lernstoff wird zusammengestellt...</h3>
@@ -1066,7 +1159,8 @@
                 <!-- Mascot explanation after choosing -->
                 <div id="explanation-card" class="explanation-card">
                     <div class="explanation-mascot">
-                        <span id="explanation-emoji">🦊</span> <span id="explanation-buddy-name">Felix der Fuchs</span>
+                        <img id="explanation-mascot-image" class="explanation-mascot-image" data-mascot="fox" src="/static/assets/mascots/felix-face-64.png" width="64" height="64" alt="Felix der Fuchs">
+                        <span id="explanation-buddy-name">Felix der Fuchs</span>
                     </div>
                     <div id="explanation-text" style="color: var(--text-main);">
                         Erklärung
@@ -1180,15 +1274,13 @@
                 <span>💖</span> <span data-translate="btn_donate">Projekt unterstützen</span>
             </a>
         </div>
+        <div class="footer-build">{{FOXQUIZ_BUILD_INFO}}</div>
         <div class="footer-links">
             <a href="https://github.com/leomuf/foxquiz" target="_blank" rel="noopener noreferrer" class="footer-link">
                 <span>💻</span> <span data-translate="footer_github">GitHub Repository</span>
             </a>
             <a href="https://www.autosoft-engineering.de/impressum-1/" target="_blank" rel="noopener noreferrer" class="footer-link">
                 <span>⚖️</span> <span data-translate="footer_imprint">Imprint / Impressum</span>
-            </a>
-            <a href="https://www.autosoft-engineering.de/impressum-1/" target="_blank" rel="noopener noreferrer" class="footer-link">
-                <span>🛡️</span> <span data-translate="footer_privacy">Privacy / Datenschutz</span>
             </a>
         </div>
     </footer>
@@ -1249,18 +1341,18 @@
                 loading_title: "Lernstoff wird zusammengestellt...",
                 loading_subtitle: "Ich suche gerade auf Wikipedia und in Lehrplänen nach passenden Inhalten, um dir das perfekte Quiz zu bauen!",
                 correct_encouragement: {
-                    fox: "🦊 Pfotenstark! Das ist absolut richtig!",
-                    owl: "🦉 Fantastisch! Haargenau erfasst!",
-                    dragon: "🐉 Drachenstark! Du bist genial!"
+                    fox: "Pfotenstark! Das ist absolut richtig!",
+                    owl: "Fantastisch! Haargenau erfasst!",
+                    dragon: "Drachenstark! Du bist genial!"
                 },
                 incorrect_encouragement: {
-                    fox: "🦊 Fast geschafft! Fehler sind Helfer beim Lernen!",
-                    owl: "🦉 Kopf hoch! Wir lernen das zusammen!",
-                    dragon: "🐉 Lass dich nicht entmutigen! Das nächste Mal klappt's!"
+                    fox: "Fast geschafft! Fehler sind Helfer beim Lernen!",
+                    owl: "Kopf hoch! Wir lernen das zusammen!",
+                    dragon: "Lass dich nicht entmutigen! Das nächste Mal klappt's!"
                 },
                 export_question: "Frage",
                 export_correct: "Korrekt",
-                export_solution: "Lösung und Erklärung anzeigen 🦊",
+                export_solution: "Lösung und Erklärung anzeigen ",
                 export_correct_option: "Richtige Option",
                 export_print: "Drucken / Als PDF speichern",
                 export_level: "Altersgruppe",
@@ -1269,7 +1361,6 @@
                 footer_opensource: "FoxQuiz ist ein Open-Source-Bildungsprojekt, lizenziert unter Creative Commons Attribution 4.0 International (CC BY 4.0).",
                 footer_github: "GitHub Repository",
                 footer_imprint: "Impressum",
-                footer_privacy: "Datenschutzerklärung",
                 footer_donation: "Gefällt dir die App? Wir freuen uns über eine Spende! 100% der Einnahmen fließen direkt in den Kauf von KI-Tokens, damit FoxQuiz langfristig für viele Kinder kostenlos bleiben kann. ❤️",
                 btn_donate: "Projekt unterstützen"
             },
@@ -1321,18 +1412,18 @@
                 loading_title: "Preparing study materials...",
                 loading_subtitle: "I'm searching Wikipedia and curricula to build the perfect quiz for you!",
                 correct_encouragement: {
-                    fox: "🦊 Paw-some! That is absolutely correct!",
-                    owl: "🦉 Fantastic! You got it exactly right!",
-                    dragon: "🐉 Dragon-strong! You are brilliant!"
+                    fox: "Paw-some! That is absolutely correct!",
+                    owl: "Fantastic! You got it exactly right!",
+                    dragon: "Dragon-strong! You are brilliant!"
                 },
                 incorrect_encouragement: {
-                    fox: "🦊 Almost there! Mistakes help us learn!",
-                    owl: "🦉 Keep your chin up! We'll learn this together!",
-                    dragon: "🐉 Don't be discouraged! Next time you'll get it!"
+                    fox: "Almost there! Mistakes help us learn!",
+                    owl: "Keep your chin up! We'll learn this together!",
+                    dragon: "Don't be discouraged! Next time you'll get it!"
                 },
                 export_question: "Question",
                 export_correct: "Correct",
-                export_solution: "Show solution and explanation 🦊",
+                export_solution: "Show solution and explanation ",
                 export_correct_option: "Correct Option",
                 export_print: "Print / Save as PDF",
                 export_level: "Age Group",
@@ -1341,7 +1432,6 @@
                 footer_opensource: "FoxQuiz is an open-source educational project licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).",
                 footer_github: "GitHub Repository",
                 footer_imprint: "Imprint",
-                footer_privacy: "Privacy Policy",
                 footer_donation: "Do you like the app? We would love your support! 100% of donations go directly toward purchasing AI tokens so FoxQuiz can remain free for children in the long term. ❤️",
                 btn_donate: "Support the project"
             },
@@ -1393,18 +1483,18 @@
                 loading_title: "Preparando o conteúdo de estudo...",
                 loading_subtitle: "Estou pesquisando na Wikipédia e em currículos escolares para criar o quiz perfeito para você!",
                 correct_encouragement: {
-                    fox: "🦊 Fantástico! Está absolutamente correto!",
-                    owl: "🦉 Fantástico! Você entendeu perfeitamente!",
-                    dragon: "🐉 Força de Dragão! Você é genial!"
+                    fox: "Fantástico! Está absolutamente correto!",
+                    owl: "Fantástico! Você entendeu perfeitamente!",
+                    dragon: "Força de Dragão! Você é genial!"
                 },
                 incorrect_encouragement: {
-                    fox: "🦊 Quase lá! Erros nos ajudam a aprender!",
-                    owl: "🦉 Cabeça erguida! Vamos aprender isso juntos!",
-                    dragon: "🐉 Não desanime! Na próxima você consegue!"
+                    fox: "Quase lá! Erros nos ajudam a aprender!",
+                    owl: "Cabeça erguida! Vamos aprender isso juntos!",
+                    dragon: "Não desanime! Na próxima você consegue!"
                 },
                 export_question: "Pergunta",
                 export_correct: "Correto",
-                export_solution: "Mostrar resposta e explicação 🦊",
+                export_solution: "Mostrar resposta e explicação ",
                 export_correct_option: "Opção correta",
                 export_print: "Imprimir / Salvar como PDF",
                 export_level: "Faixa Etária",
@@ -1413,18 +1503,23 @@
                 footer_opensource: "O FoxQuiz é um projeto educacional de código aberto licenciado sob a licença Creative Commons Attribution 4.0 International (CC BY 4.0).",
                 footer_github: "Repositório GitHub",
                 footer_imprint: "Termos Legais (Impressum)",
-                footer_privacy: "Política de Privacidade",
                 footer_donation: "Gostou do aplicativo? Adoraríamos seu apoio! 100% das doações vão direto para a compra de tokens de IA para que o FoxQuiz continue gratuito para as crianças a longo prazo. ❤️",
                 btn_donate: "Apoiar o projeto"
             }
         };
 
         // Current App State
-        let currentLanguage = "de";
+        let currentLanguage = "en";
         let activeMascot = "fox";
         let mascotColor = "#ff6b35";
         let currentSessionId = "";
         let currentQuizData = null;
+        let currentQuizContext = {
+            grade: null,
+            subject: null,
+            topic: null,
+            preferred_language: currentLanguage
+        };
         let currentQuestionIndex = 0;
         let userAnswers = []; // stores index of answers selected by user
         let score = 0;
@@ -1435,27 +1530,51 @@
         let hasSubmittedFeedback = false;
         let progressionDifficultyChosen = null;
 
+        const PROGRESS_TARGET_DURATION_MS = 30000;
+        const PROGRESS_TICK_MS = 200;
+        const PROGRESS_CEILING = 98;
+        const PROGRESS_AT_TARGET = 95;
+
         const mascotNames = {
             de: { fox: "Felix der Fuchs", owl: "Olivia die Eule", dragon: "Dino der Drache" },
             en: { fox: "Felix the Fox", owl: "Olivia the Owl", dragon: "Dino the Dragon" },
             pt: { fox: "Felix, a Raposa", owl: "Olivia, a Coruja", dragon: "Dino, o Dragão" }
         };
 
+        const mascotAssetNames = {
+            fox: "felix",
+            owl: "olivia",
+            dragon: "dino"
+        };
+
+        function setMascotImage(element, mascot) {
+            const assetName = mascotAssetNames[mascot];
+            const basePath = `/static/assets/mascots/${assetName}-face`;
+            element.src = `${basePath}-128.png`;
+            element.srcset = `${basePath}-64.png 64w, ${basePath}-128.png 128w, ${basePath}-256.png 256w`;
+            element.alt = mascotNames[currentLanguage][mascot];
+            element.dataset.mascot = mascot;
+        }
+
+        function stripMascotEmoji(value) {
+            return value.replace(/[\u{1F98A}\u{1F989}\u{1F409}\u{1F432}]/gu, "").replace(/ {2,}/g, " ").trim();
+        }
+
         const greetings = {
             de: {
-                fox: "Hallo! 🦊 Ich bin Felix der Fuchs. Lass uns zusammen für deine nächste Prüfung lernen! Für welches Fach und welches Thema soll ich dein Quiz erstellen?",
-                owl: "Grüß dich! 🦉 Ich bin Olivia die Eule. Ich helfe dir, dich klug auf deine Prüfungen vorzubereiten. Verrate mir einfach deine Klasse, dein Schulfach und dein Thema!",
-                dragon: "Hey! 🐉 Dino hier! Bist du bereit für ein episches Lernabenteuer? Schreib mir deine Klasse, dein Fach und dein Wunschthema und wir legen direkt los!"
+                fox: "Hallo! Ich bin Felix der Fuchs. Lass uns zusammen für deine nächste Prüfung lernen! Für welches Fach und welches Thema soll ich dein Quiz erstellen?",
+                owl: "Grüß dich! Ich bin Olivia die Eule. Ich helfe dir, dich klug auf deine Prüfungen vorzubereiten. Verrate mir einfach deine Klasse, dein Schulfach und dein Thema!",
+                dragon: "Hey! Dino hier! Bist du bereit für ein episches Lernabenteuer? Schreib mir deine Klasse, dein Fach und dein Wunschthema und wir legen direkt los!"
             },
             en: {
-                fox: "Hello! 🦊 I'm Felix the Fox. Let's study for your exam together! Which grade, subject, and topic should we prepare a quiz for?",
-                owl: "Greetings! 🦉 I'm Olivia the Owl. I'm here to help you study wisely. Just tell me your grade, subject, and topic to get started!",
-                dragon: "Hey! 🐉 Dino here! Ready for an epic learning adventure? Tell me your grade, school subject, and topic, and let's go!"
+                fox: "Hello! I'm Felix the Fox. Let's study for your exam together! Which grade, subject, and topic should we prepare a quiz for?",
+                owl: "Greetings! I'm Olivia the Owl. I'm here to help you study wisely. Just tell me your grade, subject, and topic to get started!",
+                dragon: "Hey! Dino here! Ready for an epic learning adventure? Tell me your grade, school subject, and topic, and let's go!"
             },
             pt: {
-                fox: "Olá! 🦊 Eu sou o Felix, a Raposa. Vamos estudar juntos para sua prova! Me conta de qual ano escolar, matéria e assunto você precisa do quiz?",
-                owl: "Saudações! 🦉 Eu sou a Olivia, a Coruja. Estou aqui para ajudar você a estudar com sabedoria. Me conte qual é seu ano, matéria e tema!",
-                dragon: "E aí! 🐉 Dino na área! Pronto para uma aventura épica de aprendizado? Digite seu ano, matéria e assunto e começamos agora!"
+                fox: "Olá! Eu sou o Felix, a Raposa. Vamos estudar juntos para sua prova! Me conta de qual ano escolar, matéria e assunto você precisa do quiz?",
+                owl: "Saudações! Eu sou a Olivia, a Coruja. Estou aqui para ajudar você a estudar com sabedoria. Me conte qual é seu ano, matéria e tema!",
+                dragon: "E aí! Dino na área! Pronto para uma aventura épica de aprendizado? Digite seu ano, matéria e assunto e começamos agora!"
             }
         };
 
@@ -1508,13 +1627,13 @@
             }
 
             // 2. Auto-detect browser language or fallback
-            const lang = navigator.language || navigator.userLanguage;
+            const lang = navigator.language || navigator.userLanguage || "en";
             if (lang.startsWith("pt")) {
                 setLanguage("pt");
-            } else if (lang.startsWith("en")) {
-                setLanguage("en");
-            } else {
+            } else if (lang.startsWith("de")) {
                 setLanguage("de");
+            } else {
+                setLanguage("en");
             }
         }
 
@@ -1547,6 +1666,9 @@
                 document.getElementById("mascot-title-fox").innerText = mascotNames[lang].fox;
                 document.getElementById("mascot-title-owl").innerText = mascotNames[lang].owl;
                 document.getElementById("mascot-title-dragon").innerText = mascotNames[lang].dragon;
+                document.querySelectorAll("img[data-mascot]").forEach(image => {
+                    image.alt = mascotNames[lang][image.dataset.mascot];
+                });
             }
 
             // Update welcome speech bubble with translations
@@ -1577,25 +1699,19 @@
 
             // Toggle active classes
             document.querySelectorAll(".mascot-option").forEach(opt => {
-                opt.classList.remove("active");
-                if (opt.querySelector(".mascot-emoji").innerText === getMascotEmoji(mascot)) {
-                    opt.classList.add("active");
-                }
+                opt.classList.toggle("active", opt.dataset.mascot === mascot);
             });
 
-            // Update welcomes
+            // Update welcomes and image-based mascot indicators
             updateMascotWelcome();
-            document.getElementById("loader-mascot").innerText = getMascotEmoji(mascot);
-        }
-
-        function getMascotEmoji(mascot) {
-            return mascot === "fox" ? "🦊" : mascot === "owl" ? "🦉" : "🐉";
+            setMascotImage(document.getElementById("loader-mascot"), mascot);
+            setMascotImage(document.getElementById("explanation-mascot-image"), mascot);
         }
 
         function updateMascotWelcome() {
             const welcomeBubble = document.getElementById("welcome-bubble");
             if (greetings[currentLanguage] && greetings[currentLanguage][activeMascot]) {
-                welcomeBubble.innerHTML = greetings[currentLanguage][activeMascot];
+                welcomeBubble.textContent = greetings[currentLanguage][activeMascot];
             }
         }
 
@@ -1688,26 +1804,34 @@
             startTicker();
             startProgressLoader();
 
-            // Format prompt for ADK agent
-            let userPrompt = `Grade: ${grade}, Subject: ${subject}, Topic: ${topic}, Language: ${currentLanguage}. Please generate my quiz!`;
+            // Send deterministic structured parameters so the agent can skip an extraction LLM call.
+            const payload = {
+                grade: grade,
+                subject: subject,
+                topic: topic,
+                preferred_language: currentLanguage
+            };
+            currentQuizContext = {
+                grade: grade,
+                subject: subject,
+                topic: topic,
+                preferred_language: currentLanguage
+            };
+
             if (isAdaptation) {
                 const previousQuestions = currentQuizData ? currentQuizData.questions.map(q => q.question) : [];
                 const previousQuizJson = currentQuizData ? JSON.stringify(currentQuizData) : "";
-                const payload = {
-                    grade: grade,
-                    subject: subject,
-                    topic: topic,
-                    preferred_language: currentLanguage,
+                Object.assign(payload, {
                     previous_score: score,
                     previous_questions: previousQuestions,
                     previous_quiz_json: previousQuizJson,
                     selected_difficulty: progressionDifficultyChosen
-                };
-                userPrompt = JSON.stringify(payload);
-                
+                });
+
                 // Reset the choice variable for future runs
                 progressionDifficultyChosen = null;
             }
+            const userPrompt = JSON.stringify(payload);
             
             if (!isAdaptation) {
                 currentSessionId = "";
@@ -1825,7 +1949,7 @@
                     }
                     if (mascotText) {
                         // Format markdown bold/italics/newlines to simple HTML for chat bubble
-                        let formattedText = mascotText
+                        let formattedText = stripMascotEmoji(mascotText)
                             .replace(/\n/g, "<br>")
                             .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
                             .replace(/\*(.*?)\*/g, "<em>$1</em>");
@@ -1920,7 +2044,7 @@
 
             // Show mascot explanation
             const explCard = document.getElementById("explanation-card");
-            document.getElementById("explanation-emoji").innerText = getMascotEmoji(activeMascot);
+            setMascotImage(document.getElementById("explanation-mascot-image"), activeMascot);
             document.getElementById("explanation-buddy-name").innerText = mascotNames[currentLanguage][activeMascot];
             
             // Prepend a funny buddy statement on performance
@@ -2023,7 +2147,7 @@
         function copyShareLink(quizId) {
             const shareUrl = `${window.location.origin}/?quiz_id=${quizId}`;
             navigator.clipboard.writeText(shareUrl).then(() => {
-                showToast(currentLanguage === "de" ? "Einladungs-Link in die Zwischenablage kopiert! 🦊" : "Shareable invitation link copied to clipboard!");
+                showToast(currentLanguage === "de" ? "Einladungs-Link in die Zwischenablage kopiert! " : "Shareable invitation link copied to clipboard!");
             });
         }
 
@@ -2139,7 +2263,7 @@
 <body>
     <div class="header">
         <h1>${currentQuizData.title}</h1>
-        <p>${t.export_level}: ${getMascotEmoji(activeMascot)} ${t.export_offline_buddy}</p>
+        <p>${t.export_level}: ${t.export_offline_buddy}</p>
     </div>
     <button class="btn-print" onclick="window.print()">${t.export_print}</button>
     ${questionsHtml}
@@ -2187,7 +2311,8 @@
                         user_id: "anonymous_student",
                         session_id: currentSessionId || "sess_none",
                         text: `Quiz theme: ${currentQuizData?.title || "none"}`,
-                        quiz_data: scoreValue === 0 ? currentQuizData : null
+                        quiz_data: scoreValue === 0 ? currentQuizData : null,
+                        quiz_context: scoreValue === 0 ? currentQuizContext : null
                     })
                 });
                 if (!response.ok) {
@@ -2206,11 +2331,11 @@
                     }
                 } else {
                     if (currentLanguage === "de") {
-                        msg = "Vielen Dank für deine Bewertung, wir werden das Quiz prüfen und versuchen FoxQuiz zu verbessern! 🦊";
+                        msg = "Vielen Dank für deine Bewertung, wir werden das Quiz prüfen und versuchen FoxQuiz zu verbessern! ";
                     } else if (currentLanguage === "pt") {
-                        msg = "Obrigado pela sua avaliação, nós vamos analisar o quiz e tentar melhorar o FoxQuiz! 🦊";
+                        msg = "Obrigado pela sua avaliação, nós vamos analisar o quiz e tentar melhorar o FoxQuiz! ";
                     } else {
-                        msg = "Thank you for your rating, we will check the quiz and try to improve FoxQuiz! 🦊";
+                        msg = "Thank you for your rating, we will check the quiz and try to improve FoxQuiz! ";
                     }
                 }
                 showToast(msg);
@@ -2323,11 +2448,15 @@
             if (progressInterval) {
                 clearInterval(progressInterval);
             }
-            // Asymptotic progressive increment
+            // Reach about 95% after 30 seconds, then approach 98% asymptotically.
+            const growthFactor = 1 - Math.pow(
+                (PROGRESS_CEILING - PROGRESS_AT_TARGET) / PROGRESS_CEILING,
+                PROGRESS_TICK_MS / PROGRESS_TARGET_DURATION_MS
+            );
             progressInterval = setInterval(() => {
-                currentProgress += (98 - currentProgress) * 0.035;
+                currentProgress += (PROGRESS_CEILING - currentProgress) * growthFactor;
                 updateProgress(currentProgress);
-            }, 200);
+            }, PROGRESS_TICK_MS);
         }
 
         function stopProgressLoader() {

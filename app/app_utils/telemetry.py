@@ -15,6 +15,8 @@
 import logging
 import os
 
+from app.app_utils.build_info import get_build_info
+
 
 def setup_telemetry() -> str | None:
     """Configure OpenTelemetry and GenAI telemetry with GCS upload."""
@@ -33,10 +35,13 @@ def setup_telemetry() -> str | None:
         os.environ.setdefault(
             "OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental"
         )
-        commit_sha = os.environ.get("COMMIT_SHA", "dev")
+        build_info = get_build_info()
         os.environ.setdefault(
             "OTEL_RESOURCE_ATTRIBUTES",
-            f"service.namespace=foxquiz,service.version={commit_sha}",
+            (
+                f"service.namespace=foxquiz,service.version={build_info['version']},"
+                f"vcs.ref.head.revision={build_info['commit_sha']}"
+            ),
         )
         path = os.environ.get("GENAI_TELEMETRY_PATH", "completions")
         os.environ.setdefault(

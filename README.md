@@ -1,6 +1,6 @@
 # 🦊 FoxQuiz: Dynamic Interactive Exam Prep Companion
 
-![FoxQuiz Cover Art](assets/foxquiz_mascots_performing_quiz.png)
+![FoxQuiz Cover Art](assets/brand_sources/marketing/foxquiz_mascots_performing_quiz.png)
 
 🌐 **Play Online Now:** [https://foxquiz.app](https://foxquiz.app)
 
@@ -23,10 +23,14 @@ Discover why we built FoxQuiz, see a full feature demo, and explore the technica
 
 ```
 foxquiz/
-├── app/         # Core agent code
+├── app/                       # Agent, API, persistence, and web frontend
 │   ├── agent.py               # Main agent logic
 │   └── app_utils/             # App utilities and helpers
-├── tests/                     # Unit, integration, and load tests
+├── tests/
+│   ├── unit/                  # Deterministic Python unit tests
+│   ├── integration/           # Server tests and local-only Google agent tests
+│   ├── browser/               # Credential-free Playwright user-flow tests
+│   └── eval/                  # LLM behavioral evaluation datasets and rubrics
 ├── AGENTS.md                  # AI-assisted development guide
 └── pyproject.toml             # Project dependencies
 ```
@@ -105,13 +109,15 @@ If you need to clear your active session or reset the server output to get a fre
 
 ## Commands
 
-| Command              | Description                                                                                 |
-| -------------------- | ------------------------------------------------------------------------------------------- |
-| `agents-cli install` | Install dependencies using uv                                                         |
-| `agents-cli playground` | Launch local development environment                                                  |
-| `agents-cli lint`    | Run code quality checks                                                               |
-| `agents-cli eval`    | Evaluate agent behavior (generate, grade, analyze, and more — see `agents-cli eval --help`) |
-| `uv run pytest tests/unit tests/integration` | Run unit and integration tests                                                        |
+| Command | Description |
+| ------- | ----------- |
+| `agents-cli install` | Install dependencies using uv |
+| `agents-cli playground` | Launch the local development environment |
+| `agents-cli lint` | Run code quality checks |
+| `agents-cli eval` | Evaluate agent behavior (generate, grade, analyze, and more — see `agents-cli eval --help`) |
+| `uv run playwright install chromium` | Install Chromium once for local frontend tests |
+| `uv run pytest tests/unit tests/integration tests/browser -m "not google_cloud"` | Run the credential-free suite used by GitHub Actions |
+| `uv run pytest tests/integration -m google_cloud` | Run real-agent integration tests locally with Google credentials |
 
 ## 🛠️ Project Management
 
@@ -172,6 +178,13 @@ To prevent malicious actors or automated bots from draining our Vertex AI token 
 
 Edit your agent logic in `app/agent.py` and test with `agents-cli playground` - it auto-reloads on save.
 
+### Testing
+
+FoxQuiz uses unit, server integration, Playwright browser, and LLM behavioral
+tests. GitHub Actions runs only credential-free tests; tests that invoke Google
+services must be run locally. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
+test boundaries, setup, and commands.
+
 ## Deployment
 
 ```bash
@@ -185,6 +198,18 @@ To set up your production infrastructure, run `agents-cli infra cicd`.
 ## Observability
 
 Built-in telemetry exports to Cloud Trace, BigQuery, and Cloud Logging.
+
+---
+
+## Mascot Artwork License
+
+The original Felix, Olivia, and Dino artwork, favicon/mobile icons, and social
+preview derivatives are dedicated to the public domain under
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/), to the
+extent that applicable rights exist and can be waived. The artwork is
+AI-assisted and includes a detailed human-contribution and generation
+provenance notice in
+[`assets/brand_sources/README.md`](assets/brand_sources/README.md).
 
 ---
 

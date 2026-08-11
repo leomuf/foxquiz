@@ -19,7 +19,7 @@ client_ip_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
     "client_ip", default="127.0.0.1"
 )
 client_locale_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "client_locale", default="de"
+    "client_locale", default="en"
 )
 anonymous_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
     "anonymous_id", default="anon-default"

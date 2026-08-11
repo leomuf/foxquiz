@@ -47,10 +47,14 @@ _TOKEN_USAGE_STATE_KEY = "temp:foxquiz_token_usage"
 _TOKEN_USAGE_FLUSHED_STATE_KEY = "temp:foxquiz_token_usage_flushed"
 
 
+_MASCOT_EMOJI_TRANSLATION = dict.fromkeys((0x1F98A, 0x1F989, 0x1F409, 0x1F432))
+
+
 class SecurityBlockException(Exception):
     """Exception raised when a request is blocked by the security checkpoint or token budgets."""
 
     def __init__(self, message: str, block_type: str):
+        message = message.translate(_MASCOT_EMOJI_TRANSLATION)
         super().__init__(message)
         self.message = message
         self.block_type = (
@@ -133,7 +137,7 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
         logger.warning(f"User {anon_id} reached daily token budget limit.")
         msg = config.get("responses", {}).get(
             f"budget_user_{locale_suffix}",
-            "Du hast heute schon fleißig gelernt und dein Tageslimit erreicht! 🌙 Komm morgen gerne wieder!",
+            "You have reached your daily learning limit. Please come back tomorrow.",
         )
         raise SecurityBlockException(msg, "BUDGET_EXCEEDED")
 
@@ -143,7 +147,7 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
         logger.warning("Global application token budget limit reached.")
         msg = config.get("responses", {}).get(
             f"budget_global_{locale_suffix}",
-            "Heute waren besonders viele fleißige Lernende unterwegs! 🦉 Bitte versuch es morgen noch einmal.",
+            "The daily application limit has been reached. Please try again tomorrow.",
         )
         raise SecurityBlockException(msg, "BUDGET_EXCEEDED")
 
@@ -209,14 +213,26 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
                 )
             ],
             config=genai_types.GenerateContentConfig(
-                temperature=0.0, max_output_tokens=10
+                temperature=0.0,
+                max_output_tokens=512,
+                thinking_config=genai_types.ThinkingConfig(thinking_budget=256),
             ),
         )
         record_token_usage(callback_context, response)
-        decision = response.text.strip().upper()
+        response_text = response.text
+        if not isinstance(response_text, str) or not response_text.strip():
+            raise ValueError("Semantic classifier returned no decision.")
+
+        decision = response_text.strip().upper()
+        valid_decisions = {"SAFE", "OFF_TOPIC", "MALICIOUS"}
+        if decision not in valid_decisions:
+            raise ValueError(
+                f"Semantic classifier returned an invalid decision: {decision!r}."
+            )
+
         logger.info(f"Lightweight semantic classifier safety decision: {decision}")
 
-        if "MALICIOUS" in decision:
+        if decision == "MALICIOUS":
             logger.error(
                 "Safety violation triggered by semantic classifier evaluation."
             )
@@ -229,21 +245,31 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
                 "ClassifierBlock",
                 locale_suffix,
             )
-        elif "OFF_TOPIC" in decision:
+        elif decision == "OFF_TOPIC":
             logger.info("Intercepted harmless off-topic prompt.")
             off_topic_msg = config.get("responses", {}).get(
                 f"off_topic_{locale_suffix}",
-                "Dieser Assistent kann dir leider nur bei der Vorbereitung auf Prüfungen helfen!",
+                "This assistant can only help you prepare for school exams.",
             )
             raise SecurityBlockException(off_topic_msg, "OFF_TOPIC")
 
     except SecurityBlockException:
         raise
     except Exception as e:
-        # Graceful fallback: do not crash if LLM classification fails, log it and let it proceed safely
-        logger.error(
-            f"Error during semantic safety classification: {e}. Defaulting to safe passage."
+        logger.exception(
+            "Semantic safety classification failed. Blocking the request instead of "
+            "allowing it without semantic review."
         )
+        unavailable_defaults = {
+            "de": "Die Sicherheitsprüfung ist vorübergehend nicht verfügbar. Bitte versuche es gleich noch einmal.",
+            "pt": "A verificação de segurança está temporariamente indisponível. Tente novamente em instantes.",
+            "en": "The safety check is temporarily unavailable. Please try again shortly.",
+        }
+        unavailable_msg = config.get("responses", {}).get(
+            f"classifier_unavailable_{locale_suffix}",
+            unavailable_defaults[locale_suffix],
+        )
+        raise SecurityBlockException(unavailable_msg, "CLASSIFIER_UNAVAILABLE") from e
 
 
 async def _handle_safety_violation(
@@ -283,7 +309,7 @@ async def _handle_safety_violation(
     # Raise friendly localized block warning response
     block_msg = config.get("responses", {}).get(
         f"injection_{locale_suffix}",
-        "Dieser Assistent kann dich nur bei der Vorbereitung auf deine Prüfungen unterstützen.",
+        "This assistant can only support you with exam preparation.",
     )
     raise SecurityBlockException(block_msg, "MALICIOUS")
 
