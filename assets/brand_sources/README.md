@@ -13,6 +13,7 @@ waived.
 This CC0 dedication applies only to:
 
 - `assets/brand_sources/**`
+- `assets/foxquiz_mascots_performing_quiz.png`
 - `app/static/assets/mascots/**`
 - `app/static/assets/favicon.ico`
 - `app/static/assets/favicon-16x16.png`
@@ -30,7 +31,7 @@ All other repository content remains under the license stated in the top-level
 
 These assets were created on 2026-08-10 with OpenAI's image-generation tooling
 from original FoxQuiz character directions. The selected direction was
-"Variation 3": a warm storybook-explorer style for students in grades 5?12.
+"Variation 3": a warm storybook-explorer style for students in grades 5–12.
 
 The design brief required three original characters without tracing or imitating
 an operating-system emoji, vendor emoji set, existing mascot, brand character,
@@ -44,6 +45,12 @@ or named artist:
 Human contribution included defining the characters and constraints, selecting
 Variation 3, reviewing the generated designs, directing the individual
 face/full-body and group compositions, and approving their use in FoxQuiz.
+On 2026-08-11, `assets/foxquiz_mascots_performing_quiz.png` was regenerated
+with OpenAI's image-generation tooling by combining the established Felix,
+Olivia, and Dino character designs with the composition, study-room background,
+and floating quiz panels of the previous FoxQuiz marketing artwork. Human
+direction and review preserved the marketing scene while adapting the three
+characters to its realistic 3D style.
 Production processing removed flat chroma-key backgrounds, cleaned and
 despilled the edges, created transparent square exports, resized browser/mobile
 variants, and added the exact FoxQuiz wordmark to the social preview.

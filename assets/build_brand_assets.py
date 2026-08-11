@@ -1,8 +1,10 @@
 """Build production-ready FoxQuiz mascot and social assets.
 
-The high-resolution, transparent masters live in ``assets/brand_sources``.
-Running this script creates deterministic web-sized exports under
-``app/static/assets`` without altering the source artwork.
+The high-resolution, transparent mascot masters live in
+``assets/brand_sources``. The social preview uses the canonical marketing image
+at ``assets/foxquiz_mascots_performing_quiz.png``. Running this script creates
+deterministic web-sized exports under ``app/static/assets`` without altering
+the source artwork.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_SOURCE_DIR = PROJECT_DIR / "assets" / "brand_sources"
+DEFAULT_SOCIAL_SOURCE = PROJECT_DIR / "assets" / "foxquiz_mascots_performing_quiz.png"
 DEFAULT_OUTPUT_DIR = PROJECT_DIR / "app" / "static" / "assets"
 MASCOTS = ("felix", "olivia", "dino")
 VARIANTS = ("face", "full")
@@ -101,8 +104,7 @@ def _build_icons(felix_face: Image.Image, output_dir: Path) -> None:
     )
 
 
-def _build_social_preview(source_dir: Path, output_dir: Path) -> None:
-    source_path = source_dir / "foxquiz-mascots-group.png"
+def _build_social_preview(source_path: Path, output_dir: Path) -> None:
     with Image.open(source_path) as source:
         preview = ImageOps.fit(
             source.convert("RGBA"),
@@ -135,19 +137,24 @@ def _build_social_preview(source_dir: Path, output_dir: Path) -> None:
     )
 
 
-def build(source_dir: Path, output_dir: Path) -> None:
+def build(source_dir: Path, output_dir: Path, social_source: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     felix_face = _build_mascot_exports(source_dir, output_dir)
     _build_icons(felix_face, output_dir)
-    _build_social_preview(source_dir, output_dir)
+    _build_social_preview(social_source, output_dir)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-dir", type=Path, default=DEFAULT_SOURCE_DIR)
+    parser.add_argument("--social-source", type=Path, default=DEFAULT_SOCIAL_SOURCE)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
-    build(args.source_dir.resolve(), args.output_dir.resolve())
+    build(
+        args.source_dir.resolve(),
+        args.output_dir.resolve(),
+        args.social_source.resolve(),
+    )
 
 
 if __name__ == "__main__":
