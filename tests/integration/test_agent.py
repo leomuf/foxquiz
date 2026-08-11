@@ -161,13 +161,18 @@ def test_adaptive_quiz_generation() -> None:
         )
     )
 
-    quiz_output = None
-    for ev in events:
-        if ev.output and "questions" in ev.output:
-            quiz_output = ev.output
-            break
+    quiz_outputs = [
+        event.output
+        for event in events
+        if event.output
+        and isinstance(event.output, dict)
+        and "questions" in event.output
+    ]
 
-    assert quiz_output is not None, "Expected structured quiz output"
+    assert len(quiz_outputs) == 1, (
+        "Only the validated terminal node may expose quiz JSON"
+    )
+    quiz_output = quiz_outputs[0]
     assert quiz_output.get("difficulty") == "🌱 Easy", (
         f"Expected '🌱 Easy', got {quiz_output.get('difficulty')}"
     )

@@ -19,6 +19,7 @@ from pydantic import ValidationError
 
 from app.agent import (
     CurriculumCompatibility,
+    _candidate_ready_event,
     _is_wikipedia_title_relevant,
     _route_after_failed_judge,
     _save_quality_failure_best_effort,
@@ -80,6 +81,13 @@ def test_wikipedia_search_skips_irrelevant_first_result() -> None:
     assert "Op\u00e7\u00e3o (finan\u00e7as)" in grounding
     assert "Inform\u00e1tica jur\u00eddica" not in grounding
     assert mock_get.call_args_list[1].kwargs["params"]["pageids"] == 2
+
+
+def test_generation_ready_event_does_not_expose_unvalidated_quiz() -> None:
+    event = _candidate_ready_event()
+
+    assert event.output == {"status": "candidate_ready"}
+    assert "questions" not in event.output
 
 
 def test_judge_retries_once_then_fails_closed() -> None:

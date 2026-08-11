@@ -846,13 +846,20 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             else:
                 quiz_dict["difficulty"] = "⭐ Medium"
         ctx.state["temp_quiz"] = quiz_dict
-        return Event(output=quiz_dict)
+        return _candidate_ready_event()
     except Exception as e:
         logger.error(f"Quiz generation failed: {e}")
         raise
 
 
 MAX_QUIZ_JUDGE_ATTEMPTS = 2
+
+
+def _candidate_ready_event() -> Event:
+    """Signal the judge without exposing unvalidated quiz JSON to clients."""
+    # A non-empty output traverses the unconditional workflow edge
+    # Edge(from_node=quiz_generation, to_node=llm_as_a_judge).
+    return Event(output={"status": "candidate_ready"})
 
 
 def _route_after_failed_judge(attempts: int) -> str:
