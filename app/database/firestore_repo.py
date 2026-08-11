@@ -19,6 +19,8 @@ from typing import Any, NoReturn
 
 from google.cloud import firestore
 
+from app.app_utils.typing import QuizContext, QuizQualityFailure
+
 logger = logging.getLogger(__name__)
 
 SHARED_QUIZ_TTL_DAYS = 30
@@ -39,6 +41,7 @@ _mock_db: dict[str, dict[str, Any]] = {
         }
     },
     "feedback_logs": {},
+    "quiz_quality_failures": {},
     "feedback_metrics": {
         "satisfaction": {"thumbs_up_count": 0, "thumbs_down_count": 0}
     },
@@ -276,6 +279,7 @@ class FirestoreRepository:
         session_id: str,
         anonymous_id: str,
         quiz_data: dict[str, Any] | None = None,
+        quiz_context: QuizContext | None = None,
     ) -> str:
         """Save feedback log following spec: positive feedback only increments global stats, negative stores quiz data."""
         log_id = f"fb_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}"
@@ -309,6 +313,12 @@ class FirestoreRepository:
             "anonymous_id": anonymous_id,
             "timestamp": now.isoformat() if self.use_mock else now,
             "quiz_data": quiz_data,
+            "grade": quiz_context.grade if quiz_context else None,
+            "subject": quiz_context.subject if quiz_context else None,
+            "topic": quiz_context.topic if quiz_context else None,
+            "preferred_language": (
+                quiz_context.preferred_language if quiz_context else None
+            ),
         }
 
         if self.use_mock:
@@ -334,6 +344,28 @@ class FirestoreRepository:
             return log_id
         except Exception as e:
             self._raise_persistence_error("save thumbs-down feedback", e)
+
+    def save_quiz_quality_failure(self, failure: QuizQualityFailure) -> str:
+        """Persist a structured diagnostic record for an unverified quiz."""
+        failure_id = (
+            f"qf_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_"
+            f"{os.urandom(4).hex()}"
+        )
+        data = failure.model_dump()
+        data["failure_id"] = failure_id
+        if self.use_mock:
+            data["timestamp"] = failure.timestamp.isoformat()
+            self._set_mock_doc("quiz_quality_failures", failure_id, data, merge=False)
+            return failure_id
+
+        try:
+            doc_ref = self.client.collection("quiz_quality_failures").document(
+                failure_id
+            )
+            doc_ref.set(data)
+            return failure_id
+        except Exception as e:
+            self._raise_persistence_error("save quiz quality failure", e)
 
     def get_satisfaction_metrics(self) -> dict[str, int]:
         """Fetch the atomic thumbs up / down metrics."""

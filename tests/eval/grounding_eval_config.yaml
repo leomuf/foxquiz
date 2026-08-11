@@ -1,0 +1,20 @@
+metrics_to_run:
+  - quiz_topic_alignment
+
+custom_metrics:
+  - name: quiz_topic_alignment
+    prompt_template: |
+      Evaluate whether FoxQuiz fulfills the requested school-quiz topic accurately.
+
+      For the Portuguese financial-education case, the generated structured quiz must
+      remain about economics, financial options, and certificates. It must not drift to
+      legal informatics, digital certificates, or another subject because of unrelated
+      grounding. A safe explicit failure is preferable to an unrelated quiz, but a
+      correct on-topic quiz is required for the highest score.
+
+      User Prompt: {prompt}
+      Final Response: {response}
+      Full Agent Trace: {agent_data}
+
+      Return valid JSON:
+      {"score": <integer from 1 to 5>, "explanation": "<reason>"}

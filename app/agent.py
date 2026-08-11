@@ -20,11 +20,15 @@
 # are licensed under CC BY 4.0. See global LICENSE file for details.
 # ==============================================================================
 
-import os
+import datetime
 import json
 import logging
-import datetime
+import os
+import re
+import unicodedata
+from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 import google.auth
@@ -38,6 +42,8 @@ from google.adk.apps import App
 
 from app.app_utils.callbacks import FoxQuizSecurityPlugin, record_token_usage
 from app.app_utils.request_context import get_client_locale
+from app.app_utils.typing import QuizContext, QuizQualityFailure
+from app.database.firestore_repo import FirestorePersistenceError, FirestoreRepository
 
 # Setup project configuration
 try:
@@ -129,7 +135,61 @@ class CurriculumCompatibility(BaseModel):
 # --- Helper Function for Curriculum Search Skill ---
 
 
-def search_wikipedia(query: str, lang: str = "en") -> str:
+_WIKIPEDIA_TOPIC_STOP_WORDS = {
+    "and",
+    "das",
+    "der",
+    "die",
+    "ein",
+    "eine",
+    "for",
+    "the",
+    "und",
+}
+MIN_MEANINGFUL_TOPIC_WORD_LENGTH = 3
+MIN_PARTIAL_WORD_MATCH_LENGTH = 4
+MIN_TOPIC_TITLE_SIMILARITY_RATIO = 0.72
+MAX_WIKIPEDIA_SEARCH_RESULTS_TO_EVALUATE = 5
+WIKIPEDIA_REQUEST_TIMEOUT_SECONDS = 5
+
+
+def _normalized_words(value: str) -> list[str]:
+    """Return lowercase, accent-insensitive words for relevance comparisons."""
+    decomposed = unicodedata.normalize("NFKD", value)
+    without_accents = "".join(
+        character for character in decomposed if not unicodedata.combining(character)
+    )
+    return re.findall(r"[a-z0-9]+", without_accents.casefold())
+
+
+def _is_wikipedia_title_relevant(title: str, topic: str) -> bool:
+    """Require every meaningful topic term to match the article title."""
+    topic_words = [
+        word
+        for word in _normalized_words(topic)
+        if len(word) >= MIN_MEANINGFUL_TOPIC_WORD_LENGTH
+        and word not in _WIKIPEDIA_TOPIC_STOP_WORDS
+    ]
+    title_words = _normalized_words(title)
+    return bool(topic_words) and all(
+        any(
+            topic_word == title_word
+            or (
+                min(len(topic_word), len(title_word)) >= MIN_PARTIAL_WORD_MATCH_LENGTH
+                and (
+                    topic_word in title_word
+                    or title_word in topic_word
+                    or SequenceMatcher(None, topic_word, title_word).ratio()
+                    >= MIN_TOPIC_TITLE_SIMILARITY_RATIO
+                )
+            )
+            for title_word in title_words
+        )
+        for topic_word in topic_words
+    )
+
+
+def search_wikipedia(query: str, lang: str = "en", topic: str | None = None) -> str:
     """Real live Wikipedia search API call to gather localized curriculum context (GDPR-safe, zero model cost)."""
     try:
         import requests
@@ -148,16 +208,37 @@ def search_wikipedia(query: str, lang: str = "en") -> str:
             "utf8": 1,
             "formatversion": 2,
         }
-        r = requests.get(url, params=search_params, headers=headers, timeout=5)
+        r = requests.get(
+            url,
+            params=search_params,
+            headers=headers,
+            timeout=WIKIPEDIA_REQUEST_TIMEOUT_SECONDS,
+        )
         r.raise_for_status()
         data = r.json()
         search_results = data.get("query", {}).get("search", [])
         if not search_results:
-            return f"No direct Wikipedia articles found for search query: {query}"
+            return ""
+
+        relevant_result = next(
+            (
+                result
+                for result in search_results[:MAX_WIKIPEDIA_SEARCH_RESULTS_TO_EVALUATE]
+                if not topic
+                or _is_wikipedia_title_relevant(result.get("title", ""), topic)
+            ),
+            None,
+        )
+        if relevant_result is None:
+            logger.warning(
+                "Discarding Wikipedia grounding because no result title matched topic '%s'.",
+                topic,
+            )
+            return ""
 
         # Step 2: Extract article intro
-        page_id = search_results[0]["pageid"]
-        title = search_results[0]["title"]
+        page_id = relevant_result["pageid"]
+        title = relevant_result["title"]
         extract_params = {
             "action": "query",
             "format": "json",
@@ -167,7 +248,12 @@ def search_wikipedia(query: str, lang: str = "en") -> str:
             "explaintext": 1,
             "formatversion": 2,
         }
-        r = requests.get(url, params=extract_params, headers=headers, timeout=5)
+        r = requests.get(
+            url,
+            params=extract_params,
+            headers=headers,
+            timeout=WIKIPEDIA_REQUEST_TIMEOUT_SECONDS,
+        )
         r.raise_for_status()
         page_data = r.json().get("query", {}).get("pages", [{}])[0]
         extract = page_data.get("extract", "")
@@ -224,9 +310,13 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     if "topic" not in ctx.state:
         ctx.state["topic"] = None
     if "preferred_language" not in ctx.state:
-        ctx.state["preferred_language"] = get_client_locale() or "de"
-    # Reset judge attempts on any fresh start or new turn
+        ctx.state["preferred_language"] = get_client_locale() or "en"
+    # Reset quality diagnostics on any fresh start or new turn.
     ctx.state["judge_attempts"] = 0
+    ctx.state["judge_reasons"] = []
+    ctx.state["quality_failure_type"] = None
+    ctx.state["grounding_title"] = None
+    ctx.state["grounding_discarded"] = False
 
     lang = ctx.state["preferred_language"]
 
@@ -310,7 +400,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     grade = ctx.state.get("grade")
     subject = ctx.state.get("subject")
     topic = ctx.state.get("topic")
-    lang = ctx.state.get("preferred_language") or "de"
+    lang = ctx.state.get("preferred_language") or "en"
 
     if grade and subject and topic:
         # Perform Upfront Curriculum Validation Check to prevent mismatched/inappropriate topics
@@ -504,7 +594,7 @@ async def decision_and_search(ctx: Context, node_input: Any) -> Event:
     """Autonomous Curriculum Search Skill. Dynamically gathers actual curriculum standards and facts from Wikipedia."""
     subject = ctx.state.get("subject")
     topic = ctx.state.get("topic")
-    lang = ctx.state.get("preferred_language") or "de"
+    lang = ctx.state.get("preferred_language") or "en"
 
     # Optimization: if search_context is already present in state, reuse it to avoid duplicate network queries.
     if "search_context" in ctx.state:
@@ -517,9 +607,14 @@ async def decision_and_search(ctx: Context, node_input: Any) -> Event:
         f"Curriculum Search Skill invoked. Querying Wikipedia for subject='{subject}', topic='{topic}', lang='{lang}'"
     )
     search_query = f"{subject} {topic}"
-    wikipedia_data = search_wikipedia(search_query, lang=lang)
+    wikipedia_data = search_wikipedia(search_query, lang=lang, topic=topic)
+    title_match = re.match(
+        r"Grounding facts from Wikipedia page '([^']+)':", wikipedia_data
+    )
 
     ctx.state["search_context"] = wikipedia_data
+    ctx.state["grounding_title"] = title_match.group(1) if title_match else None
+    ctx.state["grounding_discarded"] = not bool(wikipedia_data)
     return Event()
 
 
@@ -529,7 +624,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     grade = ctx.state.get("grade")
     subject = ctx.state.get("subject")
     topic = ctx.state.get("topic")
-    lang = ctx.state.get("preferred_language") or "de"
+    lang = ctx.state.get("preferred_language") or "en"
     search_context = ctx.state.get("search_context", "")
     attempt = ctx.attempt_count or 1
 
@@ -553,7 +648,11 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     )
 
     if search_context:
-        prompt += f"\nUse these verified curriculum grounding facts to shape your questions and answers correctly:\n{search_context}\n"
+        prompt += (
+            "\nThe requested Subject and Topic above are authoritative. Never replace "
+            "them with a different subject or topic from the reference material. Use only "
+            f"directly relevant facts from this Wikipedia grounding:\n{search_context}\n"
+        )
 
     prompt += (
         "\nRules & Schema requirements:\n"
@@ -689,6 +788,14 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         raise
 
 
+MAX_QUIZ_JUDGE_ATTEMPTS = 2
+
+
+def _route_after_failed_judge(attempts: int) -> str:
+    """Retry once, then fail closed instead of releasing an unvalidated quiz."""
+    return "quality_failure" if attempts >= MAX_QUIZ_JUDGE_ATTEMPTS else "retry"
+
+
 @node
 async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
     """Strict Reviewer: evaluates the generated quiz structure and content accuracy. Loops back on failures."""
@@ -708,11 +815,6 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         logger.info(
             "Reinforcement mode: skipping LLM-as-a-judge review on shuffled questions."
         )
-        return Event(actions=EventActions(route="success"))
-
-    if attempts >= 3:
-        logger.warning("Max quality judge iterations reached. Releasing current quiz.")
-        ctx.state["judge_attempts"] = 0
         return Event(actions=EventActions(route="success"))
 
     grade = ctx.state.get("grade")
@@ -752,20 +854,31 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         if assessment.passed:
             return Event(actions=EventActions(route="success"))
         else:
+            failure_route = _route_after_failed_judge(attempts)
+            judge_reasons = list(ctx.state.get("judge_reasons") or [])
+            judge_reasons.append(assessment.reason)
+            ctx.state["judge_reasons"] = judge_reasons
+            ctx.state["quality_failure_type"] = "judge_rejected"
             logger.warning(
-                f"Judge failed validation. Triggering loop retry. Reason: {assessment.reason}"
+                "Judge failed validation. Routing to %s. Reason: %s",
+                failure_route,
+                assessment.reason,
             )
-            return Event(actions=EventActions(route="retry"))
+            return Event(actions=EventActions(route=failure_route))
     except Exception as e:
-        logger.error(f"LLM Judge error: {e}. Defaulting to safe release.")
-        return Event(actions=EventActions(route="success"))
+        judge_reasons = list(ctx.state.get("judge_reasons") or [])
+        judge_reasons.append(f"Judge unavailable: {type(e).__name__}")
+        ctx.state["judge_reasons"] = judge_reasons
+        ctx.state["quality_failure_type"] = "judge_exception"
+        logger.error(f"LLM Judge error: {e}. Blocking release of unvalidated quiz.")
+        return Event(actions=EventActions(route="quality_failure"))
 
 
 @node
 async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     """Prepares and releases the validated quiz. Returns friendly message and frozen quiz JSON."""
     quiz_dict = ctx.state.get("temp_quiz")
-    lang = ctx.state.get("preferred_language") or "de"
+    lang = ctx.state.get("preferred_language") or "en"
 
     # Reset judge attempts as we successfully finalized the quiz
     ctx.state["judge_attempts"] = 0
@@ -795,6 +908,45 @@ async def ask_more_node(ctx: Context, node_input: Any) -> Event:
     return Event()
 
 
+def _save_quality_failure_best_effort(failure: QuizQualityFailure) -> None:
+    """Persist diagnostics without replacing the user-facing failure response."""
+    try:
+        failure_id = FirestoreRepository().save_quiz_quality_failure(failure)
+        logger.info("Saved quiz quality failure diagnostic: %s", failure_id)
+    except FirestorePersistenceError:
+        logger.exception("Could not persist quiz quality failure diagnostic.")
+
+
+@node
+async def quality_failure_node(ctx: Context, node_input: Any) -> Event:
+    """Fail closed with a localized retry message when quiz review cannot pass."""
+    lang = ctx.state.get("preferred_language") or "en"
+    failure = QuizQualityFailure(
+        quiz_context=QuizContext.from_state(ctx.state),
+        failure_type=ctx.state.get("quality_failure_type") or "judge_rejected",
+        judge_attempts=int(ctx.state.get("judge_attempts") or 0),
+        judge_reasons=list(ctx.state.get("judge_reasons") or []),
+        grounding_title=ctx.state.get("grounding_title"),
+        grounding_discarded=bool(ctx.state.get("grounding_discarded", False)),
+    )
+    _save_quality_failure_best_effort(failure)
+
+    ctx.state.pop("temp_quiz", None)
+    ctx.state["judge_attempts"] = 0
+
+    messages = {
+        "de": "Ich konnte dieses Quiz diesmal nicht zuverlässig prüfen. Bitte versuche es noch einmal – ich möchte dir nur ein fachlich passendes Quiz zeigen.",
+        "pt": "Não consegui verificar este quiz com segurança desta vez. Tente novamente — quero mostrar apenas um quiz que corresponda ao seu tema.",
+        "en": "I could not reliably verify this quiz this time. Please try again — I only want to show you a quiz that matches your topic.",
+    }
+    return Event(
+        content=types.Content(
+            role="model",
+            parts=[types.Part.from_text(text=messages.get(lang, messages["en"]))],
+        )
+    )
+
+
 # --- ADK 2.0 Workflow Definition ---
 
 root_agent = Workflow(
@@ -816,6 +968,11 @@ root_agent = Workflow(
         Edge(from_node=quiz_generation, to_node=llm_as_a_judge),
         Edge(from_node=llm_as_a_judge, to_node=quiz_generation, route="retry"),
         Edge(from_node=llm_as_a_judge, to_node=quiz_output_node, route="success"),
+        Edge(
+            from_node=llm_as_a_judge,
+            to_node=quality_failure_node,
+            route="quality_failure",
+        ),
     ],
 )
 

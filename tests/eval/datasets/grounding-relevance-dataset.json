@@ -1,0 +1,15 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "pt_financial_education_topic_alignment",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 12\",\"subject\":\"economia\",\"topic\":\"opcoes e certificados\",\"preferred_language\":\"pt\"}"
+          }
+        ]
+      }
+    }
+  ]
+}

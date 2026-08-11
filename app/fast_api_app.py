@@ -284,12 +284,12 @@ async def inject_request_metadata(request: Request, call_next):
         anon_id = request.cookies.get("anon_id") or f"transient_{uuid.uuid4().hex[:12]}"
 
     # 3. Resolve Locale / Preferred Language
-    accept_language = request.headers.get("Accept-Language", "de")
-    locale = "de"
+    accept_language = request.headers.get("Accept-Language", "en")
+    locale = "en"
     if "pt" in accept_language.lower() or request.headers.get("X-Locale") == "pt":
         locale = "pt"
-    elif "en" in accept_language.lower() or request.headers.get("X-Locale") == "en":
-        locale = "en"
+    elif "de" in accept_language.lower() or request.headers.get("X-Locale") == "de":
+        locale = "de"
 
     # Token bounds: Bind these values to the current async context
     t1 = client_ip_ctx.set(client_ip)
@@ -370,6 +370,7 @@ def collect_feedback(feedback: Feedback) -> dict[str, str]:
         session_id=feedback.session_id,
         anonymous_id=feedback.user_id,
         quiz_data=feedback.quiz_data,
+        quiz_context=feedback.quiz_context,
     )
 
     logger.log_struct(

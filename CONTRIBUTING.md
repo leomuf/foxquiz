@@ -74,6 +74,56 @@ agents-cli update
    uv run uvicorn app.fast_api_app:app --reload
    ```
 
+#### Inspecting Local Quiz Logs
+
+For troubleshooting a complete quiz request, run the application in the
+foreground and save the backend output at the same time:
+
+```bash
+GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID> \
+GCLOUD_PROJECT=<YOUR_PROJECT_ID> \
+uv run uvicorn app.fast_api_app:app \
+  --reload \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --log-level debug \
+  2>&1 | tee /tmp/foxquiz-local.log
+```
+
+These environment variable assignments apply only to the launched process and
+do not write the project ID to a repository file.
+
+Follow the complete log from a second terminal while performing the quiz:
+
+```bash
+tail -f /tmp/foxquiz-local.log
+```
+
+Filter the saved log for the most relevant agent stages and failures:
+
+```bash
+grep -Ei \
+  "Raw prompt|Extracted parameters|curriculum|compatib|Generating Quiz|Judge|ERROR|WARNING" \
+  /tmp/foxquiz-local.log
+```
+
+For curriculum-routing problems, inspect these messages in order:
+
+- `Gather and Route. Raw prompt`
+- `Extracted parameters`
+- `Performing upfront curriculum validation check`
+- `Upfront curriculum check results`
+- `Curriculum Search Skill invoked`
+- `Generating Quiz`
+
+Also open the browser developer tools (`F12`) while reproducing the problem:
+
+- **Console** shows JavaScript and response-processing errors.
+- **Network > `run_sse`** shows the prompt sent to FoxQuiz and all returned
+  agent events.
+- **Response** helps determine whether incorrect content came from the backend
+  or was interpreted incorrectly by the frontend.
+
 ### 3. Running Quality Checks
 Before submitting your changes, please ensure that all tests and code quality checks pass.
 

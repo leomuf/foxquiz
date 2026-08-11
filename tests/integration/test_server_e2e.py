@@ -254,6 +254,8 @@ def test_deployed_version_metadata(server_fixture: subprocess.Popen[str]) -> Non
     assert "FoxQuiz vintegration-test" in root_response.text
     assert ">0123456</a>" in root_response.text
     assert root_response.headers["X-FoxQuiz-Version"] == ("integration-test (0123456)")
+    assert "const PROGRESS_TARGET_DURATION_MS = 30000;" in root_response.text
+    assert "const userPrompt = JSON.stringify(payload);" in root_response.text
 
 
 def test_collect_feedback(server_fixture: subprocess.Popen[str]) -> None:
@@ -267,6 +269,12 @@ def test_collect_feedback(server_fixture: subprocess.Popen[str]) -> None:
         "user_id": "test-user-456",
         "session_id": "test-session-456",
         "text": "Great response!",
+        "quiz_context": {
+            "grade": "Klasse 12",
+            "subject": "Economia",
+            "topic": "Opcoes e certificados",
+            "preferred_language": "pt",
+        },
     }
 
     response = requests.post(

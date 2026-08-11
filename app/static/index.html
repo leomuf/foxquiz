@@ -1282,9 +1282,6 @@
             <a href="https://www.autosoft-engineering.de/impressum-1/" target="_blank" rel="noopener noreferrer" class="footer-link">
                 <span>⚖️</span> <span data-translate="footer_imprint">Imprint / Impressum</span>
             </a>
-            <a href="https://www.autosoft-engineering.de/impressum-1/" target="_blank" rel="noopener noreferrer" class="footer-link">
-                <span>🛡️</span> <span data-translate="footer_privacy">Privacy / Datenschutz</span>
-            </a>
         </div>
     </footer>
 
@@ -1364,7 +1361,6 @@
                 footer_opensource: "FoxQuiz ist ein Open-Source-Bildungsprojekt, lizenziert unter Creative Commons Attribution 4.0 International (CC BY 4.0).",
                 footer_github: "GitHub Repository",
                 footer_imprint: "Impressum",
-                footer_privacy: "Datenschutzerklärung",
                 footer_donation: "Gefällt dir die App? Wir freuen uns über eine Spende! 100% der Einnahmen fließen direkt in den Kauf von KI-Tokens, damit FoxQuiz langfristig für viele Kinder kostenlos bleiben kann. ❤️",
                 btn_donate: "Projekt unterstützen"
             },
@@ -1436,7 +1432,6 @@
                 footer_opensource: "FoxQuiz is an open-source educational project licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).",
                 footer_github: "GitHub Repository",
                 footer_imprint: "Imprint",
-                footer_privacy: "Privacy Policy",
                 footer_donation: "Do you like the app? We would love your support! 100% of donations go directly toward purchasing AI tokens so FoxQuiz can remain free for children in the long term. ❤️",
                 btn_donate: "Support the project"
             },
@@ -1508,18 +1503,23 @@
                 footer_opensource: "O FoxQuiz é um projeto educacional de código aberto licenciado sob a licença Creative Commons Attribution 4.0 International (CC BY 4.0).",
                 footer_github: "Repositório GitHub",
                 footer_imprint: "Termos Legais (Impressum)",
-                footer_privacy: "Política de Privacidade",
                 footer_donation: "Gostou do aplicativo? Adoraríamos seu apoio! 100% das doações vão direto para a compra de tokens de IA para que o FoxQuiz continue gratuito para as crianças a longo prazo. ❤️",
                 btn_donate: "Apoiar o projeto"
             }
         };
 
         // Current App State
-        let currentLanguage = "de";
+        let currentLanguage = "en";
         let activeMascot = "fox";
         let mascotColor = "#ff6b35";
         let currentSessionId = "";
         let currentQuizData = null;
+        let currentQuizContext = {
+            grade: null,
+            subject: null,
+            topic: null,
+            preferred_language: currentLanguage
+        };
         let currentQuestionIndex = 0;
         let userAnswers = []; // stores index of answers selected by user
         let score = 0;
@@ -1529,6 +1529,11 @@
         let currentQuizId = ""; // stored once sharing is triggered
         let hasSubmittedFeedback = false;
         let progressionDifficultyChosen = null;
+
+        const PROGRESS_TARGET_DURATION_MS = 30000;
+        const PROGRESS_TICK_MS = 200;
+        const PROGRESS_CEILING = 98;
+        const PROGRESS_AT_TARGET = 95;
 
         const mascotNames = {
             de: { fox: "Felix der Fuchs", owl: "Olivia die Eule", dragon: "Dino der Drache" },
@@ -1622,13 +1627,13 @@
             }
 
             // 2. Auto-detect browser language or fallback
-            const lang = navigator.language || navigator.userLanguage;
+            const lang = navigator.language || navigator.userLanguage || "en";
             if (lang.startsWith("pt")) {
                 setLanguage("pt");
-            } else if (lang.startsWith("en")) {
-                setLanguage("en");
-            } else {
+            } else if (lang.startsWith("de")) {
                 setLanguage("de");
+            } else {
+                setLanguage("en");
             }
         }
 
@@ -1799,26 +1804,34 @@
             startTicker();
             startProgressLoader();
 
-            // Format prompt for ADK agent
-            let userPrompt = `Grade: ${grade}, Subject: ${subject}, Topic: ${topic}, Language: ${currentLanguage}. Please generate my quiz!`;
+            // Send deterministic structured parameters so the agent can skip an extraction LLM call.
+            const payload = {
+                grade: grade,
+                subject: subject,
+                topic: topic,
+                preferred_language: currentLanguage
+            };
+            currentQuizContext = {
+                grade: grade,
+                subject: subject,
+                topic: topic,
+                preferred_language: currentLanguage
+            };
+
             if (isAdaptation) {
                 const previousQuestions = currentQuizData ? currentQuizData.questions.map(q => q.question) : [];
                 const previousQuizJson = currentQuizData ? JSON.stringify(currentQuizData) : "";
-                const payload = {
-                    grade: grade,
-                    subject: subject,
-                    topic: topic,
-                    preferred_language: currentLanguage,
+                Object.assign(payload, {
                     previous_score: score,
                     previous_questions: previousQuestions,
                     previous_quiz_json: previousQuizJson,
                     selected_difficulty: progressionDifficultyChosen
-                };
-                userPrompt = JSON.stringify(payload);
-                
+                });
+
                 // Reset the choice variable for future runs
                 progressionDifficultyChosen = null;
             }
+            const userPrompt = JSON.stringify(payload);
             
             if (!isAdaptation) {
                 currentSessionId = "";
@@ -2298,7 +2311,8 @@
                         user_id: "anonymous_student",
                         session_id: currentSessionId || "sess_none",
                         text: `Quiz theme: ${currentQuizData?.title || "none"}`,
-                        quiz_data: scoreValue === 0 ? currentQuizData : null
+                        quiz_data: scoreValue === 0 ? currentQuizData : null,
+                        quiz_context: scoreValue === 0 ? currentQuizContext : null
                     })
                 });
                 if (!response.ok) {
@@ -2434,11 +2448,15 @@
             if (progressInterval) {
                 clearInterval(progressInterval);
             }
-            // Asymptotic progressive increment
+            // Reach about 95% after 30 seconds, then approach 98% asymptotically.
+            const growthFactor = 1 - Math.pow(
+                (PROGRESS_CEILING - PROGRESS_AT_TARGET) / PROGRESS_CEILING,
+                PROGRESS_TICK_MS / PROGRESS_TARGET_DURATION_MS
+            );
             progressInterval = setInterval(() => {
-                currentProgress += (98 - currentProgress) * 0.035;
+                currentProgress += (PROGRESS_CEILING - currentProgress) * growthFactor;
                 updateProgress(currentProgress);
-            }, 200);
+            }, PROGRESS_TICK_MS);
         }
 
         function stopProgressLoader() {

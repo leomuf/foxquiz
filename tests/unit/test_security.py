@@ -24,6 +24,7 @@ from app.app_utils.request_context import (
     client_ip_ctx,
     client_locale_ctx,
 )
+from app.app_utils.typing import QuizContext, QuizQualityFailure
 from app.database.firestore_repo import FirestoreRepository
 
 
@@ -39,6 +40,22 @@ def reset_global_cache():
 def mock_repo():
     """Initializes FirestoreRepository in forced mock mode."""
     return FirestoreRepository(force_mock=True)
+
+
+def test_language_defaults_to_english() -> None:
+    assert client_locale_ctx.get() == "en"
+
+    quiz_context = QuizContext(
+        grade="Grade 8",
+        subject="Biology",
+        topic="Cells",
+    )
+    state_context = QuizContext.from_state(
+        {"grade": "Grade 8", "subject": "Biology", "topic": "Cells"}
+    )
+
+    assert quiz_context.preferred_language == "en"
+    assert state_context.preferred_language == "en"
 
 
 def _semantic_classifier_context() -> MagicMock:
@@ -143,10 +160,47 @@ def test_firestore_repo_feedback(mock_repo):
     )
     assert log_id.startswith("fb_")
 
+    quiz_context = QuizContext(
+        grade="Klasse 12",
+        subject="Economia",
+        topic="Opcoes e certificados",
+        preferred_language="pt",
+    )
     log_id_down = mock_repo.save_feedback_log(
-        score=0, text="Too hard", session_id="sess_2", anonymous_id="anon_2"
+        score=0,
+        text="Too hard",
+        session_id="sess_2",
+        anonymous_id="anon_2",
+        quiz_data={"title": "Financial education"},
+        quiz_context=quiz_context,
     )
     assert log_id_down.startswith("fb_")
+    feedback_log = mock_repo._get_mock_doc("feedback_logs", log_id_down)
+    assert feedback_log is not None
+    assert feedback_log["grade"] == "Klasse 12"
+    assert feedback_log["subject"] == "Economia"
+    assert feedback_log["topic"] == "Opcoes e certificados"
+    assert feedback_log["preferred_language"] == "pt"
+
+    quality_failure = QuizQualityFailure(
+        quiz_context=quiz_context,
+        failure_type="judge_rejected",
+        judge_attempts=2,
+        judge_reasons=["Topic mismatch", "Incorrect answer index"],
+        grounding_title=None,
+        grounding_discarded=True,
+    )
+    failure_id = mock_repo.save_quiz_quality_failure(quality_failure)
+    stored_failure = mock_repo._get_mock_doc("quiz_quality_failures", failure_id)
+    assert stored_failure is not None
+    assert stored_failure["quiz_context"]["grade"] == "Klasse 12"
+    assert stored_failure["failure_type"] == "judge_rejected"
+    assert stored_failure["judge_attempts"] == 2
+    assert stored_failure["judge_reasons"] == [
+        "Topic mismatch",
+        "Incorrect answer index",
+    ]
+    assert stored_failure["grounding_discarded"] is True
 
     # Fetch aggregated metrics
     metrics = mock_repo.get_satisfaction_metrics()
