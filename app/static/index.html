@@ -1778,6 +1778,37 @@
             generateQuiz(true);
         }
 
+        function extractStructuredBlockEvent(event) {
+            if (event?.status === "blocked" && typeof event.message === "string") {
+                return event;
+            }
+
+            const parts = event?.content?.parts;
+            if (!Array.isArray(parts)) {
+                return null;
+            }
+
+            for (const part of parts) {
+                if (typeof part.text !== "string") {
+                    continue;
+                }
+
+                try {
+                    const parsedEvent = JSON.parse(part.text);
+                    if (
+                        parsedEvent?.status === "blocked" &&
+                        typeof parsedEvent.message === "string"
+                    ) {
+                        return parsedEvent;
+                    }
+                } catch {
+                    // Normal ADK content can be plain text instead of structured JSON.
+                }
+            }
+
+            return null;
+        }
+
         // 4. Generate Quiz via Agent Workflow
         async function generateQuiz(isAdaptation = false) {
             if (isAdaptation && score >= 8 && progressionDifficultyChosen === null) {
@@ -1911,10 +1942,11 @@
                     } catch (err) {}
                 }
 
-                // Check if any event was blocked by Safety Checkpoint Middleware
-                for (const ev of events) {
-                    if (ev.status === "blocked") {
-                        showBlockScreen("🛑", ev.message);
+                // Check both direct block envelopes and ADK Content events.
+                for (const event of events) {
+                    const blockEvent = extractStructuredBlockEvent(event);
+                    if (blockEvent) {
+                        showBlockScreen("🛑", blockEvent.message);
                         return;
                     }
                 }

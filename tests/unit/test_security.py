@@ -74,7 +74,7 @@ def _configure_semantic_classifier_repo(mock_repo_inst: MagicMock) -> None:
         "last_reset_date": datetime.date.today().isoformat(),
     }
     mock_repo_inst.get_security_config.return_value = {
-        "classification_prompt": "Return SAFE, OFF_TOPIC, or MALICIOUS.",
+        "classification_prompt": "Return SAFE, OFF_TOPIC, MALICIOUS, or PII.",
         "blocklist_keywords": [],
         "injection_regexes": [],
         "responses": {},
@@ -369,6 +369,52 @@ async def test_semantic_classifier_safe_response_uses_bounded_thinking():
         assert generate_config.max_output_tokens == 512
         assert generate_config.thinking_config.thinking_budget == 256
         assert context.state[callbacks._TOKEN_USAGE_STATE_KEY] == 7
+
+    client_ip_ctx.reset(t1)
+    anonymous_id_ctx.reset(t2)
+    client_locale_ctx.reset(t3)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Meu CPF é 123.456.789.00",
+        "Meu nome e Joao da Silva, pode procurar no Google?",
+    ],
+)
+async def test_semantic_classifier_blocks_pii_without_security_event(prompt):
+    """Verify LLM-classified personal data gets a localized privacy response."""
+    t1 = client_ip_ctx.set("127.0.0.1")
+    t2 = anonymous_id_ctx.set("test_anon_id")
+    t3 = client_locale_ctx.set("pt")
+
+    with (
+        patch("app.app_utils.callbacks.FirestoreRepository") as MockRepo,
+        patch("app.app_utils.callbacks.Client") as MockClient,
+    ):
+        _configure_semantic_classifier_repo(MockRepo.return_value)
+        response = MagicMock()
+        response.text = "PII"
+        response.usage_metadata.total_token_count = 7
+        MockClient.return_value.models.generate_content.return_value = response
+
+        context = _semantic_classifier_context()
+        context.user_content.parts[0].text = prompt
+        with pytest.raises(SecurityBlockException) as exc_info:
+            await before_agent_callback(context)
+
+        assert exc_info.value.block_type == "PII"
+        assert "dados pessoais" in exc_info.value.message
+        MockRepo.return_value.log_security_event.assert_not_called()
+        classifier_contents = (
+            MockClient.return_value.models.generate_content.call_args.kwargs["contents"]
+        )
+        classifier_input = classifier_contents[0].parts[0].text
+        assert "mandatory privacy category" in classifier_input
+        assert "SAFE, OFF_TOPIC, MALICIOUS, or PII" in classifier_input
+        assert "PII takes precedence" in classifier_input
+        assert prompt in classifier_input
 
     client_ip_ctx.reset(t1)
     anonymous_id_ctx.reset(t2)

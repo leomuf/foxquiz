@@ -222,8 +222,20 @@ def test_blocked_generation_never_displays_a_quiz(
                 "data: "
                 + json.dumps(
                     {
-                        "status": "blocked",
-                        "message": "This request was blocked for safety.",
+                        "content": {
+                            "role": "model",
+                            "parts": [
+                                {
+                                    "text": json.dumps(
+                                        {
+                                            "status": "blocked",
+                                            "block_type": "PII",
+                                            "message": "Please do not share personal data.",
+                                        }
+                                    )
+                                }
+                            ],
+                        }
                     }
                 )
                 + "\n\n"
@@ -238,6 +250,6 @@ def test_blocked_generation_never_displays_a_quiz(
 
     expect(page.locator("#block-screen")).to_be_visible()
     expect(page.locator("#block-message")).to_have_text(
-        "This request was blocked for safety."
+        "Please do not share personal data."
     )
     expect(page.locator("#quiz-screen")).to_be_hidden()

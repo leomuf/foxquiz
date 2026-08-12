@@ -161,16 +161,118 @@ To allow FoxQuiz to be safely published as a **public GitHub repository** withou
 
 * **Dynamic Configurations:** Prompt injection keywords, administrative command regexes, defensive classification prompts, and localized block responses are stored privately in Google Cloud Firestore under the `system_config/security` document.
 * **No Code Exposure:** Defensive regexes and system-level instructions are never committed to git, preventing attackers from reverse-engineering guardrail vulnerabilities.
-* **Multi-Stage Interception:** The `BeforeAgentCallback` intercepts all incoming user prompts. It conducts rapid keyword and regex matching, intercepts administrative command overrides (such as requests to delete logs or modify system configurations), and runs an LLM classifier using the private prompt configuration.
+* **Multi-Stage Interception:** The `FoxQuizSecurityPlugin.before_run_callback` intercepts every invocation before the workflow starts. It conducts rapid keyword and regex matching, intercepts administrative command overrides (such as requests to delete logs or modify system configurations), and runs an LLM classifier using the private prompt configuration. The classifier also recognizes disclosed personal data semantically across languages, countries, and document types instead of relying on an incomplete fixed identifier list.
+* **Clean Workflow Blocks:** Expected security, privacy, off-topic, and budget blocks are routed to a terminal workflow response. The frontend receives a structured block envelope and shows the localized message instead of a generic application error.
 * **Logged Security Events:** Malicious injection attempts or administrative bypass commands are blocked immediately and logged securely to a private `security_events` Firestore collection for auditing.
+
+
+### How a Quiz Request Travels Through FoxQuiz
+
+The diagram separates the surrounding **FastAPI request handling**, the
+invocation-wide **ADK plugin**, and the graph-based **Workflow**. A plugin wraps
+the whole invocation; it is not a workflow node. Nodes perform work, while
+edges connect nodes and may select a route emitted by the preceding node.
+
+```mermaid
+flowchart TD
+    User["Browser: grade, subject, topic, language"] --> SSE["POST /run_sse"]
+
+    subgraph HTTP["FastAPI request layer"]
+        SSE --> Middleware["Request metadata middleware"]
+        Middleware --> Context["ContextVars: client IP, anonymous ID, locale"]
+        Context --> Runner["ADK App and Runner"]
+    end
+
+    subgraph Plugin["FoxQuizSecurityPlugin — wraps every invocation"]
+        Runner --> Before["before_run_callback"]
+        Before --> Config["Load cached private security config<br/>and hash the client IP"]
+        Config --> Ban{"Active ban?"}
+        Ban -- "Yes" --> BlockState["Store localized block envelope<br/>in temporary invocation state"]
+        Ban -- "No" --> Budget{"User or global<br/>daily budget exceeded?"}
+        Budget -- "Yes" --> BlockState
+        Budget -- "No" --> LocalScan["Stage 1: local keyword<br/>and injection-regex scan"]
+        LocalScan -- "Malicious match" --> Violation["Log security event<br/>and run Sheriff 3-strike check"]
+        Violation --> BlockState
+        LocalScan -- "No match" --> Classifier["Stage 2: Gemini semantic classifier"]
+        Classifier --> ValidDecision{"Valid classifier decision?"}
+        ValidDecision -- "No or classifier error" --> Closed["Fail closed:<br/>CLASSIFIER_UNAVAILABLE"]
+        Closed --> BlockState
+        ValidDecision -- "Yes" --> SafeDecision{"SAFE?"}
+        SafeDecision -- "Yes" --> NoBlock["Do not set block state"]
+        SafeDecision -- "No" --> OffTopicDecision{"OFF_TOPIC?"}
+        OffTopicDecision -- "Yes" --> BlockState
+        OffTopicDecision -- "No" --> PiiDecision{"PII?"}
+        PiiDecision -- "Yes" --> PrivateBlock["Do not log the disclosed PII<br/>and do not count a Sheriff strike"]
+        PrivateBlock --> BlockState
+        PiiDecision -- "No (MALICIOUS)" --> Violation
+    end
+
+    subgraph Workflow["root_agent Workflow — nodes connected by routed edges"]
+        Start["Workflow START"] --> Gate["security_checkpoint_node"]
+        Gate -- "blocked edge" --> BlockNode["security_block_node"]
+        BlockNode --> BlockSSE["Structured blocked response"]
+
+        Gate -- "allowed edge" --> Gather["gather_and_route<br/>parse request and check curriculum"]
+        Gather -- "ask_more edge" --> AskMore["ask_more_node<br/>terminal clarification branch"]
+        Gather -- "generate_quiz edge" --> Search["decision_and_search<br/>relevant curriculum grounding"]
+        Search --> Generate["quiz_generation"]
+        Generate --> Judge["llm_as_a_judge"]
+        Judge -- "retry edge: once" --> Generate
+        Judge -- "success edge" --> QuizOutput["quiz_output_node<br/>validated 10-question quiz"]
+        Judge -- "quality_failure edge" --> QualityFailure["quality_failure_node<br/>safe retry message and diagnostic"]
+    end
+    NoBlock --> Start
+    BlockState --> Start
+
+    Gather -. "clarification SSE content" .-> FrontendSetup["Frontend setup screen"]
+
+    BlockSSE -. "SSE content" .-> FrontendBlock["Frontend block screen"]
+    QuizOutput -. "SSE output" .-> FrontendQuiz["Frontend quiz wizard"]
+    QualityFailure -. "SSE content" .-> FrontendSetup
+
+    BlockSSE --> After["after_run_callback"]
+    AskMore --> After
+    QuizOutput --> After
+    QualityFailure --> After
+    After --> Tokens["Flush accumulated token usage<br/>to Firestore budgets"]
+
+    Runner -. "unexpected exception" .-> RunError["on_run_error_callback"]
+    RunError --> Tokens
+```
+
+The similarly named decisions and routes have different responsibilities:
+
+| Term | Layer | Meaning |
+| --- | --- | --- |
+| `SAFE` | Gemini security classifier | Continue without creating block state. |
+| `OFF_TOPIC` | Gemini security classifier | Stop with a friendly school-topic message; do not record a malicious violation. |
+| `PII` | Gemini security classifier | Stop with a privacy message; do not write the disclosed input to `security_events` and do not issue a Sheriff strike. |
+| `MALICIOUS` | Local scan or Gemini classifier | Log a security event, evaluate the Sheriff rule, and block the invocation. |
+| `allowed` | Edge from `security_checkpoint_node` | No block envelope exists, so normal quiz processing may begin. |
+| `BANNED` / `BUDGET_EXCEEDED` / `CLASSIFIER_UNAVAILABLE` | Plugin block types, not classifier decisions | Stop before quiz processing because an operational guard rejected the invocation. |
+| `blocked` | Edge from `security_checkpoint_node` | A block envelope exists, so the graph goes directly to `security_block_node`. |
+| `generate_quiz` / `ask_more` | Edges from `gather_and_route` | The curriculum check either starts quiz preparation or requests clarification. |
+| `retry` / `success` / `quality_failure` | Edges from `llm_as_a_judge` | Regenerate once, publish the validated quiz, or fail closed without exposing an unvalidated quiz. |
+
+> **Why the extra security node?** The plugin performs cross-cutting checks before
+> the graph runs and records an expected block in invocation-local state. The
+> first workflow node converts that state into an explicit `allowed` or
+> `blocked` graph route. This prevents an expected safety decision from becoming
+> an application error and guarantees that blocked input never reaches quiz
+> generation.
+> The custom FastAPI `SecurityBlockException` handler is a fallback for a
+> security exception that reaches the HTTP layer. The normal `/run_sse` path
+> catches expected blocks inside the plugin and routes them through temporary
+> state as shown above.
+
 
 ### 🤠 Automated Sheriff Guard (Zero-Token Auto-Banning)
 To prevent malicious actors or automated bots from draining our Vertex AI token budget via repeated safety violations, we implement an automated defense subsystem code-named **The Sheriff Guard**:
 1. **Secure Client Fingerprinting:** For every request, we extract the client's IP address and generate a one-way secure hash (`hashed_ip = SHA-256(IP + salt)`) with a secret salt stored in Firestore. Because raw IP addresses are personal data under GDPR/LGPD, this fingerprinter provides zero-PII security for minors while uniquely identifying repeat spammers.
-2. **Zero-Token Fast Block:** Incoming requests are matched against a fast, local in-memory active ban list (with a 5-minute TTL). If a banned signature matches, the request is instantly short-circuited at the entry gate, consuming **exactly 0 LLM tokens** and protecting the system budget.
+2. **Zero-Token Fast Block:** Incoming requests are matched against a fast, local in-memory active ban cache. An active Firestore ban seeds that cache for up to 24 hours. If a banned signature matches, the request is instantly short-circuited at the entry gate, consuming **exactly 0 LLM tokens** and protecting the system budget.
 3. **The Gavel (3-Strike Trigger):** If a user commits a safety violation, it is logged to `security_events` under their hashed signature. The Sheriff checks their recent logs: if a signature accumulates **3 or more safety violations** within any 1-hour window, they are automatically banned for 24 hours. The ban is written to the Firestore `banned_signatures` collection and instantly updated in the local active ban cache.
 
-> 💡 **Note:** Purely `OFF_TOPIC` requests (e.g., asking about the weather) are intercepted and redirected with a friendly response, but they are **not** treated as malicious safety violations. Only security exploits, prompt injections, or administrative override attempts are logged in `security_events` and count towards a Sheriff ban.
+> 💡 **Note:** `OFF_TOPIC` requests and inputs classified as `PII` are intercepted with a friendly response, but they are **not** treated as malicious safety violations. PII input is not written to `security_events`. Only security exploits, prompt injections, or administrative override attempts are logged there and count towards a Sheriff ban.
 
 ---
 

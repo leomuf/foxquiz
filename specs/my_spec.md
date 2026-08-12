@@ -807,7 +807,7 @@ All security rules, prompts, regexes, and keywords are stored in a private Fires
 # (Schema reference only. All actual classification prompts, regexes, and sensitive blocklist keywords are stored exclusively inside the private Firestore database)
 classification_prompt: |
   <SYSTEM_CLASSIFICATION_PROMPT_TEMPLATE>
-  # Private system instructions directing a fast classifier model to categorize input as SAFE, OFF_TOPIC, or MALICIOUS.
+  # Private system instructions directing a fast classifier model to categorize input as SAFE, OFF_TOPIC, MALICIOUS, or PII.
 
 blocklist_keywords:
   - "<SENSITIVE_KEYWORD_A>"
@@ -827,6 +827,9 @@ responses:
   injection_de: "Dieser Assistent kann dich nur bei der Vorbereitung auf deine Prüfungen unterstützen."
   injection_pt: "Este assistente só pode apoiar você na preparação para seus exames."
   injection_en: "This assistant can only support you in preparing for your exams."
+  pii_de: "<LOCALIZED_PRIVACY_MESSAGE>"
+  pii_pt: "<LOCALIZED_PRIVACY_MESSAGE>"
+  pii_en: "<LOCALIZED_PRIVACY_MESSAGE>"
 ```
 
 ### 10.2 Guardrail Execution Workflow
@@ -844,15 +847,25 @@ application plugin's `before_run_callback`:
      `max_output_tokens=512`, and a small `thinking_budget=256`. Limited
      thinking improves semantic verification while keeping latency and cost
      bounded.
-   - Accept only the exact decisions `SAFE`, `MALICIOUS`, or `OFF_TOPIC`.
+   - Accept only the exact decisions `SAFE`, `MALICIOUS`, `OFF_TOPIC`, or
+     `PII`.
+   - Use the LLM's semantic reasoning to recognize actual personal data and
+     requests to find or investigate a named person across languages,
+     countries, and document types. Do not maintain a fixed country-specific
+     list of document-number patterns.
    - If the result is empty, invalid, or the classifier raises an exception,
      fail closed with a localized temporary-unavailability message.
-   - If the classifier returns `MALICIOUS` or `OFF_TOPIC`, block and
+   - If the classifier returns `MALICIOUS`, `OFF_TOPIC`, or `PII`, block and
      short-circuit.
 4. **Action on Violation**:
    - **Block Prompt**: The prompt is not sent to the main Quiz Generator.
    - **Log Security Event**: If classified as `MALICIOUS`, write a log entry to the `security_events` Firestore collection (storing timestamp, blocked input, violation type, e.g. `RegexMatch`, `KeywordMatch`, `ClassifierBlock`, and anonymous ID).
-   - **Friendly Blocked Response**: Return the corresponding localized message from the dynamic `responses` config.
+   - **Protect PII**: Inputs classified as `PII` are not written to
+     `security_events` and do not count toward a Sheriff ban.
+   - **Friendly Blocked Response**: Store a structured block envelope in
+     invocation-local state. The workflow's first node routes blocked requests
+     directly to a terminal localized response before any quiz-processing node
+     runs. This avoids exceptions from expected blocks in the ADK SSE stream.
 
 ### 10.3 The Sheriff Guard (Automated Rate-Limiting & Auto-Banning)
 

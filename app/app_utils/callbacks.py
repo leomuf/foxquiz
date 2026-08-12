@@ -45,6 +45,12 @@ _local_banned_cache: dict[str, datetime.datetime] = {}
 # from being persisted as durable session state by ADK session services.
 _TOKEN_USAGE_STATE_KEY = "temp:foxquiz_token_usage"
 _TOKEN_USAGE_FLUSHED_STATE_KEY = "temp:foxquiz_token_usage_flushed"
+SECURITY_BLOCK_STATE_KEY = "temp:foxquiz_security_block"
+_PII_CLASSIFICATION_RULE = """\
+Additional mandatory privacy category:
+PII: The input contains actual personal data that could identify a natural person, or asks to find, look up, or investigate a named person. This includes personal identifiers, contact details, financial or health data, and real-looking identity details. Use semantic reasoning rather than a fixed list of countries or document types. General educational questions about privacy or document types that do not disclose actual personal data are not PII.
+PII takes precedence over SAFE, OFF_TOPIC, and MALICIOUS whenever personal data is disclosed. A prompt that gives a person's name and asks to search for, identify, or investigate that person is PII even when the underlying request would otherwise be off topic.
+This category extends any decision list above. Respond with exactly one word: SAFE, OFF_TOPIC, MALICIOUS, or PII."""
 
 
 _MASCOT_EMOJI_TRANSLATION = dict.fromkeys((0x1F98A, 0x1F989, 0x1F409, 0x1F432))
@@ -57,9 +63,7 @@ class SecurityBlockException(Exception):
         message = message.translate(_MASCOT_EMOJI_TRANSLATION)
         super().__init__(message)
         self.message = message
-        self.block_type = (
-            block_type  # "BANNED", "MALICIOUS", "OFF_TOPIC", "BUDGET_EXCEEDED"
-        )
+        self.block_type = block_type  # "BANNED", "MALICIOUS", "OFF_TOPIC", "PII", etc.
 
 
 def record_token_usage(callback_context: CallbackContext, response: Any) -> int:
@@ -198,6 +202,11 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
     # --- Stage 2: LLM Classification (Semantic Filter) ---
     try:
         classifier_prompt = config.get("classification_prompt")
+        if not isinstance(classifier_prompt, str) or not classifier_prompt.strip():
+            raise ValueError("Semantic classifier prompt is not configured.")
+        classifier_prompt = (
+            f"{classifier_prompt.rstrip()}\n\n{_PII_CLASSIFICATION_RULE}"
+        )
         # Call Google GenAI fast model for safe, cost-efficient security classification
         client = Client()
         response = client.models.generate_content(
@@ -224,7 +233,7 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
             raise ValueError("Semantic classifier returned no decision.")
 
         decision = response_text.strip().upper()
-        valid_decisions = {"SAFE", "OFF_TOPIC", "MALICIOUS"}
+        valid_decisions = {"SAFE", "OFF_TOPIC", "MALICIOUS", "PII"}
         if decision not in valid_decisions:
             raise ValueError(
                 f"Semantic classifier returned an invalid decision: {decision!r}."
@@ -252,6 +261,17 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
                 "This assistant can only help you prepare for school exams.",
             )
             raise SecurityBlockException(off_topic_msg, "OFF_TOPIC")
+        elif decision == "PII":
+            logger.info("Blocked input containing personal data.")
+            pii_defaults = {
+                "de": "Bitte teile hier keine personenbezogenen Daten. Formuliere dein Thema ohne Namen, Dokumentnummern oder andere private Angaben.",
+                "pt": "Por favor, não compartilhe dados pessoais aqui. Reformule o tema sem nomes, números de documentos ou outras informações privadas.",
+                "en": "Please do not share personal data here. Rephrase the topic without names, document numbers, or other private information.",
+            }
+            pii_msg = config.get("responses", {}).get(
+                f"pii_{locale_suffix}", pii_defaults[locale_suffix]
+            )
+            raise SecurityBlockException(pii_msg, "PII")
 
     except SecurityBlockException:
         raise
@@ -356,7 +376,22 @@ class FoxQuizSecurityPlugin(BasePlugin):
         callback_context = Context(invocation_context)
         callback_context.state[_TOKEN_USAGE_STATE_KEY] = 0
         callback_context.state[_TOKEN_USAGE_FLUSHED_STATE_KEY] = False
-        await before_agent_callback(callback_context)
+        try:
+            await before_agent_callback(callback_context)
+        except SecurityBlockException as exc:
+            logger.warning(
+                "FoxQuiz blocked invocation %s (%s).",
+                invocation_context.invocation_id,
+                exc.block_type,
+            )
+            callback_context.state[SECURITY_BLOCK_STATE_KEY] = {
+                "status": "blocked",
+                "block_type": exc.block_type,
+                "message": exc.message,
+            }
+            # ADK 2.6's Workflow runner ignores before_run return values. The
+            # workflow's first node consumes this state and routes to a terminal
+            # block response before any quiz-generation node can run.
         return None
 
     async def after_run_callback(

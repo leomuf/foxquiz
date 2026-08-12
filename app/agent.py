@@ -40,7 +40,11 @@ from google.adk.events.event_actions import EventActions
 from google.adk.agents.context import Context
 from google.adk.apps import App
 
-from app.app_utils.callbacks import FoxQuizSecurityPlugin, record_token_usage
+from app.app_utils.callbacks import (
+    FoxQuizSecurityPlugin,
+    SECURITY_BLOCK_STATE_KEY,
+    record_token_usage,
+)
 from app.app_utils.request_context import get_client_locale
 from app.app_utils.typing import QuizContext, QuizQualityFailure
 from app.database.firestore_repo import FirestorePersistenceError, FirestoreRepository
@@ -1021,13 +1025,51 @@ async def quality_failure_node(ctx: Context, node_input: Any) -> Event:
     )
 
 
+@node
+async def security_checkpoint_node(ctx: Context, node_input: Any) -> Event:
+    """Route an expected plugin block away from every quiz-processing node."""
+    route = "blocked" if ctx.state.get(SECURITY_BLOCK_STATE_KEY) else "allowed"
+    return Event(actions=EventActions(route=route))
+
+
+@node
+async def security_block_node(ctx: Context, node_input: Any) -> Event:
+    """Return the structured block envelope produced by the security plugin."""
+    block_event = ctx.state.get(SECURITY_BLOCK_STATE_KEY)
+    if not isinstance(block_event, dict):
+        logger.error("Security block route reached without a block response.")
+        block_event = {
+            "status": "blocked",
+            "block_type": "SECURITY_UNAVAILABLE",
+            "message": "The safety check is temporarily unavailable. Please try again shortly.",
+        }
+    return Event(
+        content=types.Content(
+            role="model",
+            parts=[
+                types.Part.from_text(text=json.dumps(block_event, ensure_ascii=False))
+            ],
+        )
+    )
+
+
 # --- ADK 2.0 Workflow Definition ---
 
 root_agent = Workflow(
     name="root_agent",
     description="Interactive School Exam Preparation Companion (FoxQuiz)",
     edges=[
-        Edge(from_node=START, to_node=gather_and_route),
+        Edge(from_node=START, to_node=security_checkpoint_node),
+        Edge(
+            from_node=security_checkpoint_node,
+            to_node=gather_and_route,
+            route="allowed",
+        ),
+        Edge(
+            from_node=security_checkpoint_node,
+            to_node=security_block_node,
+            route="blocked",
+        ),
         Edge(
             from_node=gather_and_route,
             to_node=decision_and_search,
