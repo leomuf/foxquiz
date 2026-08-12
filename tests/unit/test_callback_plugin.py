@@ -12,6 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Lifecycle tests for the FoxQuiz ADK security and budget plugin.
+
+Purpose:
+    Verify token accumulation and exactly-once flushing, best-effort post-run
+    persistence, plugin execution around ADK workflows, and terminal routing
+    for expected security blocks.
+
+Regression focus:
+    Expected blocks must become structured workflow state rather than runner
+    errors, and blocked requests must not reach quiz-processing nodes.
+
+Boundary:
+    Firestore and security decisions are mocked. These tests validate callback
+    wiring, not semantic classifier quality.
+"""
+
 import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch

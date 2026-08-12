@@ -12,6 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Deterministic tests for security, privacy, budgets, and Firestore data.
+
+Purpose:
+    Protect private configuration validation, localized fail-closed behavior,
+    bans and Sheriff escalation, token budgets, PII routing, classifier
+    response validation, persistence shapes, and Time To Live (TTL) values.
+
+Outage matrix:
+    Parameterized cases simulate failure during client initialization,
+    configuration loading, ban lookup, personal/global budget lookup,
+    security-event writing, violation counting, and ban writing. Every
+    pre-generation failure must become SECURITY_UNAVAILABLE and stop further
+    processing.
+
+Privacy boundary:
+    PII blocks must not create Sheriff events. Tests use harmless mock rules,
+    never production defensive values. Cross-language semantic quality belongs
+    in local agents-cli eval evaluations.
+"""
+
 import datetime
 from unittest.mock import ANY, MagicMock, patch
 

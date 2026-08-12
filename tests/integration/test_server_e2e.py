@@ -12,6 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""HTTP integration tests for the local FoxQuiz FastAPI application.
+
+Purpose:
+    Start the app as a subprocess and verify sessions and SSE chat,
+    malformed-request handling, static assets, version metadata, and feedback
+    persistence contracts.
+
+Boundary:
+    Most tests use INTEGRATION_TEST=TRUE and deterministic in-memory
+    persistence, so they run in GitHub Actions. The live chat-stream test is
+    marked google_cloud and runs only locally with Google credentials.
+"""
+
 import json
 import logging
 import os

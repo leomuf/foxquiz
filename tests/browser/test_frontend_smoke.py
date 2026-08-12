@@ -1,3 +1,17 @@
+"""Browser-level tests for the main FoxQuiz user journeys.
+
+Purpose:
+    Protect the learner-visible workflow: changing language and mascot,
+    submitting grade/subject/topic, completing a quiz, sending negative
+    feedback, and receiving a security-block response.
+
+Boundary:
+    A real browser drives the local FastAPI app, while session, Server-Sent
+    Events (SSE), and persistence responses are mocked. These tests need no
+    Google credentials. Visual appearance and non-deterministic LLM quality
+    remain manual or evaluation concerns.
+"""
+
 import json
 import os
 import re

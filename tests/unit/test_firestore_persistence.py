@@ -12,6 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Unit tests for production-path Firestore persistence semantics.
+
+Purpose:
+    Validate transactional token increments, Time To Live (TTL) backfilling,
+    and explicit failure propagation for shared-quiz and feedback writes.
+
+Boundary:
+    The repository follows its real-client path with a mocked Firestore client.
+    Production writes must never silently fall back to in-memory success.
+"""
+
 import datetime
 from unittest.mock import MagicMock, patch
 

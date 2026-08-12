@@ -12,6 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Deterministic unit tests for workflow helpers and routing safeguards.
+
+Purpose:
+    Cover Wikipedia relevance, grounding selection, security-router privacy,
+    non-exposure of unvalidated quiz candidates, judge retry limits,
+    curriculum schema validation, and best-effort quality diagnostics.
+
+Regression focus:
+    Safe input must reach gather_and_route without becoming client-visible
+    output. Blocked PII or malicious input must never enter temporary workflow
+    state.
+
+Boundary:
+    HTTP, Firestore, and model behavior are mocked. Semantic quiz quality and
+    curriculum judgment belong in agents-cli eval or local integration tests.
+"""
+
 from unittest.mock import MagicMock, patch
 
 import pytest

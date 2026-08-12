@@ -12,6 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Privacy-contract tests for structured operational failure events.
+
+Purpose:
+    Ensure Firestore failures emit queryable JSON containing only approved
+    fields: phase, operation, error class/code, version, and deployed revision.
+
+Privacy boundary:
+    Exception messages, prompts, IP addresses, client identifiers, hashed
+    signatures, and private security rules must never appear. Cloud Logging
+    ingestion and metrics are infrastructure concerns outside this unit test.
+"""
+
 import json
 from unittest.mock import patch
 

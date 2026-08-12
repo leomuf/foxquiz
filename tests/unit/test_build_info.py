@@ -12,6 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Unit tests for public build and source-revision metadata.
+
+Purpose:
+    Ensure deployments expose version, commit SHA, commit URL, and build time,
+    while local development has safe, predictable fallback values.
+
+Boundary:
+    Environment variables and installed-package metadata are mocked; no GitHub
+    or Google Cloud service is contacted.
+"""
+
 from unittest.mock import patch
 
 from app.app_utils.build_info import get_build_info
