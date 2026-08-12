@@ -81,8 +81,11 @@ def test_shared_quiz_failure_is_not_reported_as_saved(real_repo):
         "Firestore unavailable"
     )
 
-    with pytest.raises(FirestorePersistenceError, match="save shared quiz"):
+    with pytest.raises(FirestorePersistenceError) as exc_info:
         repo.save_shared_quiz("quiz-id", {"title": "Quiz"})
+
+    assert exc_info.value.operation == "save_shared_quiz"
+    assert exc_info.value.phase == "quiz_persistence"
 
     assert repo.use_mock is False
 
@@ -94,7 +97,7 @@ def test_feedback_failure_is_not_reported_as_saved(real_repo):
         "Firestore unavailable"
     )
 
-    with pytest.raises(FirestorePersistenceError, match="thumbs-up metric"):
+    with pytest.raises(FirestorePersistenceError) as exc_info:
         repo.save_feedback_log(
             score=1,
             text="Great quiz",
@@ -102,4 +105,6 @@ def test_feedback_failure_is_not_reported_as_saved(real_repo):
             anonymous_id="anonymous-id",
         )
 
+    assert exc_info.value.operation == "increment_thumbs_up_metric"
+    assert exc_info.value.phase == "feedback_persistence"
     assert repo.use_mock is False

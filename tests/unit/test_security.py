@@ -25,7 +25,12 @@ from app.app_utils.request_context import (
     client_locale_ctx,
 )
 from app.app_utils.typing import QuizContext, QuizQualityFailure
-from app.database.firestore_repo import FirestoreRepository
+from app.database.firestore_repo import (
+    FirestorePersistenceError,
+    FirestoreRepository,
+    SecurityConfigurationError,
+    validate_security_config,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -67,18 +72,201 @@ def _semantic_classifier_context() -> MagicMock:
     return context
 
 
+def _valid_security_config(
+    *,
+    responses: dict[str, str] | None = None,
+    **overrides,
+) -> dict:
+    response_config = {
+        f"{response}_{locale}": f"Test {response} response ({locale})."
+        for response in (
+            "banned",
+            "injection",
+            "off_topic",
+            "pii",
+            "classifier_unavailable",
+            "budget_user",
+            "budget_global",
+        )
+        for locale in ("de", "en", "pt")
+    }
+    response_config.update(
+        {
+            "pii_pt": "Nao compartilhe dados pessoais.",
+            "classifier_unavailable_en": (
+                "The safety check is temporarily unavailable."
+            ),
+        }
+    )
+    response_config.update(responses or {})
+    config = {
+        "classification_prompt": (
+            "Test classification contract: SAFE, OFF_TOPIC, MALICIOUS, or PII."
+        ),
+        "blocklist_keywords": ["test-blocked-keyword"],
+        "injection_regexes": [r"\btest-injection-pattern\b"],
+        "salt": "test-only-security-salt",
+        "responses": response_config,
+    }
+    config.update(overrides)
+    return config
+
+
 def _configure_semantic_classifier_repo(mock_repo_inst: MagicMock) -> None:
     mock_repo_inst.is_signature_banned.return_value = False
     mock_repo_inst.get_token_budget.return_value = {
         "tokens_used": 0,
         "last_reset_date": datetime.date.today().isoformat(),
     }
-    mock_repo_inst.get_security_config.return_value = {
-        "classification_prompt": "Return SAFE, OFF_TOPIC, MALICIOUS, or PII.",
-        "blocklist_keywords": [],
-        "injection_regexes": [],
-        "responses": {},
-    }
+    mock_repo_inst.get_security_config.return_value = _valid_security_config()
+
+
+def test_valid_security_configuration_is_accepted() -> None:
+    config = _valid_security_config()
+
+    assert validate_security_config(config) is config
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("salt", ""),
+        ("classification_prompt", None),
+        ("blocklist_keywords", "not-an-array"),
+        ("blocklist_keywords", []),
+        ("injection_regexes", [42]),
+        ("injection_regexes", []),
+    ],
+)
+def test_invalid_required_security_configuration_fails_closed(field, value) -> None:
+    config = _valid_security_config()
+    config[field] = value
+
+    with pytest.raises(SecurityConfigurationError):
+        validate_security_config(config)
+
+
+def test_invalid_security_regex_fails_closed() -> None:
+    config = _valid_security_config(injection_regexes=["("])
+
+    with pytest.raises(SecurityConfigurationError):
+        validate_security_config(config)
+
+
+def test_missing_localized_security_response_fails_closed() -> None:
+    config = _valid_security_config()
+    del config["responses"]["pii_pt"]
+
+    with pytest.raises(SecurityConfigurationError):
+        validate_security_config(config)
+
+
+def test_missing_production_security_document_is_not_seeded() -> None:
+    repo = FirestoreRepository.__new__(FirestoreRepository)
+    repo.use_mock = False
+    repo.client = MagicMock()
+    document = repo.client.collection.return_value.document.return_value
+    document.get.return_value.exists = False
+
+    with pytest.raises(SecurityConfigurationError):
+        repo.get_security_config()
+
+    document.set.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_configuration_load_failure_returns_localized_closed_block() -> None:
+    locale_token = client_locale_ctx.set("pt")
+    try:
+        with patch("app.app_utils.callbacks.FirestoreRepository") as repo_class:
+            repo_class.return_value.get_security_config.return_value = {}
+
+            with pytest.raises(SecurityBlockException) as exc_info:
+                await before_agent_callback(MagicMock())
+
+        assert exc_info.value.block_type == "SECURITY_UNAVAILABLE"
+        assert "indispon" in exc_info.value.message
+        repo_class.return_value.is_signature_banned.assert_not_called()
+    finally:
+        client_locale_ctx.reset(locale_token)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure_point", "operation", "phase"),
+    [
+        ("client_initialization", "initialize_client", "client_initialization"),
+        ("security_config_load", "load_security_config", "security_config_load"),
+        ("ban_check", "check_banned_signature", "ban_check"),
+        ("user_budget_check", "read_token_budget", "user_budget_check"),
+        ("global_budget_check", "read_token_budget", "global_budget_check"),
+        ("security_event_write", "write_security_event", "security_event_write"),
+        (
+            "violation_count",
+            "count_recent_security_violations",
+            "violation_count",
+        ),
+        ("ban_write", "write_banned_signature", "ban_write"),
+    ],
+)
+async def test_firestore_checkpoint_outages_fail_closed(
+    failure_point: str, operation: str, phase: str
+) -> None:
+    """Every pre-generation Firestore outage must stop the quiz safely."""
+    tokens = (
+        client_ip_ctx.set("203.0.113.7"),
+        anonymous_id_ctx.set("test-anonymous-user"),
+        client_locale_ctx.set("en"),
+    )
+    failure = FirestorePersistenceError(operation, phase)
+
+    try:
+        with (
+            patch("app.app_utils.callbacks.FirestoreRepository") as repo_class,
+            patch("app.app_utils.callbacks.Client") as client_class,
+        ):
+            if failure_point == "client_initialization":
+                repo_class.side_effect = failure
+                context = _semantic_classifier_context()
+            else:
+                repo = repo_class.return_value
+                _configure_semantic_classifier_repo(repo)
+                context = _semantic_classifier_context()
+
+                if failure_point == "security_config_load":
+                    repo.get_security_config.side_effect = failure
+                elif failure_point == "ban_check":
+                    repo.is_signature_banned.side_effect = failure
+                elif failure_point == "user_budget_check":
+                    repo.get_token_budget.side_effect = failure
+                elif failure_point == "global_budget_check":
+                    repo.get_token_budget.side_effect = [
+                        {"tokens_used": 0},
+                        failure,
+                    ]
+                else:
+                    repo.get_security_config.return_value = _valid_security_config(
+                        blocklist_keywords=["trigger-security-event"]
+                    )
+                    context.user_content.parts[0].text = "trigger-security-event"
+                    if failure_point == "security_event_write":
+                        repo.log_security_event.side_effect = failure
+                    elif failure_point == "violation_count":
+                        repo.get_recent_violations_count.side_effect = failure
+                    elif failure_point == "ban_write":
+                        repo.get_recent_violations_count.return_value = 3
+                        repo.ban_signature.side_effect = failure
+
+            with pytest.raises(SecurityBlockException) as exc_info:
+                await before_agent_callback(context)
+
+        assert exc_info.value.block_type == "SECURITY_UNAVAILABLE"
+        assert "temporarily unavailable" in exc_info.value.message
+        client_class.return_value.models.generate_content.assert_not_called()
+    finally:
+        client_ip_ctx.reset(tokens[0])
+        anonymous_id_ctx.reset(tokens[1])
+        client_locale_ctx.reset(tokens[2])
 
 
 def test_security_block_exception_strips_legacy_mascot_glyphs():
@@ -231,12 +419,9 @@ async def test_before_agent_callback_banned():
     with patch("app.app_utils.callbacks.FirestoreRepository") as MockRepo:
         mock_instance = MockRepo.return_value
         mock_instance.is_signature_banned.return_value = True
-        mock_instance.get_security_config.return_value = {
-            "classification_prompt": "Classifier instruction",
-            "blocklist_keywords": [],
-            "injection_regexes": [],
-            "responses": {"banned_de": "Zutritt verweigert."},
-        }
+        mock_instance.get_security_config.return_value = _valid_security_config(
+            responses={"banned_de": "Zutritt verweigert."}
+        )
 
         mock_context = MagicMock()
         mock_context.user_content = MagicMock()
@@ -267,21 +452,21 @@ async def test_before_agent_callback_keyword_violation():
             "tokens_used": 0,
             "last_reset_date": datetime.date.today().isoformat(),
         }
-        mock_repo_inst.get_security_config.return_value = {
-            "classification_prompt": "Classifier instruction",
-            "blocklist_keywords": ["drop database", "nuclear launch"],
-            "injection_regexes": [],
-            "responses": {
-                "injection_de": "Dieser Assistent kann dich nur bei der Vorbereitung unterstützen.",
+        mock_repo_inst.get_security_config.return_value = _valid_security_config(
+            blocklist_keywords=["test-malicious-keyword"],
+            responses={
+                "injection_de": (
+                    "Dieser Assistent kann dich nur bei der Vorbereitung unterst\u00fctzen."
+                ),
                 "banned_de": "Zutritt verweigert.",
             },
-        }
+        )
         mock_repo_inst.get_recent_violations_count.return_value = 1
 
         # Mock CallbackContext with malicious keyword
         mock_context = MagicMock()
         part = MagicMock()
-        part.text = "Please drop database now."
+        part.text = "Please use test-malicious-keyword now."
         mock_context.user_content.parts = [part]
 
         with pytest.raises(SecurityBlockException) as exc_info:
@@ -291,7 +476,10 @@ async def test_before_agent_callback_keyword_violation():
         assert "unterstützen" in exc_info.value.message
         # Verify violation log was recorded
         mock_repo_inst.log_security_event.assert_called_with(
-            "test_anon_id", ANY, "Please drop database now.", "KeywordMatch"
+            "test_anon_id",
+            ANY,
+            "Please use test-malicious-keyword now.",
+            "KeywordMatch",
         )
 
     client_ip_ctx.reset(t1)
@@ -313,15 +501,13 @@ async def test_before_agent_callback_sheriff_auto_ban():
             "tokens_used": 0,
             "last_reset_date": datetime.date.today().isoformat(),
         }
-        mock_repo_inst.get_security_config.return_value = {
-            "classification_prompt": "Classifier instruction",
-            "blocklist_keywords": ["malicious_keyword"],
-            "injection_regexes": [],
-            "responses": {
-                "banned_de": "Du bist nun permanent gesperrt! 🤠",
+        mock_repo_inst.get_security_config.return_value = _valid_security_config(
+            blocklist_keywords=["malicious_keyword"],
+            responses={
+                "banned_de": "Du bist nun permanent gesperrt!",
                 "injection_de": "Malicious block",
             },
-        }
+        )
         # Simulate that this user now has 3 violations in the last hour
         mock_repo_inst.get_recent_violations_count.return_value = 3
 
@@ -355,6 +541,10 @@ async def test_semantic_classifier_safe_response_uses_bounded_thinking():
         patch("app.app_utils.callbacks.Client") as MockClient,
     ):
         _configure_semantic_classifier_repo(MockRepo.return_value)
+        configured = MockRepo.return_value.get_security_config.return_value
+        configured["classification_prompt"] += (
+            f"\n\n{callbacks._PII_CLASSIFICATION_RULE}"
+        )
         response = MagicMock()
         response.text = "SAFE"
         response.usage_metadata.total_token_count = 7
@@ -368,6 +558,11 @@ async def test_semantic_classifier_safe_response_uses_bounded_thinking():
         )
         assert generate_config.max_output_tokens == 512
         assert generate_config.thinking_config.thinking_budget == 256
+        classifier_contents = (
+            MockClient.return_value.models.generate_content.call_args.kwargs["contents"]
+        )
+        classifier_input = classifier_contents[0].parts[0].text
+        assert classifier_input.count("Additional mandatory privacy category:") == 1
         assert context.state[callbacks._TOKEN_USAGE_STATE_KEY] == 7
 
     client_ip_ctx.reset(t1)

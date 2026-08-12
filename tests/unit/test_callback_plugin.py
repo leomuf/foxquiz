@@ -32,6 +32,7 @@ from app.app_utils.callbacks import (
     record_token_usage,
 )
 from app.app_utils.request_context import anonymous_id_ctx
+from app.database.firestore_repo import FirestorePersistenceError
 
 
 def test_record_token_usage_accumulates_direct_genai_responses():
@@ -71,6 +72,28 @@ async def test_after_callback_flushes_direct_usage_exactly_once():
             ]
     finally:
         anonymous_id_ctx.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_after_callback_keeps_successful_quiz_when_budget_flush_fails():
+    """Post-run token persistence is observable but never replaces a valid quiz."""
+    callback_context = MagicMock()
+    callback_context.state = {
+        "temp:foxquiz_token_usage": 150,
+        "temp:foxquiz_token_usage_flushed": False,
+    }
+    callback_context.invocation_id = "invocation-1"
+    callback_context.session.events = []
+
+    with patch("app.app_utils.callbacks.FirestoreRepository") as repo_class:
+        repo_class.return_value.increment_token_budget.side_effect = (
+            FirestorePersistenceError("increment_token_budget", "token_usage_flush")
+        )
+
+        assert await after_agent_callback(callback_context) is None
+
+    assert callback_context.state["temp:foxquiz_token_usage"] == 0
+    assert callback_context.state["temp:foxquiz_token_usage_flushed"] is True
 
 
 @pytest.mark.asyncio

@@ -209,8 +209,8 @@ project's default Compute service account.
 
 #### Step 3: Configure Required Infrastructure Manually
 
-Complete the following Cloud Run, OpenTelemetry, and Firestore configuration
-topics after deployment.
+Complete the following Cloud Run, OpenTelemetry, Firestore, and operational
+monitoring configuration topics after deployment.
 
 ##### Step 3.1: Cloud Run Cost and Startup Settings
 ```bash
@@ -263,7 +263,32 @@ Without these roles, OpenTelemetry exporters repeatedly log HTTP
 `403 Forbidden` errors. Repeat these grants only if the project or runtime
 service account changes.
 
-##### Step 3.3: Firestore Time To Live (TTL) Policies
+##### Step 3.3: Firestore Security-Event Composite Index
+
+Create the index required by the automated Sheriff to count recent violations
+for one privacy-preserving client signature:
+
+```bash
+gcloud firestore indexes composite create \
+  --collection-group=security_events \
+  --database='(default)' \
+  --query-scope=collection \
+  --field-config=field-path=hashed_ip,order=ascending \
+  --field-config=field-path=timestamp,order=ascending \
+  --project=<YOUR_PROJECT_ID>
+```
+
+Run this once per project. Index creation may take several minutes. Check that
+its state is `READY` before testing the Sheriff:
+
+```bash
+gcloud firestore indexes composite list \
+  --database='(default)' \
+  --project=<YOUR_PROJECT_ID> \
+  --format='table(name.basename(),queryScope,state,fields)'
+```
+
+##### Step 3.4: Firestore Time To Live (TTL) Policies
 ```bash
 gcloud firestore fields ttls update expires_at \
   --collection-group=budgets \
@@ -281,6 +306,24 @@ gcloud firestore fields ttls update expires_at \
 The application sets `expires_at` to seven days for transient budgets and
 30 days for shared quizzes. Firestore TTL performs the eventual physical
 deletion.
+
+##### Step 3.5: Firestore Failure Counter
+
+Create a project-level logs-based counter once so Firestore outages can be
+tracked over time without storing prompts, IP addresses, signatures, private
+rules, or exception messages:
+
+```bash
+gcloud logging metrics create foxquiz_firestore_operation_failures \
+  --project=<YOUR_PROJECT_ID> \
+  --description='Count of privacy-safe FoxQuiz Firestore operation failures' \
+  --log-filter='resource.type="cloud_run_revision" AND resource.labels.service_name="foxquiz" AND jsonPayload.event="firestore_operation_failed"'
+```
+
+The application emits one structured event for each failed Firestore operation.
+The event contains only the phase, operation name, exception class/code, service
+version, and deployed commit. An alert policy can be added later if operational
+notifications are needed; it is not required for deployment.
 
 #### Step 4: Ensure Public Accessibility
 
@@ -345,6 +388,22 @@ gcloud logging read \
   --order=desc \
   --format='table(timestamp,severity,textPayload)'
 ```
+
+Find privacy-safe Firestore failure events and group them by operation:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=foxquiz AND jsonPayload.event="firestore_operation_failed"'  \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=500 \
+  --order=desc \
+  --format='table(timestamp,jsonPayload.phase,jsonPayload.operation,jsonPayload.error_type,jsonPayload.error_code,jsonPayload.deployment_revision)'
+```
+
+The logs-based counter is available as
+`logging.googleapis.com/user/foxquiz_firestore_operation_failures` in Cloud
+Monitoring.
 
 Find unsuccessful HTTP requests:
 ```bash

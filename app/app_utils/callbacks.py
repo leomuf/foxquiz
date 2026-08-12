@@ -25,12 +25,18 @@ from google.adk.plugins.base_plugin import BasePlugin
 from google.genai import Client
 from google.genai import types as genai_types
 
+from app.app_utils.operational_logging import emit_operational_event
 from app.app_utils.request_context import (
     get_anonymous_id,
     get_client_ip,
     get_client_locale,
 )
-from app.database.firestore_repo import FirestoreRepository
+from app.database.firestore_repo import (
+    FirestorePersistenceError,
+    FirestoreRepository,
+    SecurityConfigurationError,
+    validate_security_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +57,13 @@ Additional mandatory privacy category:
 PII: The input contains actual personal data that could identify a natural person, or asks to find, look up, or investigate a named person. This includes personal identifiers, contact details, financial or health data, and real-looking identity details. Use semantic reasoning rather than a fixed list of countries or document types. General educational questions about privacy or document types that do not disclose actual personal data are not PII.
 PII takes precedence over SAFE, OFF_TOPIC, and MALICIOUS whenever personal data is disclosed. A prompt that gives a person's name and asks to search for, identify, or investigate that person is PII even when the underlying request would otherwise be off topic.
 This category extends any decision list above. Respond with exactly one word: SAFE, OFF_TOPIC, MALICIOUS, or PII."""
+
+
+_EMERGENCY_SECURITY_RESPONSES = {
+    "de": "Die Sicherheitsprüfung ist vorübergehend nicht verfügbar. Bitte versuche es gleich noch einmal.",
+    "pt": "A verificação de segurança está temporariamente indisponível. Tente novamente em instantes.",
+    "en": "The safety check is temporarily unavailable. Please try again shortly.",
+}
 
 
 _MASCOT_EMOJI_TRANSLATION = dict.fromkeys((0x1F98A, 0x1F989, 0x1F409, 0x1F432))
@@ -88,49 +101,66 @@ def get_cached_security_config(repo: FirestoreRepository) -> dict[str, Any]:
         or (now - _cached_time).total_seconds() > 300
     ):
         logger.info("Lazy-loading security configuration from Firestore.")
-        _cached_config = repo.get_security_config()
+        _cached_config = validate_security_config(repo.get_security_config())
         _cached_time = now
     return _cached_config
 
 
 async def before_agent_callback(callback_context: CallbackContext) -> None:
-    """ADK 2.0 Upstream Guard: Conducts safety scans, Sheriff checks, and token budgets."""
-    repo = FirestoreRepository()
-    config = get_cached_security_config(repo)
-
-    # 1. Secure IP Hashing (GDPR/LGPD privacy preservation)
-    client_ip = get_client_ip()
-    salt = config.get("salt", "foxquiz_secret_salt_2026")
-    hashed_ip = hashlib.sha256((client_ip + salt).encode("utf-8")).hexdigest()
-
+    """Fail closed when the security checkpoint cannot complete safely."""
     locale = get_client_locale()
     locale_suffix = (
         "de" if "de" in locale.lower() else "pt" if "pt" in locale.lower() else "en"
     )
 
+    try:
+        await _run_security_checkpoint(callback_context, locale_suffix)
+    except SecurityBlockException:
+        raise
+    except SecurityConfigurationError as error:
+        emit_operational_event(
+            event="security_configuration_invalid",
+            phase="security_config_load",
+            operation="validate_security_config",
+            error=error,
+        )
+        raise SecurityBlockException(
+            _EMERGENCY_SECURITY_RESPONSES[locale_suffix],
+            "SECURITY_UNAVAILABLE",
+        ) from error
+    except FirestorePersistenceError as error:
+        raise SecurityBlockException(
+            _EMERGENCY_SECURITY_RESPONSES[locale_suffix],
+            "SECURITY_UNAVAILABLE",
+        ) from error
+
+
+async def _run_security_checkpoint(
+    callback_context: CallbackContext, locale_suffix: str
+) -> None:
+    """Conduct safety scans, Sheriff checks, and token budget checks."""
+    repo = FirestoreRepository()
+    config = get_cached_security_config(repo)
+
+    # 1. Secure IP Hashing (GDPR/LGPD privacy preservation)
+    client_ip = get_client_ip()
+    hashed_ip = hashlib.sha256((client_ip + config["salt"]).encode("utf-8")).hexdigest()
+
     # 2. Zero-Token Fast Block (Local Active Ban Cache check)
     now = datetime.datetime.now(datetime.UTC)
     if hashed_ip in _local_banned_cache:
         if now < _local_banned_cache[hashed_ip]:
-            logger.warning(
-                f"Fast-blocking banned client signature {hashed_ip} from local active cache."
-            )
-            banned_msg = config.get("responses", {}).get(
-                f"banned_{locale_suffix}", "Access blocked."
-            )
+            logger.warning("Fast-blocking a banned client from the local cache.")
+            banned_msg = config["responses"][f"banned_{locale_suffix}"]
             raise SecurityBlockException(banned_msg, "BANNED")
         else:
             _local_banned_cache.pop(hashed_ip, None)
 
     # Check database if not in local cache (and seed local cache if banned)
     if repo.is_signature_banned(hashed_ip):
-        logger.warning(
-            f"Fast-blocking banned client signature {hashed_ip} from Firestore database."
-        )
+        logger.warning("Fast-blocking a banned client confirmed by Firestore.")
         _local_banned_cache[hashed_ip] = now + datetime.timedelta(hours=24)
-        banned_msg = config.get("responses", {}).get(
-            f"banned_{locale_suffix}", "Access blocked."
-        )
+        banned_msg = config["responses"][f"banned_{locale_suffix}"]
         raise SecurityBlockException(banned_msg, "BANNED")
 
     # 3. Daily Token Budget Verifications
@@ -138,21 +168,15 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
     # Personal Limit Check (100k tokens per user per day)
     user_budget = repo.get_token_budget(f"budget_{anon_id}")
     if user_budget.get("tokens_used", 0) >= 100000:
-        logger.warning(f"User {anon_id} reached daily token budget limit.")
-        msg = config.get("responses", {}).get(
-            f"budget_user_{locale_suffix}",
-            "You have reached your daily learning limit. Please come back tomorrow.",
-        )
+        logger.warning("A user reached the daily token budget limit.")
+        msg = config["responses"][f"budget_user_{locale_suffix}"]
         raise SecurityBlockException(msg, "BUDGET_EXCEEDED")
 
     # Global Limit Check (5M tokens per app per day)
     global_budget = repo.get_token_budget("global")
     if global_budget.get("tokens_used", 0) >= 5000000:
         logger.warning("Global application token budget limit reached.")
-        msg = config.get("responses", {}).get(
-            f"budget_global_{locale_suffix}",
-            "The daily application limit has been reached. Please try again tomorrow.",
-        )
+        msg = config["responses"][f"budget_global_{locale_suffix}"]
         raise SecurityBlockException(msg, "BUDGET_EXCEEDED")
 
     # 4. Prompt Screening
@@ -172,7 +196,7 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
     # Keyword scanning (case-insensitive)
     for kw in blocklist_keywords:
         if kw.lower() in prompt.lower():
-            logger.error(f"Safety violation triggered by blocklist keyword: '{kw}'")
+            logger.error("Safety violation triggered by a blocklist keyword.")
             await _handle_safety_violation(
                 callback_context,
                 repo,
@@ -186,9 +210,7 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
     # Regex matching
     for pattern in injection_regexes:
         if re.search(pattern, prompt, re.IGNORECASE):
-            logger.error(
-                f"Safety violation triggered by injection regex match: '{pattern}'"
-            )
+            logger.error("Safety violation triggered by an injection regex.")
             await _handle_safety_violation(
                 callback_context,
                 repo,
@@ -204,9 +226,10 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
         classifier_prompt = config.get("classification_prompt")
         if not isinstance(classifier_prompt, str) or not classifier_prompt.strip():
             raise ValueError("Semantic classifier prompt is not configured.")
-        classifier_prompt = (
-            f"{classifier_prompt.rstrip()}\n\n{_PII_CLASSIFICATION_RULE}"
-        )
+        if _PII_CLASSIFICATION_RULE not in classifier_prompt:
+            classifier_prompt = (
+                f"{classifier_prompt.rstrip()}\n\n{_PII_CLASSIFICATION_RULE}"
+            )
         # Call Google GenAI fast model for safe, cost-efficient security classification
         client = Client()
         response = client.models.generate_content(
@@ -235,9 +258,7 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
         decision = response_text.strip().upper()
         valid_decisions = {"SAFE", "OFF_TOPIC", "MALICIOUS", "PII"}
         if decision not in valid_decisions:
-            raise ValueError(
-                f"Semantic classifier returned an invalid decision: {decision!r}."
-            )
+            raise ValueError("Semantic classifier returned an invalid decision.")
 
         logger.info(f"Lightweight semantic classifier safety decision: {decision}")
 
@@ -256,39 +277,24 @@ async def before_agent_callback(callback_context: CallbackContext) -> None:
             )
         elif decision == "OFF_TOPIC":
             logger.info("Intercepted harmless off-topic prompt.")
-            off_topic_msg = config.get("responses", {}).get(
-                f"off_topic_{locale_suffix}",
-                "This assistant can only help you prepare for school exams.",
-            )
+            off_topic_msg = config["responses"][f"off_topic_{locale_suffix}"]
             raise SecurityBlockException(off_topic_msg, "OFF_TOPIC")
         elif decision == "PII":
             logger.info("Blocked input containing personal data.")
-            pii_defaults = {
-                "de": "Bitte teile hier keine personenbezogenen Daten. Formuliere dein Thema ohne Namen, Dokumentnummern oder andere private Angaben.",
-                "pt": "Por favor, não compartilhe dados pessoais aqui. Reformule o tema sem nomes, números de documentos ou outras informações privadas.",
-                "en": "Please do not share personal data here. Rephrase the topic without names, document numbers, or other private information.",
-            }
-            pii_msg = config.get("responses", {}).get(
-                f"pii_{locale_suffix}", pii_defaults[locale_suffix]
-            )
+            pii_msg = config["responses"][f"pii_{locale_suffix}"]
             raise SecurityBlockException(pii_msg, "PII")
 
     except SecurityBlockException:
         raise
+    except FirestorePersistenceError:
+        raise
     except Exception as e:
-        logger.exception(
+        logger.error(
             "Semantic safety classification failed. Blocking the request instead of "
-            "allowing it without semantic review."
+            "allowing it without semantic review (%s).",
+            type(e).__name__,
         )
-        unavailable_defaults = {
-            "de": "Die Sicherheitsprüfung ist vorübergehend nicht verfügbar. Bitte versuche es gleich noch einmal.",
-            "pt": "A verificação de segurança está temporariamente indisponível. Tente novamente em instantes.",
-            "en": "The safety check is temporarily unavailable. Please try again shortly.",
-        }
-        unavailable_msg = config.get("responses", {}).get(
-            f"classifier_unavailable_{locale_suffix}",
-            unavailable_defaults[locale_suffix],
-        )
+        unavailable_msg = config["responses"][f"classifier_unavailable_{locale_suffix}"]
         raise SecurityBlockException(unavailable_msg, "CLASSIFIER_UNAVAILABLE") from e
 
 
@@ -309,28 +315,22 @@ async def _handle_safety_violation(
     # 2. Automated Sheriff Guard Check (Count last hour violations)
     violations_count = repo.get_recent_violations_count(hashed_ip, hours=1)
     logger.warning(
-        f"Client {hashed_ip} has committed {violations_count} safety violations in the past hour."
+        "A client has committed %s safety violations in the past hour.",
+        violations_count,
     )
 
     if violations_count >= 3:
         # The Gavel: Auto-ban signature for 24 hours
-        logger.error(
-            f"🤠 The Sheriff Guard has banned client {hashed_ip} due to 3 active violations!"
-        )
+        logger.error("The Sheriff Guard banned a client after three active violations.")
         repo.ban_signature(hashed_ip, duration_hours=24)
         _local_banned_cache[hashed_ip] = datetime.datetime.now(
             datetime.UTC
         ) + datetime.timedelta(hours=24)
-        banned_msg = config.get("responses", {}).get(
-            f"banned_{locale_suffix}", "Access blocked."
-        )
+        banned_msg = config["responses"][f"banned_{locale_suffix}"]
         raise SecurityBlockException(banned_msg, "BANNED")
 
     # Raise friendly localized block warning response
-    block_msg = config.get("responses", {}).get(
-        f"injection_{locale_suffix}",
-        "This assistant can only support you with exam preparation.",
-    )
+    block_msg = config["responses"][f"injection_{locale_suffix}"]
     raise SecurityBlockException(block_msg, "MALICIOUS")
 
 
@@ -351,13 +351,16 @@ async def after_agent_callback(
             total_tokens += event.usage_metadata.total_token_count or 0
 
     if total_tokens > 0:
-        anon_id = get_anonymous_id()
-        logger.info(
-            f"Aggregated invocation {invocation_id} used {total_tokens} tokens. Logging to budget."
-        )
-        repo = FirestoreRepository()
-        repo.increment_token_budget(f"budget_{anon_id}", total_tokens)
-        repo.increment_token_budget("global", total_tokens)
+        logger.info("Aggregated invocation token usage will be written to the budget.")
+        try:
+            anon_id = get_anonymous_id()
+            repo = FirestoreRepository()
+            repo.increment_token_budget(f"budget_{anon_id}", total_tokens)
+            repo.increment_token_budget("global", total_tokens)
+        except FirestorePersistenceError:
+            # The repository already emitted the single structured failure event.
+            # Do not turn a successful quiz into an error after generation.
+            logger.warning("Token budget persistence was unavailable after the run.")
 
     callback_context.state[_TOKEN_USAGE_STATE_KEY] = 0
     callback_context.state[_TOKEN_USAGE_FLUSHED_STATE_KEY] = True
@@ -406,8 +409,7 @@ class FoxQuizSecurityPlugin(BasePlugin):
         error: Exception,
     ) -> None:
         logger.warning(
-            "Flushing token usage after failed invocation %s: %s",
-            invocation_context.invocation_id,
-            error,
+            "Flushing token usage after a failed invocation (%s).",
+            type(error).__name__,
         )
         await after_agent_callback(Context(invocation_context))
