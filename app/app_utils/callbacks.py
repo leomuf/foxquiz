@@ -30,6 +30,9 @@ from app.database.firestore_repo import (
 
 logger = logging.getLogger(__name__)
 
+DAILY_USER_TOKEN_LIMIT = 100_000
+DAILY_GLOBAL_TOKEN_LIMIT = 5_000_000
+
 # Config caches
 _cached_config: dict[str, Any] | None = None
 _cached_time: datetime.datetime | None = None
@@ -155,16 +158,16 @@ async def _run_security_checkpoint(
 
     # 3. Daily Token Budget Verifications
     anon_id = get_anonymous_id()
-    # Personal Limit Check (100k tokens per user per day)
+    # Personal daily token limit check
     user_budget = repo.get_token_budget(f"budget_{anon_id}")
-    if user_budget.get("tokens_used", 0) >= 100000:
+    if user_budget.get("tokens_used", 0) >= DAILY_USER_TOKEN_LIMIT:
         logger.warning("A user reached the daily token budget limit.")
         msg = config["responses"][f"budget_user_{locale_suffix}"]
         raise SecurityBlockException(msg, "BUDGET_EXCEEDED")
 
-    # Global Limit Check (5M tokens per app per day)
+    # Global daily token limit check
     global_budget = repo.get_token_budget("global")
-    if global_budget.get("tokens_used", 0) >= 5000000:
+    if global_budget.get("tokens_used", 0) >= DAILY_GLOBAL_TOKEN_LIMIT:
         logger.warning("Global application token budget limit reached.")
         msg = config["responses"][f"budget_global_{locale_suffix}"]
         raise SecurityBlockException(msg, "BUDGET_EXCEEDED")
