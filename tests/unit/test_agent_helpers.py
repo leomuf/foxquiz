@@ -6,8 +6,9 @@
 
 Purpose:
     Cover Wikipedia relevance, grounding selection, security-router privacy,
-    non-exposure of unvalidated quiz candidates, judge retry limits,
-    curriculum schema validation, and best-effort quality diagnostics.
+    non-exposure of unvalidated quiz candidates, deterministic validation
+    routing and structured event classification, judge retry limits, curriculum
+    schema validation, and best-effort quality diagnostics.
 
 Regression focus:
     Safe input must reach gather_and_route without becoming client-visible
@@ -151,7 +152,7 @@ def test_judge_retries_once_then_fails_closed() -> None:
 
 @pytest.mark.asyncio
 async def test_deterministic_validation_routes_answer_cue_to_retry() -> None:
-    """The first invalid candidate is regenerated without reaching the judge."""
+    """The first invalid candidate emits a failure event and bypasses the judge."""
     context = MagicMock()
     context.state = {
         "generation_attempts": 1,
@@ -169,34 +170,40 @@ async def test_deterministic_validation_routes_answer_cue_to_retry() -> None:
         },
     }
 
-    events = [
-        event
-        async for event in deterministic_quiz_validation._run_impl(
-            ctx=context,
-            node_input=None,
-        )
-    ]
+    with patch("app.agent.emit_quiz_validation_event") as emit_event:
+        events = [
+            event
+            async for event in deterministic_quiz_validation._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
 
     assert events[0].actions.route == "retry"
     assert context.state["quality_failure_type"] == "deterministic_validation_failed"
     assert "Correct" not in context.state["deterministic_retry_guidance"]
+    assert emit_event.call_args.kwargs["event"] == "quiz_validation_failed"
+    assert emit_event.call_args.kwargs["generation_attempt"] == 1
 
 
 @pytest.mark.asyncio
 async def test_deterministic_validation_fails_closed_after_retry_budget() -> None:
-    """A second invalid generation is blocked instead of shown to the learner."""
+    """An exhausted retry emits its event and blocks the candidate from learners."""
     context = MagicMock()
     context.state = {"generation_attempts": 2, "temp_quiz": None}
 
-    events = [
-        event
-        async for event in deterministic_quiz_validation._run_impl(
-            ctx=context,
-            node_input=None,
-        )
-    ]
+    with patch("app.agent.emit_quiz_validation_event") as emit_event:
+        events = [
+            event
+            async for event in deterministic_quiz_validation._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
 
     assert events[0].actions.route == "quality_failure"
+    assert emit_event.call_args.kwargs["event"] == "quiz_validation_retry_exhausted"
+    assert emit_event.call_args.kwargs["generation_attempt"] == 2
 
 
 def test_curriculum_compatibility_supports_clarification_gate() -> None:
@@ -245,3 +252,44 @@ def test_quality_failure_persistence_is_best_effort() -> None:
             )
         )
         _save_quality_failure_best_effort(failure)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("generation_attempt", "expected_event"),
+    [(1, "quiz_validation_passed"), (2, "quiz_validation_retry_passed")],
+)
+async def test_deterministic_validation_logs_success_without_candidate(
+    generation_attempt: int,
+    expected_event: str,
+) -> None:
+    """First-pass and recovered candidates produce distinct aggregate events."""
+    context = MagicMock()
+    context.state = {
+        "generation_attempts": generation_attempt,
+        "temp_quiz": {
+            "title": "Valid",
+            "questions": [
+                {
+                    "question": f"Question {number}?",
+                    "options": ["Option A", "Option B", "Option C"],
+                    "correct_option_index": 0,
+                    "explanation": "An explanation.",
+                }
+                for number in range(10)
+            ],
+        },
+    }
+
+    with patch("app.agent.emit_quiz_validation_event") as emit_event:
+        events = [
+            event
+            async for event in deterministic_quiz_validation._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
+
+    assert events[0].actions.route == "valid"
+    assert emit_event.call_args.kwargs["event"] == expected_event
+    assert emit_event.call_args.kwargs["generation_attempt"] == generation_attempt

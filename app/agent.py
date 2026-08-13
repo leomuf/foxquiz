@@ -45,6 +45,7 @@ from app.app_utils.callbacks import (
     SECURITY_BLOCK_STATE_KEY,
     record_token_usage,
 )
+from app.app_utils.operational_logging import emit_quiz_validation_event
 from app.app_utils.request_context import get_client_locale
 from app.app_utils.typing import QuizContext, QuizQualityFailure
 from app.database.firestore_repo import FirestorePersistenceError, FirestoreRepository
@@ -907,15 +908,33 @@ async def deterministic_quiz_validation(ctx: Context, node_input: Any) -> Event:
     ctx.state["deterministic_validation_issues"] = [
         issue.as_dict() for issue in result.issues
     ]
+    generation_attempts = int(ctx.state.get("generation_attempts") or 0)
     if result.is_valid:
+        emit_quiz_validation_event(
+            event=(
+                "quiz_validation_retry_passed"
+                if generation_attempts > 1
+                else "quiz_validation_passed"
+            ),
+            generation_attempt=generation_attempts,
+            result=result,
+        )
         ctx.state["deterministic_retry_guidance"] = ""
         return Event(actions=EventActions(route="valid"))
 
     guidance = build_retry_guidance(result)
     ctx.state["deterministic_retry_guidance"] = guidance
     ctx.state["quality_failure_type"] = "deterministic_validation_failed"
-    generation_attempts = int(ctx.state.get("generation_attempts") or 0)
     route = _route_after_failed_judge(generation_attempts)
+    emit_quiz_validation_event(
+        event=(
+            "quiz_validation_retry_exhausted"
+            if route == "quality_failure"
+            else "quiz_validation_failed"
+        ),
+        generation_attempt=generation_attempts,
+        result=result,
+    )
     logger.warning(
         "Deterministic quiz validation failed with %s issue(s). Routing to %s.",
         len(result.issues),
@@ -1024,6 +1043,11 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
             issue.as_dict() for issue in final_validation.issues
         ]
         ctx.state["quality_failure_type"] = "final_invariant_failed"
+        emit_quiz_validation_event(
+            event="quiz_final_invariant_failed",
+            generation_attempt=int(ctx.state.get("generation_attempts") or 0),
+            result=final_validation,
+        )
         logger.error("Final quiz invariant failed; blocking quiz output.")
         yield _quality_failure_event(ctx)
         return

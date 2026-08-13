@@ -625,6 +625,13 @@ Persistence failure is logged but must not replace the user-facing quality
 message. No automatic Firestore Time To Live (TTL) policy is currently defined
 for this diagnostic collection; its retention must be governed operationally.
 
+Every deterministic candidate validation also emits a structured Cloud Run log
+event for aggregate quality analysis. It records only the validation outcome,
+generation attempt, issue count, stable issue codes, service version, and
+deployed commit. Grade, subject, topic, prompts, generated questions, answer
+options, explanations, client identifiers, and model responses are excluded.
+No log-based metric or Terraform resource is required.
+
 ---
 
 ## 7. Localized Wikipedia Grounding and Relevance Filtering
