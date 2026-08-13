@@ -1547,6 +1547,11 @@
             dragon: "dino"
         };
 
+        /**
+         * Configures responsive mascot artwork and localized accessibility text.
+         * @param {HTMLImageElement} element Image element to update.
+         * @param {string} mascot Selected mascot identifier.
+         */
         function setMascotImage(element, mascot) {
             const assetName = mascotAssetNames[mascot];
             const basePath = `/static/assets/mascots/${assetName}-face`;
@@ -1556,8 +1561,25 @@
             element.dataset.mascot = mascot;
         }
 
+        /**
+         * Removes legacy mascot Unicode glyphs now replaced by consistent artwork.
+         * @param {string} value Text that may contain an old mascot glyph.
+         * @returns {string} Cleaned text with normalized whitespace.
+         */
         function stripMascotEmoji(value) {
             return value.replace(/[\u{1F98A}\u{1F989}\u{1F409}\u{1F432}]/gu, "").replace(/ {2,}/g, " ").trim();
+        }
+
+        /**
+         * Escapes untrusted text for safe insertion into generated HTML.
+         *
+         * Assigning the value to textContent makes the browser encode HTML-sensitive
+         * characters so LLM-generated content cannot be interpreted as HTML.
+         */
+        function escapeHtml(value) {
+            const element = document.createElement("div");
+            element.textContent = String(value ?? "");
+            return element.innerHTML;
         }
 
         const greetings = {
@@ -1578,6 +1600,12 @@
             }
         };
 
+        /**
+         * Maps multilingual or emoji-based model difficulty labels to UI text.
+         * Unknown and empty values intentionally fall back to medium difficulty.
+         * @param {string|null|undefined} difficultyStr Raw quiz difficulty.
+         * @returns {string} Difficulty label in the active UI language.
+         */
         function getLocalizedDifficulty(difficultyStr) {
             const t = translations[currentLanguage];
             const prefix = t.label_level || "";
@@ -1592,6 +1620,11 @@
             return prefix + t.difficulty_medium;
         }
 
+        /**
+         * Updates both the localized badge label and its matching tooltip.
+         * @param {HTMLElement|null} elem Badge element, if present on this screen.
+         * @param {string|null|undefined} difficultyStr Raw quiz difficulty.
+         */
         function updateDifficultyBadge(elem, difficultyStr) {
             if (!elem) return;
             elem.innerText = getLocalizedDifficulty(difficultyStr);
@@ -1617,6 +1650,10 @@
         });
 
         // 1. Language Detection & Handling
+        /**
+         * Selects the UI language, preferring a supported URL override before the
+         * browser language and finally English.
+         */
         function detectLanguage() {
             // 1. Check URL parameters first for explicit lang choice
             const urlParams = new URLSearchParams(window.location.search);
@@ -1637,6 +1674,11 @@
             }
         }
 
+        /**
+         * Applies a language across static text, placeholders, mascot labels,
+         * difficulty badges, and the adaptive-progression modal.
+         * @param {"de"|"en"|"pt"} lang Supported interface language.
+         */
         function setLanguage(lang) {
             currentLanguage = lang;
             
@@ -1729,6 +1771,12 @@
             }
         }
 
+        /**
+         * Loads a frozen shared quiz without invoking the LLM workflow.
+         * Missing and unavailable quizzes are mapped to distinct user messages.
+         * @param {string} quizId Firestore-backed shared quiz identifier.
+         * @returns {Promise<void>}
+         */
         async function loadSharedQuiz(quizId) {
             showScreen("loading-screen");
             document.getElementById("loading-title").innerText = currentLanguage === "de" ? "Lade geteiltes Quiz..." : currentLanguage === "pt" ? "Carregando quiz..." : "Loading shared quiz...";
@@ -1772,12 +1820,23 @@
             }
         }
 
+        /**
+         * Stores the learner's adaptive difficulty choice and resumes generation.
+         * @param {"medium"|"hard"} diff Selected progression level.
+         */
         function selectProgressionDifficulty(diff) {
             progressionDifficultyChosen = diff;
             hideChoiceModal();
             generateQuiz(true);
         }
 
+        /**
+         * Extracts a security block from either a direct envelope or ADK content.
+         * Plain-text model events are intentionally ignored rather than treated as
+         * malformed security responses.
+         * @param {object} event Parsed Server-Sent Events (SSE) frame.
+         * @returns {object|null} Structured block envelope when one is present.
+         */
         function extractStructuredBlockEvent(event) {
             if (event?.status === "blocked" && typeof event.message === "string") {
                 return event;
@@ -1810,6 +1869,13 @@
         }
 
         // 4. Generate Quiz via Agent Workflow
+        /**
+         * Runs the complete quiz-generation transaction through the ADK SSE API.
+         * It manages session creation, adaptive context, block responses, terminal
+         * quiz extraction, loading UI state, and localized failure handling.
+         * @param {boolean} isAdaptation Whether this request continues a prior quiz.
+         * @returns {Promise<void>}
+         */
         async function generateQuiz(isAdaptation = false) {
             if (isAdaptation && score >= 8 && progressionDifficultyChosen === null) {
                 showChoiceModal();
@@ -2019,6 +2085,10 @@
             renderQuestion();
         }
 
+        /**
+         * Renders the current question with model-provided text inserted only via
+         * textContent so answer options cannot create executable HTML.
+         */
         function renderQuestion() {
             const q = currentQuizData.questions[currentQuestionIndex];
             
@@ -2041,12 +2111,23 @@
             q.options.forEach((opt, idx) => {
                 const btn = document.createElement("button");
                 btn.className = "option-btn";
-                btn.innerHTML = `<span>${optionLabels[idx]}. ${opt}</span> <span class="option-indicator" id="indicator-${idx}"></span>`;
+
+                const optionText = document.createElement("span");
+                optionText.textContent = `${optionLabels[idx]}. ${opt}`;
+                const indicator = document.createElement("span");
+                indicator.className = "option-indicator";
+                indicator.id = `indicator-${idx}`;
+                btn.append(optionText, indicator);
                 btn.onclick = () => selectOption(idx);
                 optContainer.appendChild(btn);
             });
         }
 
+        /**
+         * Freezes the current answer, updates scoring and correctness indicators,
+         * and presents feedback appropriate to the learner's actual selection.
+         * @param {number} selectedIndex Zero-based selected option index.
+         */
         function selectOption(selectedIndex) {
             const q = currentQuizData.questions[currentQuestionIndex];
             const correctIndex = q.correct_option_index;
@@ -2116,6 +2197,10 @@
         }
 
         // 6. Summary and Metrics Panel
+        /**
+         * Displays final results and resets the one-feedback-submission lock for
+         * the newly completed quiz.
+         */
         function showSummaryScreen() {
             showScreen("summary-screen");
             hasSubmittedFeedback = false;
@@ -2144,6 +2229,11 @@
         }
 
         // 7. Sharing & Freezing Quiz (Zero-Token Shared Access)
+        /**
+         * Freezes the current quiz once and copies its reusable 30-day share link.
+         * An existing quiz ID is reused to avoid duplicate persistence writes.
+         * @returns {Promise<void>}
+         */
         async function shareCurrentQuiz() {
             if (currentQuizId) {
                 copyShareLink(currentQuizId);
@@ -2184,18 +2274,22 @@
         }
 
         // 8. Offline HTML Exporter
+        /**
+         * Builds and downloads a self-contained offline quiz document.
+         * Model-provided fields are escaped before entering the generated HTML.
+         */
         function exportOfflineQuiz() {
             if (!currentQuizData) return;
 
             const t = translations[currentLanguage];
             const questionsHtml = currentQuizData.questions.map((q, qIdx) => `
                 <div class="question-box">
-                    <h3>${t.export_question} ${qIdx + 1}: ${q.question}</h3>
+                    <h3>${escapeHtml(t.export_question)} ${qIdx + 1}: ${escapeHtml(q.question)}</h3>
                     <ul class="options-list">
                         ${q.options.map((opt, oIdx) => `
                             <li>
                                 <span class="bullet">${String.fromCharCode(65 + oIdx)}</span>
-                                ${opt}
+                                ${escapeHtml(opt)}
                                 ${oIdx === q.correct_option_index ? `<span class="correct-badge" style="display:none;">(${t.export_correct})</span>` : ''}
                             </li>
                         `).join('')}
@@ -2204,7 +2298,7 @@
                         <summary>${t.export_solution}</summary>
                         <div class="explanation">
                             <strong>${t.export_correct_option}: ${String.fromCharCode(65 + q.correct_option_index)}</strong>
-                            <p>${q.explanation}</p>
+                            <p>${escapeHtml(q.explanation)}</p>
                         </div>
                     </details>
                 </div>
@@ -2216,7 +2310,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${currentQuizData.title} — Offline Quiz</title>
+    <title>${escapeHtml(currentQuizData.title)} — Offline Quiz</title>
     <style>
         body {
             font-family: system-ui, -apple-system, sans-serif;
@@ -2313,6 +2407,12 @@
         }
 
         // 9. Collect Feedback
+        /**
+         * Persists at most one rating per completed quiz and restores controls when
+         * persistence fails. Full quiz/context data is sent only for negative feedback.
+         * @param {0|1} scoreValue Zero for negative or one for positive feedback.
+         * @returns {Promise<void>}
+         */
         async function sendFeedback(scoreValue) {
             if (hasSubmittedFeedback) return;
             hasSubmittedFeedback = true;
@@ -2400,6 +2500,10 @@
             });
         }
 
+        /**
+         * Shows a terminal safety, error, or notice screen and derives a localized
+         * title from the icon when no explicit title is supplied.
+         */
         function showBlockScreen(icon, msg, title = "") {
             showScreen("block-screen");
             document.getElementById("block-icon").innerText = icon;
@@ -2421,6 +2525,10 @@
             }
         }
 
+        /**
+         * Returns to a clean setup state and removes shared-quiz parameters so a
+         * subsequent reload cannot reopen the previous frozen quiz.
+         */
         function resetQuizState() {
             // Clear location parameters so they aren't stuck on share reload
             const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
@@ -2459,6 +2567,10 @@
             }
         }
 
+        /**
+         * Clamps a percentage and converts it to the SVG circle's stroke offset.
+         * @param {number} percent Requested progress from zero to one hundred.
+         */
         function updateProgress(percent) {
             const circle = document.getElementById("progress-fill");
             const text = document.getElementById("progress-text");
@@ -2474,6 +2586,10 @@
             text.innerText = `${Math.round(percent)}%`;
         }
 
+        /**
+         * Animates perceived progress toward a ceiling without claiming completion;
+         * the real quiz response is solely responsible for advancing to 100 percent.
+         */
         function startProgressLoader() {
             currentProgress = 0;
             updateProgress(0);

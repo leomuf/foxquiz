@@ -216,10 +216,13 @@ flowchart TD
         Gather -- "ask_more edge" --> AskMore["ask_more_node<br/>terminal clarification branch"]
         Gather -- "generate_quiz edge" --> Search["decision_and_search<br/>relevant curriculum grounding"]
         Search --> Generate["quiz_generation"]
-        Generate --> Judge["llm_as_a_judge"]
-        Judge -- "retry edge: once" --> Generate
-        Judge -- "success edge" --> QuizOutput["quiz_output_node<br/>validated 10-question quiz"]
-        Judge -- "quality_failure edge" --> QualityFailure["quality_failure_node<br/>safe retry message and diagnostic"]
+        Generate --> Validate["deterministic_quiz_validation<br/>structure and answer-cue checks"]
+        Validate -- "valid edge" --> Judge["llm_as_a_judge<br/>semantic and factual review"]
+        Validate -- "retry edge: once" --> Generate
+        Validate -- "quality_failure edge" --> QualityFailure["quality_failure_node<br/>safe retry message and diagnostic"]
+        Judge -- "retry edge: shared budget" --> Generate
+        Judge -- "success edge" --> QuizOutput["quiz_output_node<br/>final invariant and validated quiz"]
+        Judge -- "quality_failure edge" --> QualityFailure
     end
     NoBlock --> Start
     BlockState --> Start
@@ -252,7 +255,8 @@ The similarly named decisions and routes have different responsibilities:
 | `BANNED` / `BUDGET_EXCEEDED` / `CLASSIFIER_UNAVAILABLE` | Plugin block types, not classifier decisions | Stop before quiz processing because an operational guard rejected the invocation. |
 | `blocked` | Edge from `security_checkpoint_node` | A block envelope exists, so the graph goes directly to `security_block_node`. |
 | `generate_quiz` / `ask_more` | Edges from `gather_and_route` | The curriculum check either starts quiz preparation or requests clarification. |
-| `retry` / `success` / `quality_failure` | Edges from `llm_as_a_judge` | Regenerate once, publish the validated quiz, or fail closed without exposing an unvalidated quiz. |
+| `valid` / `retry` / `quality_failure` | Edges from `deterministic_quiz_validation` | Continue to semantic review, regenerate within the shared budget, or fail closed on objective defects. |
+| `retry` / `success` / `quality_failure` | Edges from `llm_as_a_judge` | Regenerate within the shared budget, publish the validated quiz, or fail closed without exposing an unvalidated quiz. |
 
 > **Why the extra security node?** The plugin performs cross-cutting checks before
 > the graph runs and records an expected block in invocation-local state. The

@@ -21,6 +21,7 @@ dependencies = [
     "python-multipart>=0.0.20,<1.0.0",
     "sqlalchemy>=2,<3",
     "uvicorn~=0.52.1",
+    "emoji>=2.15.0,<3.0.0",
 ]
 requires-python = ">=3.11,<3.14"
 
