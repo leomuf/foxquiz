@@ -1,41 +1,89 @@
-Creative Commons Attribution 4.0 International Public License
+FoxQuiz Licensing
 
-This project, "FoxQuiz", is licensed under the Creative Commons Attribution 4.0 International License (CC BY 4.0).
+Copyright (c) 2026 Leonardo Muffato
+(AUTOSOFT Engineering - https://www.autosoft-engineering.de)
 
-Copyright (c) 2026 Leonardo Muffato (AUTOSOFT Engineering - www.autosoft-engineering.de)
+This repository uses multiple licenses. Individual file notices and applicable
+third-party licenses take precedence over this summary.
 
-Artwork exception:
-The original FoxQuiz mascot artwork and the exact derivatives listed in
-assets/brand_sources/README.md are dedicated under CC0 1.0 Universal
-(SPDX-License-Identifier: CC0-1.0), rather than CC BY 4.0. The same file
-contains the corresponding AI provenance notice.
+Software
+--------
 
---------------------------------------------------------------------------------
-LICENSE SUMMARY (CC BY 4.0)
---------------------------------------------------------------------------------
-You are free to:
-- Share: Copy and redistribute the material in any medium or format.
-- Adapt: Remix, transform, and build upon the material for any purpose, 
-  even commercially.
+FoxQuiz software, including application source code, tests, build scripts,
+configuration, and infrastructure definitions, is licensed under the Apache
+License, Version 2.0 (SPDX-License-Identifier: Apache-2.0).
 
-Under the following terms:
-- Attribution: You must give appropriate credit, provide a link to the license, 
-  and indicate if changes were made. You may do so in any reasonable manner, 
-  but not in any way that suggests the licensor endorses you or your use.
-- No additional restrictions: You may not apply legal terms or technological 
-  measures that legally restrict others from doing anything the license permits.
+In plain language, the Apache License 2.0 allows you to:
 
-For the full legal code of the CC BY 4.0 license, please visit:
-https://creativecommons.org/licenses/by/4.0/legalcode
+- Use the software for private, public, academic, or commercial purposes.
+- Copy and redistribute the software in source or compiled form.
+- Modify the software and create derivative works.
+- Include the software in other projects and sublicense your distribution.
 
---------------------------------------------------------------------------------
-THIRD-PARTY COMPONENT LICENSING
---------------------------------------------------------------------------------
-Parts of the project codebase were scaffolded using the Google Agent Development 
-Kit (ADK) and remain the copyright of Google LLC under the Apache License, 
-Version 2.0 (Apache 2.0). 
+When redistributing the software or a derivative work, you must:
 
-These files (including original portions of app/agent.py, app/fast_api_app.py, 
-and tests/integration/test_agent.py) retain their original Apache 2.0 license 
-headers. Downstream modifications and custom implementations are owned by 
-Leonardo Muffato (AUTOSOFT Engineering) and licensed under CC BY 4.0.
+- Provide recipients with a copy of the Apache License 2.0.
+- Retain applicable copyright, patent, trademark, and attribution notices,
+  including the notices crediting Leonardo Muffato / AUTOSOFT Engineering.
+- Clearly state which files you modified.
+- Preserve applicable notices from a `NOTICE` file if one is provided.
+
+The license includes a patent grant from contributors. It does not grant rights
+in project names, trademarks, or branding, and the software is provided without
+warranties or liability. Apache-2.0 does not require you to publish the source
+code of your modifications. This summary is for convenience only; if it differs
+from the complete license text, the complete license text controls.
+
+The complete license text is available in:
+
+    LICENSES/Apache-2.0.txt
+
+Parts of the codebase were scaffolded from Google Agent Development Kit (ADK)
+and agents-cli materials. Files containing Google copyright notices remain
+copyright Google LLC and are licensed under Apache-2.0. Those notices must be
+retained. FoxQuiz-specific software carries Leonardo Muffato / AUTOSOFT
+Engineering copyright notices where file-level notices are used.
+
+Documentation and specifications
+--------------------------------
+
+Documentation and specifications are licensed under the Creative Commons
+Attribution 4.0 International License
+(SPDX-License-Identifier: CC-BY-4.0).
+
+In plain language, CC BY 4.0 allows you to:
+
+- Share, copy, and redistribute the documentation and specifications in any
+  medium or format.
+- Adapt, remix, transform, and build upon them.
+- Use them for any purpose, including commercially.
+
+When sharing or adapting this material, you must:
+
+- Give appropriate credit to Leonardo Muffato / AUTOSOFT Engineering.
+- Provide a link or reference to the CC BY 4.0 license.
+- Indicate whether you made changes.
+- Keep existing notices identifying previous modifications.
+- Avoid suggesting that the copyright holder endorses you or your use.
+- Avoid applying legal or technological restrictions that prevent recipients
+  from exercising the rights granted by CC BY 4.0.
+
+You may satisfy these conditions in any reasonable manner appropriate to the
+medium and context. This summary is for convenience only; if it differs from
+or omits anything in the complete license text, the complete license text
+controls.
+
+The complete license text is available in:
+
+    LICENSES/CC-BY-4.0.txt
+
+Artwork
+-------
+
+The original FoxQuiz mascot artwork and only the derivatives explicitly listed
+in assets/brand_sources/README.md are dedicated under CC0 1.0 Universal
+(SPDX-License-Identifier: CC0-1.0). That file also contains the AI provenance
+notice and the exact asset scope.
+
+The complete legal text is available in:
+    LICENSES/CC0-1.0.txt

@@ -165,8 +165,11 @@ The mascot sources and listed production derivatives are dedicated under
 **CC0 1.0 Universal (CC0-1.0)**. The repository must retain the accompanying
 AI-provenance notice describing the original character direction, human
 selection/review, generation date, and production processing. This asset
-license does not replace the license governing other repository content and
-does not grant trademark or patent rights.
+license does not grant trademark or patent rights. FoxQuiz software is licensed
+under the **Apache License 2.0 (Apache-2.0)**, while documentation and
+specifications, including this specification, are licensed under **Creative
+Commons Attribution 4.0 International (CC-BY-4.0)**. The top-level `LICENSE`
+file defines the authoritative scope, and individual file notices take precedence.
 
 ---
 

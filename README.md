@@ -303,6 +303,22 @@ Built-in telemetry exports to Cloud Trace, BigQuery, and Cloud Logging.
 
 ---
 
+## License
+
+FoxQuiz uses a clear mixed-license model:
+
+- Software, tests, build scripts, configuration, and infrastructure definitions:
+  [Apache License 2.0](LICENSES/Apache-2.0.txt)
+- Documentation and specifications:
+  [Creative Commons Attribution 4.0](LICENSES/CC-BY-4.0.txt)
+- Original mascot artwork and the derivatives explicitly listed in the artwork
+  provenance notice: [CC0 1.0 Universal](LICENSES/CC0-1.0.txt)
+
+See the top-level [`LICENSE`](LICENSE) file for the authoritative scope and
+third-party attribution rules. Individual file notices take precedence.
+
+---
+
 ## Mascot Artwork License
 
 The original Felix, Olivia, and Dino artwork, favicon/mobile icons, and social
