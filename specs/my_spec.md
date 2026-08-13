@@ -437,7 +437,7 @@ When the user finishes a quiz, they can choose to continue learning the same top
      - An interactive, beautifully styled **Difficulty Choice Modal** is presented to the user.
      - The user is prompted to choose between:
        - **Medium (Standard)**: Generates 10 completely fresh standard-difficulty questions (`⭐ Medium`).
-       - **Difficult (Advanced)**: Generates 10 advanced-level questions introducing trickier distractors, deeper cognitive questions, and high-achiever curriculum concepts (`🚀 Hard`).
+       - **Difficult (Advanced)**: Generates 10 advanced-level questions introducing trickier distractors, deeper cognitive questions, and high-achiever curriculum concepts (`🚀 Hard`). `🚀 Hard` is relative to the selected grade: it increases cognitive depth within the authoritative grade-level curriculum and never permits content from a higher grade merely to make the quiz harder.
      - **Duplication-Prevention**: For both options, duplication-prevention is strictly enforced (absolutely zero questions from the previous run are repeated).
 
 #### 6.2.2 Dynamic Difficulty Localization
@@ -526,7 +526,8 @@ Feature: Adaptive learning progression and localized difficulty indicators
     Then the system displays the Difficulty Choice Modal
     When the user selects "Difficult (Advanced)"
     Then the system triggers progression mode with Difficult difficulty
-    And the generated quiz has significantly harder questions
+    And the generated quiz has significantly harder questions within the selected grade's curriculum
+    And the academic judge treats "🚀 Hard" as the authoritative user-selected label rather than a higher-grade request
     And none of the previous questions are duplicated
     And the difficulty is shown as localized "🚀 Hard" (e.g. "🚀 Schwer" in German)
 ```

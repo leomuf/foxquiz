@@ -22,8 +22,9 @@
 """Local-only behavioral integration tests for the real ADK workflow.
 
 Purpose:
-    Exercise streaming, adaptive reinforcement, and curriculum preflight
-    routing for incompatible or ambiguous grade/subject/topic combinations.
+    Exercise streaming, adaptive reinforcement and user-selected hard mode, and
+    curriculum preflight routing for incompatible or ambiguous
+    grade/subject/topic combinations.
 
 Boundary:
     The module is marked google_cloud because it uses local Application
@@ -175,6 +176,51 @@ def test_adaptive_quiz_generation() -> None:
     assert quiz_output.get("difficulty") == "🌱 Easy", (
         f"Expected '🌱 Easy', got {quiz_output.get('difficulty')}"
     )
+
+
+def test_adaptive_hard_mode_remains_relative_to_grade() -> None:
+    """A selected hard follow-up must pass review within the Grade 5 scope."""
+    import json
+
+    session_service = InMemorySessionService()
+    session = session_service.create_session_sync(user_id="test_user", app_name="test")
+    runner = Runner(agent=root_agent, session_service=session_service, app_name="test")
+    payload = {
+        "grade": "Klasse 5",
+        "subject": "Ciencias",
+        "topic": "Ciclo de vida de uma planta",
+        "preferred_language": "pt",
+        "previous_score": 10,
+        "previous_questions": [
+            f"Pergunta anterior {number}" for number in range(1, 11)
+        ],
+        "selected_difficulty": "hard",
+    }
+    message = types.Content(
+        role="user", parts=[types.Part.from_text(text=json.dumps(payload))]
+    )
+
+    events = list(
+        runner.run(
+            new_message=message,
+            user_id="test_user",
+            session_id=session.id,
+            run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+        )
+    )
+    quiz_outputs = [
+        event.output
+        for event in events
+        if event.output
+        and isinstance(event.output, dict)
+        and "questions" in event.output
+    ]
+
+    assert len(quiz_outputs) == 1, (
+        "The selected Grade 5 hard follow-up should produce one validated quiz"
+    )
+    assert quiz_outputs[0].get("difficulty") == "🚀 Hard"
+    assert len(quiz_outputs[0].get("questions", [])) == 10
 
 
 def test_upfront_curriculum_validation_mismatch() -> None:

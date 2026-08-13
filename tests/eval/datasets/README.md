@@ -18,6 +18,25 @@ agents-cli eval generate --dataset tests/eval/datasets/custom-dataset.json --out
 agents-cli eval grade --metrics general_quality --traces custom_traces/
 ```
 
+### Adaptive Hard-Mode Regression
+
+This local-only behavioral case reproduces a Grade 5 learner selecting the
+hard follow-up after a perfect score. It verifies that `🚀 Hard` is treated as
+relative to Grade 5 and is not rejected merely because of the learner's grade.
+
+```bash
+agents-cli eval generate \
+  --dataset tests/eval/datasets/adaptive-hard-difficulty-dataset.json \
+  --output artifacts/traces/adaptive-hard
+agents-cli eval grade \
+  --traces artifacts/traces/adaptive-hard \
+  --config tests/eval/adaptive_hard_eval_config.yaml \
+  --output artifacts/grade_results/adaptive-hard
+```
+
+The run uses live Vertex AI and must remain local because Google credentials
+are not stored in GitHub.
+
 ## Dataset Format
 
 Each dataset file follows the Gemini Enterprise Agent Platform Evaluation

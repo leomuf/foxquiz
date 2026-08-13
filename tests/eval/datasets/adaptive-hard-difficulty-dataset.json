@@ -1,0 +1,15 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "grade_5_hard_followup_plant_life_cycle",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\": \"Klasse 5\", \"subject\": \"Ciencias\", \"topic\": \"Ciclo de vida de uma planta\", \"preferred_language\": \"pt\", \"previous_score\": 10, \"previous_questions\": [\"Pergunta anterior 1\", \"Pergunta anterior 2\", \"Pergunta anterior 3\", \"Pergunta anterior 4\", \"Pergunta anterior 5\", \"Pergunta anterior 6\", \"Pergunta anterior 7\", \"Pergunta anterior 8\", \"Pergunta anterior 9\", \"Pergunta anterior 10\"], \"selected_difficulty\": \"hard\"}"
+          }
+        ]
+      }
+    }
+  ]
+}
