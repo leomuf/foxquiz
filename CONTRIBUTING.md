@@ -405,6 +405,56 @@ The logs-based counter is available as
 `logging.googleapis.com/user/foxquiz_firestore_operation_failures` in Cloud
 Monitoring.
 
+#### Analyzing deterministic quiz validation
+
+Each generated candidate produces one privacy-minimized structured event. The
+payload contains only the outcome, generation attempt, aggregate issue count,
+stable issue codes, service version, and deployed commit. It deliberately
+excludes grade, subject, topic, prompts, questions, options, explanations,
+client identifiers, and model responses.
+
+Show recent validation outcomes:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=foxquiz AND jsonPayload.phase="deterministic_quiz_validation"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=7d \
+  --limit=5000 \
+  --order=desc \
+  --format='table(timestamp,jsonPayload.event,jsonPayload.generation_attempt,jsonPayload.issue_count,jsonPayload.issue_codes,jsonPayload.deployment_revision)'
+```
+
+Count first-pass successes, initial failures, recovered retries, and exhausted
+retries in the selected time window:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=foxquiz AND jsonPayload.phase="deterministic_quiz_validation"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=7d \
+  --limit=100000 \
+  --format='value(jsonPayload.event)' | sort | uniq -c | sort -nr
+```
+
+Rank deterministic failure categories. This command requires `jq`:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=foxquiz AND jsonPayload.phase="deterministic_quiz_validation" AND jsonPayload.issue_count>0' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=7d \
+  --limit=100000 \
+  --format=json \
+  | jq -r '.[].jsonPayload.issue_codes[]?' \
+  | sort | uniq -c | sort -nr
+```
+
+No log-based validation metric is provisioned automatically. These queries are
+sufficient for on-demand analysis and avoid adding Terraform or other managed
+infrastructure. Add a manual counter metric later only if continuous dashboards
+or alerts become necessary.
+
 Find unsuccessful HTTP requests:
 ```bash
 gcloud logging read \

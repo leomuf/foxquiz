@@ -90,7 +90,7 @@ unknown-argument = "ignore"
 
 [tool.codespell]
 ignore-words-list = "rouge,ist,oder,deine,alle,assistent,extrem,absolut,als,te,erros,erro,unter,meu,nome,nomes"
-skip = "./locust_env/*,uv.lock,.venv,./frontend,**/package-lock.json,./artifacts/*,artifacts/*"
+skip = "./locust_env/*,uv.lock,.venv,./frontend,**/package-lock.json,./artifacts/*,artifacts/*,*.de.md"
 
 
 
