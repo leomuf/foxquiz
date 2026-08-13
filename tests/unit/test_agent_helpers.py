@@ -31,6 +31,7 @@ from app.agent import (
     _is_wikipedia_title_relevant,
     _route_after_failed_judge,
     _save_quality_failure_best_effort,
+    deterministic_quiz_validation,
     search_wikipedia,
     security_checkpoint_node,
 )
@@ -146,6 +147,56 @@ def test_generation_ready_event_does_not_expose_unvalidated_quiz() -> None:
 def test_judge_retries_once_then_fails_closed() -> None:
     assert _route_after_failed_judge(1) == "retry"
     assert _route_after_failed_judge(2) == "quality_failure"
+
+
+@pytest.mark.asyncio
+async def test_deterministic_validation_routes_answer_cue_to_retry() -> None:
+    """The first invalid candidate is regenerated without reaching the judge."""
+    context = MagicMock()
+    context.state = {
+        "generation_attempts": 1,
+        "temp_quiz": {
+            "title": "Invalid",
+            "questions": [
+                {
+                    "question": f"Question {number}?",
+                    "options": ["Correct \u2705", "Wrong A", "Wrong B"],
+                    "correct_option_index": 0,
+                    "explanation": "An explanation.",
+                }
+                for number in range(10)
+            ],
+        },
+    }
+
+    events = [
+        event
+        async for event in deterministic_quiz_validation._run_impl(
+            ctx=context,
+            node_input=None,
+        )
+    ]
+
+    assert events[0].actions.route == "retry"
+    assert context.state["quality_failure_type"] == "deterministic_validation_failed"
+    assert "Correct" not in context.state["deterministic_retry_guidance"]
+
+
+@pytest.mark.asyncio
+async def test_deterministic_validation_fails_closed_after_retry_budget() -> None:
+    """A second invalid generation is blocked instead of shown to the learner."""
+    context = MagicMock()
+    context.state = {"generation_attempts": 2, "temp_quiz": None}
+
+    events = [
+        event
+        async for event in deterministic_quiz_validation._run_impl(
+            ctx=context,
+            node_input=None,
+        )
+    ]
+
+    assert events[0].actions.route == "quality_failure"
 
 
 def test_curriculum_compatibility_supports_clarification_gate() -> None:

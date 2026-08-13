@@ -344,16 +344,25 @@ knowledge_sources:
    when the article title is relevant to every meaningful topic term.
 4. **Quiz generation.** Generate exactly ten multiple-choice questions under
    the preflight's authoritative `difficulty_guidance`.
-5. **Quality check.** A separate judge verifies structure, factual correctness,
-   exact topic fit, and grade-level scope. The first rejection reason is passed
-   to the generator for one materially corrected retry.
-6. **Terminal routing.** Only a passed quiz reaches the presentation layer.
-   A second rejection or judge exception routes to a localized fail-closed
+5. **Deterministic validation.** Before any LLM judge call, a pure validation
+   component checks objective structure, option counts, duplicate options,
+   correct-index bounds, and empty fields. Answer options must be neutral text
+   and contain neither Unicode emojis nor visual correctness cues. A first
+   failure routes to regeneration using privacy-safe issue codes and positions.
+6. **Semantic quality check.** A separate judge verifies factual correctness,
+   exact topic fit, grade-level scope, and whether an emoji in a question names,
+   depicts, or otherwise reveals the correct answer. Decorative question emojis
+   remain allowed. Judge rejection shares the same single-retry generation
+   budget with deterministic validation.
+7. **Terminal routing.** Only a passed quiz reaches the presentation layer.
+   Exhausted retries or a judge exception route to a localized fail-closed
    response and diagnostic persistence. The generation node may keep a
-   candidate in `temp_quiz` but must not publish it through `Event.output`;
-   only the validated success terminal may emit quiz JSON to the browser.
-7. **Presentation and continuation.** The user completes the quiz, sees the
-   result, and may continue with adaptive difficulty.
+   candidate in `temp_quiz` but must not publish it through `Event.output`.
+   The output node repeats deterministic validation as a final invariant; only
+   that validated terminal may emit quiz JSON to the browser.
+8. **Presentation and continuation.** The frontend renders generated questions
+   and options as text rather than executable HTML. The user completes the quiz,
+   sees the result, and may continue with adaptive difficulty.
 
 ```gherkin
 Feature: Quiz solving and result
@@ -604,8 +613,11 @@ returns a localized retry message, and writes a best-effort diagnostic to
 Each diagnostic contains:
 
 - nested `quiz_context` with grade, subject, topic, and preferred language;
-- `failure_type` (`judge_rejected` or `judge_exception`);
+- `failure_type` (`deterministic_validation_failed`,
+  `final_invariant_failed`, `judge_rejected`, or `judge_exception`);
 - the number of judge attempts and every judge reason;
+- privacy-safe deterministic issue codes and question/option positions, without
+  generated question or answer text;
 - accepted Wikipedia title, if any, and whether grounding was discarded;
 - a UTC timestamp.
 

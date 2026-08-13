@@ -48,6 +48,10 @@ from app.app_utils.callbacks import (
 from app.app_utils.request_context import get_client_locale
 from app.app_utils.typing import QuizContext, QuizQualityFailure
 from app.database.firestore_repo import FirestorePersistenceError, FirestoreRepository
+from app.domain.quiz_validation import (
+    build_retry_guidance,
+    validate_quiz_candidate,
+)
 
 # Setup project configuration
 try:
@@ -98,8 +102,12 @@ class ExtractedQuizInfo(BaseModel):
 
 
 class QuizQuestion(BaseModel):
-    question: str = Field(description="The question text.")
-    options: List[str] = Field(description="List of 3 to 5 options/choices.")
+    question: str = Field(
+        description="The question text. Decorative emojis are allowed only when they do not reveal the answer."
+    )
+    options: List[str] = Field(
+        description="List of 3 to 5 neutral text-only choices without emojis or answer cues."
+    )
     correct_option_index: int = Field(
         description="0-based index of the correct option."
     )
@@ -339,6 +347,9 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     # Reset quality diagnostics on any fresh start or new turn.
     ctx.state["judge_attempts"] = 0
     ctx.state["judge_reasons"] = []
+    ctx.state["generation_attempts"] = 0
+    ctx.state["deterministic_retry_guidance"] = ""
+    ctx.state["deterministic_validation_issues"] = []
     ctx.state["curriculum_status"] = None
     ctx.state["curriculum_guidance"] = ""
     ctx.state["quality_failure_type"] = None
@@ -678,6 +689,9 @@ async def decision_and_search(ctx: Context, node_input: Any) -> Event:
     return Event()
 
 
+MAX_QUIZ_GENERATION_ATTEMPTS = 2
+
+
 @node
 async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     """Uses LLM structured generation to build a highly tailored, fun multiple-choice quiz of 10 questions."""
@@ -686,13 +700,15 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     topic = ctx.state.get("topic")
     lang = ctx.state.get("preferred_language") or "en"
     search_context = ctx.state.get("search_context", "")
-    attempt = ctx.attempt_count or 1
+    attempt = int(ctx.state.get("generation_attempts") or 0) + 1
+    ctx.state["generation_attempts"] = attempt
 
     previous_score = ctx.state.get("previous_score")
     previous_questions = ctx.state.get("previous_questions")
     previous_quiz_json = ctx.state.get("previous_quiz_json")
     curriculum_guidance = ctx.state.get("curriculum_guidance", "")
     judge_reasons = list(ctx.state.get("judge_reasons") or [])
+    deterministic_retry_guidance = ctx.state.get("deterministic_retry_guidance", "")
 
     logger.info("Generating quiz attempt %s.", attempt)
 
@@ -703,7 +719,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         f"Topic: {topic}\n"
         f"Preferred Language: Entire quiz MUST be written in '{lang}' (Deutsch, Português, or English).\n"
         f"\nPedagogical Tone Scaling:\n"
-        f"- For younger students (Grades 5-8, ages 10-14): Keep the tone highly playful, simplified, full of positive emojis, and kid-friendly.\n"
+        f"- For younger students (Grades 5-8, ages 10-14): Keep the tone highly playful, simplified, and kid-friendly. Decorative emojis may appear in titles, questions, or explanations, but never in answer options and never when they reveal the correct answer.\n"
         f"- For older students (Grades 9-12, ages 14-18): Switch to a supportive peer-mentor tone. Keep the mascot identity (e.g. Felix/Olivia/Dino) but communicate with intellectual respect, using advanced, clear explanations without sounding overly simple or talking down to them.\n"
     )
 
@@ -721,6 +737,13 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             "Generate a materially corrected quiz that resolves this feedback. Do not repeat the rejected difficulty, scope, or factual issue.\n"
         )
 
+    if deterministic_retry_guidance:
+        prompt += (
+            "\n--- REQUIRED STRUCTURAL CORRECTION ---\n"
+            f"{deterministic_retry_guidance}\n"
+            "Correct every listed problem before returning the complete quiz.\n"
+        )
+
     if search_context:
         prompt += (
             "\nThe requested Subject and Topic above are authoritative. Never replace "
@@ -734,7 +757,8 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         "2. Each question has between 3 and 5 answer options.\n"
         "3. EXACTLY one option must be correct.\n"
         "4. Set 'correct_option_index' to the exact 0-based index of the correct option inside the options array. CRITICAL: Double-check that your 'correct_option_index' points exactly to the mathematically or factually correct option among the provided options, and matches the correct answer stated in your explanation.\n"
-        "5. Keep the explanations warm, educational, clear, and highly encouraging (explain why the correct answer is right and why others are wrong in a child-friendly mascot way). CRITICAL: Do NOT start explanations with affirmative or congratulatory words like 'Parabéns!', 'Isso mesmo!', 'Congratulations!', 'Exactly!', 'Herzlichen Glückwunsch!', or 'Richtig!', because these explanations are shown even when the student chooses the wrong answer. Start directly with the factual explanation (e.g. 'Células-tronco são...' instead of 'Isso mesmo! Células-tronco são...').\n"
+        "5. Every answer option must be neutral, text-only content. Never put emojis, check marks, crosses, stars, labels such as 'correct', or any other visual answer cue in an option. Question emojis are allowed only when they do not name, depict, or otherwise reveal the correct answer.\n"
+        "6. Keep the explanations warm, educational, clear, and highly encouraging (explain why the correct answer is right and why others are wrong in a child-friendly mascot way). CRITICAL: Do NOT start explanations with affirmative or congratulatory words like 'Parabéns!', 'Isso mesmo!', 'Congratulations!', 'Exactly!', 'Herzlichen Glückwunsch!', or 'Richtig!', because these explanations are shown even when the student chooses the wrong answer. Start directly with the factual explanation (e.g. 'Células-tronco são...' instead of 'Isso mesmo! Células-tronco são...').\n"
     )
 
     adaptation_instructions = ""
@@ -860,9 +884,6 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         raise
 
 
-MAX_QUIZ_JUDGE_ATTEMPTS = 2
-
-
 def _candidate_ready_event() -> Event:
     """Signal the judge without exposing unvalidated quiz JSON to clients."""
     # A non-empty output traverses the unconditional workflow edge
@@ -870,9 +891,37 @@ def _candidate_ready_event() -> Event:
     return Event(output={"status": "candidate_ready"})
 
 
-def _route_after_failed_judge(attempts: int) -> str:
-    """Retry once, then fail closed instead of releasing an unvalidated quiz."""
-    return "quality_failure" if attempts >= MAX_QUIZ_JUDGE_ATTEMPTS else "retry"
+def _route_after_failed_judge(generation_attempts: int) -> str:
+    """Share the generation retry budget across deterministic and LLM review."""
+    return (
+        "quality_failure"
+        if generation_attempts >= MAX_QUIZ_GENERATION_ATTEMPTS
+        else "retry"
+    )
+
+
+@node
+async def deterministic_quiz_validation(ctx: Context, node_input: Any) -> Event:
+    """Reject structural defects and answer cues before the expensive LLM judge."""
+    result = validate_quiz_candidate(ctx.state.get("temp_quiz"))
+    ctx.state["deterministic_validation_issues"] = [
+        issue.as_dict() for issue in result.issues
+    ]
+    if result.is_valid:
+        ctx.state["deterministic_retry_guidance"] = ""
+        return Event(actions=EventActions(route="valid"))
+
+    guidance = build_retry_guidance(result)
+    ctx.state["deterministic_retry_guidance"] = guidance
+    ctx.state["quality_failure_type"] = "deterministic_validation_failed"
+    generation_attempts = int(ctx.state.get("generation_attempts") or 0)
+    route = _route_after_failed_judge(generation_attempts)
+    logger.warning(
+        "Deterministic quiz validation failed with %s issue(s). Routing to %s.",
+        len(result.issues),
+        route,
+    )
+    return Event(actions=EventActions(route=route))
 
 
 @node
@@ -910,7 +959,8 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         "4. Does each question contain between 3 and 5 options, with exactly ONE correct choice?\n"
         "5. Is the 'correct_option_index' mathematically and factually correct? "
         "CRITICAL: For each question, you MUST independently determine the factually correct answer (whether it is a mathematical calculation, a historical date, a biological definition, etc.). Then, verify that the 'correct_option_index' points EXACTLY to that correct answer inside the 0-based options array. "
-        "If there is any mismatch between the factually correct answer, the option at 'correct_option_index', or the correct answer described in your explanation, you MUST set passed to false.\n\n"
+        "If there is any mismatch between the factually correct answer, the option at 'correct_option_index', or the correct answer described in your explanation, you MUST set passed to false.\n"
+        "6. Are all answer options neutral and free of emojis or visual correctness cues, and do any emojis in a question avoid depicting, naming, or otherwise revealing its correct answer? If not, you MUST set passed to false.\n\n"
         "The upfront curriculum evaluator supplied this authoritative grade-level scope. The quiz must comply with it:\n"
         f"{curriculum_guidance or 'No additional scope guidance was available.'}\n\n"
         f"Quiz JSON:\n{json.dumps(quiz_dict)}\n"
@@ -938,7 +988,9 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         if assessment.passed:
             return Event(actions=EventActions(route="success"))
         else:
-            failure_route = _route_after_failed_judge(attempts)
+            failure_route = _route_after_failed_judge(
+                int(ctx.state.get("generation_attempts") or 0)
+            )
             judge_reasons = list(ctx.state.get("judge_reasons") or [])
             judge_reasons.append(assessment.reason)
             ctx.state["judge_reasons"] = judge_reasons
@@ -966,8 +1018,20 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     quiz_dict = ctx.state.get("temp_quiz")
     lang = ctx.state.get("preferred_language") or "en"
 
-    # Reset judge attempts as we successfully finalized the quiz
+    final_validation = validate_quiz_candidate(quiz_dict)
+    if not final_validation.is_valid:
+        ctx.state["deterministic_validation_issues"] = [
+            issue.as_dict() for issue in final_validation.issues
+        ]
+        ctx.state["quality_failure_type"] = "final_invariant_failed"
+        logger.error("Final quiz invariant failed; blocking quiz output.")
+        yield _quality_failure_event(ctx)
+        return
+
     ctx.state["judge_attempts"] = 0
+    ctx.state["generation_attempts"] = 0
+    ctx.state["deterministic_retry_guidance"] = ""
+    ctx.state["deterministic_validation_issues"] = []
 
     logger.info("Finalizing validated quiz.")
 
@@ -1003,22 +1067,25 @@ def _save_quality_failure_best_effort(failure: QuizQualityFailure) -> None:
         logger.warning("Could not persist quiz quality failure diagnostic.")
 
 
-@node
-async def quality_failure_node(ctx: Context, node_input: Any) -> Event:
-    """Fail closed with a localized retry message when quiz review cannot pass."""
+def _quality_failure_event(ctx: Context) -> Event:
+    """Persist diagnostics and build the localized fail-closed response."""
     lang = ctx.state.get("preferred_language") or "en"
     failure = QuizQualityFailure(
         quiz_context=QuizContext.from_state(ctx.state),
         failure_type=ctx.state.get("quality_failure_type") or "judge_rejected",
         judge_attempts=int(ctx.state.get("judge_attempts") or 0),
         judge_reasons=list(ctx.state.get("judge_reasons") or []),
+        validation_issues=list(ctx.state.get("deterministic_validation_issues") or []),
         grounding_title=ctx.state.get("grounding_title"),
         grounding_discarded=bool(ctx.state.get("grounding_discarded", False)),
     )
     _save_quality_failure_best_effort(failure)
 
-    ctx.state.pop("temp_quiz", None)
+    ctx.state["temp_quiz"] = None
     ctx.state["judge_attempts"] = 0
+    ctx.state["generation_attempts"] = 0
+    ctx.state["deterministic_retry_guidance"] = ""
+    ctx.state["deterministic_validation_issues"] = []
 
     messages = {
         "de": "Ich konnte dieses Quiz diesmal nicht zuverlässig prüfen. Bitte versuche es noch einmal – ich möchte dir nur ein fachlich passendes Quiz zeigen.",
@@ -1031,6 +1098,12 @@ async def quality_failure_node(ctx: Context, node_input: Any) -> Event:
             parts=[types.Part.from_text(text=messages.get(lang, messages["en"]))],
         )
     )
+
+
+@node
+async def quality_failure_node(ctx: Context, node_input: Any) -> Event:
+    """Fail closed when deterministic or LLM review cannot pass."""
+    return _quality_failure_event(ctx)
 
 
 @node
@@ -1092,7 +1165,22 @@ root_agent = Workflow(
             route="ask_more",
         ),
         Edge(from_node=decision_and_search, to_node=quiz_generation),
-        Edge(from_node=quiz_generation, to_node=llm_as_a_judge),
+        Edge(from_node=quiz_generation, to_node=deterministic_quiz_validation),
+        Edge(
+            from_node=deterministic_quiz_validation,
+            to_node=llm_as_a_judge,
+            route="valid",
+        ),
+        Edge(
+            from_node=deterministic_quiz_validation,
+            to_node=quiz_generation,
+            route="retry",
+        ),
+        Edge(
+            from_node=deterministic_quiz_validation,
+            to_node=quality_failure_node,
+            route="quality_failure",
+        ),
         Edge(from_node=llm_as_a_judge, to_node=quiz_generation, route="retry"),
         Edge(from_node=llm_as_a_judge, to_node=quiz_output_node, route="success"),
         Edge(

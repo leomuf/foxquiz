@@ -85,8 +85,13 @@ def _quiz_fixture() -> dict:
         "difficulty": "Medium",
         "questions": [
             {
-                "question": f"Biology question {index}?",
-                "options": ["Correct", "Incorrect A", "Incorrect B", "Incorrect C"],
+                "question": f"Biology question {index}? \U0001f4a1",
+                "options": [
+                    "Correct <strong>answer</strong>",
+                    "Incorrect A",
+                    "Incorrect B",
+                    "Incorrect C",
+                ],
                 "correct_option_index": 0,
                 "explanation": f"Explanation {index}.",
             }
@@ -190,8 +195,15 @@ def test_complete_quiz_and_negative_feedback_flow(
 
     for question_number in range(1, 11):
         expect(page.locator("#question-text")).to_have_text(
-            f"Biology question {question_number}?"
+            f"Biology question {question_number}? \U0001f4a1"
         )
+        indicators = page.locator(".option-indicator")
+        expect(indicators).to_have_count(4)
+        assert all(text == "" for text in indicators.all_inner_texts())
+        expect(page.locator(".option-btn").first).to_contain_text(
+            "Correct <strong>answer</strong>"
+        )
+        expect(page.locator(".option-btn strong")).to_have_count(0)
         page.locator(".option-btn").first.click()
         expect(page.locator("#explanation-card")).to_be_visible()
         page.locator("#next-btn").click()

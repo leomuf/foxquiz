@@ -49,9 +49,15 @@ class QuizQualityFailure(BaseModel):
     """Diagnostic record created when generated quiz quality cannot be verified."""
 
     quiz_context: QuizContext
-    failure_type: Literal["judge_rejected", "judge_exception"]
+    failure_type: Literal[
+        "deterministic_validation_failed",
+        "final_invariant_failed",
+        "judge_rejected",
+        "judge_exception",
+    ]
     judge_attempts: int
     judge_reasons: list[str] = Field(default_factory=list)
+    validation_issues: list[dict[str, Any]] = Field(default_factory=list)
     grounding_title: str | None = None
     grounding_discarded: bool = False
     timestamp: datetime.datetime = Field(
