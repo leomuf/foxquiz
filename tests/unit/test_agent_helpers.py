@@ -1,16 +1,23 @@
-# Copyright 2026 Google LLC
+# SPDX-FileCopyrightText: 2026 Leonardo Muffato (AUTOSOFT Engineering)
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Deterministic unit tests for workflow helpers and routing safeguards.
+
+Purpose:
+    Cover Wikipedia relevance, grounding selection, security-router privacy,
+    non-exposure of unvalidated quiz candidates, judge retry limits,
+    curriculum schema validation, and best-effort quality diagnostics.
+
+Regression focus:
+    Safe input must reach gather_and_route without becoming client-visible
+    output. Blocked PII or malicious input must never enter temporary workflow
+    state.
+
+Boundary:
+    HTTP, Firestore, and model behavior are mocked. Semantic quiz quality and
+    curriculum judgment belong in agents-cli eval or local integration tests.
+"""
 
 from unittest.mock import MagicMock, patch
 
@@ -18,12 +25,14 @@ import pytest
 from pydantic import ValidationError
 
 from app.agent import (
+    _ALLOWED_INPUT_STATE_KEY,
     CurriculumCompatibility,
     _candidate_ready_event,
     _is_wikipedia_title_relevant,
     _route_after_failed_judge,
     _save_quality_failure_best_effort,
     search_wikipedia,
+    security_checkpoint_node,
 )
 from app.app_utils.typing import QuizContext, QuizQualityFailure
 from app.database.firestore_repo import FirestorePersistenceError
@@ -83,6 +92,50 @@ def test_wikipedia_search_skips_irrelevant_first_result() -> None:
     assert mock_get.call_args_list[1].kwargs["params"]["pageids"] == 2
 
 
+@pytest.mark.asyncio
+async def test_security_checkpoint_forwards_original_input_on_allowed_route() -> None:
+    """The security router must carry safe input without emitting it to clients."""
+    original_input = MagicMock()
+    original_input.parts = [MagicMock(text="Create a biology quiz.")]
+    context = MagicMock()
+    context.state = {}
+
+    events = [
+        event
+        async for event in security_checkpoint_node._run_impl(
+            ctx=context,
+            node_input=original_input,
+        )
+    ]
+
+    assert len(events) == 1
+    assert events[0].actions.route == "allowed"
+    assert events[0].output is None
+    assert context.state[_ALLOWED_INPUT_STATE_KEY] == "Create a biology quiz."
+
+
+@pytest.mark.asyncio
+async def test_security_checkpoint_does_not_store_blocked_input() -> None:
+    """Blocked personal or malicious input must not enter workflow state."""
+    context = MagicMock()
+    context.state = {"temp:foxquiz_security_block": {"block_type": "PII"}}
+    original_input = MagicMock()
+    original_input.parts = [MagicMock(text="private user input")]
+
+    events = [
+        event
+        async for event in security_checkpoint_node._run_impl(
+            ctx=context,
+            node_input=original_input,
+        )
+    ]
+
+    assert len(events) == 1
+    assert events[0].actions.route == "blocked"
+    assert events[0].output is None
+    assert context.state[_ALLOWED_INPUT_STATE_KEY] == ""
+
+
 def test_generation_ready_event_does_not_expose_unvalidated_quiz() -> None:
     event = _candidate_ready_event()
 
@@ -136,6 +189,8 @@ def test_quality_failure_persistence_is_best_effort() -> None:
 
     with patch("app.agent.FirestoreRepository") as repository_class:
         repository_class.return_value.save_quiz_quality_failure.side_effect = (
-            FirestorePersistenceError("temporary failure")
+            FirestorePersistenceError(
+                "save_quiz_quality_failure", "quality_diagnostic_persistence"
+            )
         )
         _save_quality_failure_best_effort(failure)

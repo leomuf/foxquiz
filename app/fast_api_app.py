@@ -318,10 +318,7 @@ async def handle_security_block(request: Request, exc: SecurityBlockException):
     logger.log_struct(
         {
             "event": "security_block",
-            "message": exc.message,
             "block_type": exc.block_type,
-            "anonymous_id": anonymous_id_ctx.get(),
-            "client_ip": client_ip_ctx.get(),
         },
         severity="WARNING",
     )
@@ -342,14 +339,6 @@ async def handle_firestore_persistence_error(
     request: Request, exc: FirestorePersistenceError
 ):
     """Return an explicit service error instead of reporting an in-memory write as saved."""
-    logger.log_struct(
-        {
-            "event": "firestore_persistence_error",
-            "path": request.url.path,
-            "message": str(exc),
-        },
-        severity="ERROR",
-    )
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": "Persistent storage is temporarily unavailable."},

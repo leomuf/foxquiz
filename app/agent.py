@@ -40,7 +40,11 @@ from google.adk.events.event_actions import EventActions
 from google.adk.agents.context import Context
 from google.adk.apps import App
 
-from app.app_utils.callbacks import FoxQuizSecurityPlugin, record_token_usage
+from app.app_utils.callbacks import (
+    FoxQuizSecurityPlugin,
+    SECURITY_BLOCK_STATE_KEY,
+    record_token_usage,
+)
 from app.app_utils.request_context import get_client_locale
 from app.app_utils.typing import QuizContext, QuizQualityFailure
 from app.database.firestore_repo import FirestorePersistenceError, FirestoreRepository
@@ -240,8 +244,7 @@ def search_wikipedia(query: str, lang: str = "en", topic: str | None = None) -> 
         )
         if relevant_result is None:
             logger.warning(
-                "Discarding Wikipedia grounding because no result title matched topic '%s'.",
-                topic,
+                "Discarding Wikipedia grounding because no result title matched."
             )
             return ""
 
@@ -273,26 +276,39 @@ def search_wikipedia(query: str, lang: str = "en", topic: str | None = None) -> 
         return f"Grounding facts from Wikipedia page '{title}':\n{extract}"
     except Exception as e:
         logger.warning(
-            f"Wikipedia search failed for '{query}': {e}. Proceeding with internal LLM knowledge."
+            "Wikipedia search failed (%s). Proceeding with internal LLM knowledge.",
+            type(e).__name__,
         )
         return ""
 
 
 # --- Graph Nodes ---
 
+_ALLOWED_INPUT_STATE_KEY = "temp:foxquiz_allowed_input"
+
+
+def _text_from_node_input(node_input: Any) -> str:
+    """Extract the text request passed between workflow nodes."""
+    if isinstance(node_input, str):
+        return node_input
+    if hasattr(node_input, "parts"):
+        return "".join(
+            part.text for part in node_input.parts if getattr(part, "text", None)
+        ).strip()
+    if isinstance(node_input, dict):
+        return node_input.get("text", "")
+    return ""
+
 
 @node
 async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     """Extracts school grade, subject, and topic from user prompts and handles follow-up chat interactions."""
-    prompt = ""
-    if isinstance(node_input, str):
-        prompt = node_input
-    elif hasattr(node_input, "parts"):
-        prompt = "".join([part.text for part in node_input.parts if part.text]).strip()
-    elif isinstance(node_input, dict):
-        prompt = node_input.get("text", "")
+    prompt = _text_from_node_input(node_input)
+    if not prompt:
+        prompt = ctx.state.get(_ALLOWED_INPUT_STATE_KEY, "") or ""
+    ctx.state[_ALLOWED_INPUT_STATE_KEY] = ""
 
-    logger.info(f"Gather and Route. Raw prompt: '{prompt}'")
+    logger.info("Gather and Route started.")
 
     # Handle user requests to reset or start over
     prompt_lower = prompt.lower()
@@ -362,7 +378,8 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 is_json_payload = True
         except Exception as e:
             logger.info(
-                f"Prompt is not a structured JSON payload: {e}. Proceeding with natural language extraction."
+                "Prompt is not a structured JSON payload (%s). Proceeding with natural language extraction.",
+                type(e).__name__,
             )
 
     # If a prompt is present and was not a parsed JSON payload, run lightweight structured LLM to extract info
@@ -386,7 +403,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
             )
             record_token_usage(ctx, response)
             extracted = ExtractedQuizInfo.model_validate_json(response.text.strip())
-            logger.info(f"Extracted parameters: {extracted}")
+            logger.info("Structured quiz parameters extracted.")
 
             if extracted.grade:
                 ctx.state["grade"] = extracted.grade
@@ -405,7 +422,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
             if extracted.selected_difficulty:
                 ctx.state["selected_difficulty"] = extracted.selected_difficulty
         except Exception as e:
-            logger.error(f"Error during info extraction: {e}")
+            logger.error("Information extraction failed (%s).", type(e).__name__)
 
     # Check if we have gathered all 3 pieces of information
     grade = ctx.state.get("grade")
@@ -415,9 +432,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
 
     if grade and subject and topic:
         # Perform Upfront Curriculum Validation Check to prevent mismatched/inappropriate topics
-        logger.info(
-            f"Performing upfront curriculum validation check for: Grade='{grade}', Subject='{subject}', Topic='{topic}'"
-        )
+        logger.info("Performing upfront curriculum validation check.")
         client = Client()
         try:
             validation_prompt = (
@@ -449,12 +464,8 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 response.text.strip()
             )
             logger.info(
-                "Upfront curriculum check results: status=%s, explanation=%r, "
-                "guidance=%r, suggestions=%s",
+                "Upfront curriculum check completed with status=%s.",
                 compatibility.status,
-                compatibility.explanation,
-                compatibility.difficulty_guidance,
-                compatibility.suggested_topics,
             )
             ctx.state["curriculum_status"] = compatibility.status
             ctx.state["curriculum_guidance"] = compatibility.difficulty_guidance
@@ -529,8 +540,8 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     actions=EventActions(route="ask_more"),
                 )
         except Exception:
-            logger.exception(
-                "Error during upfront curriculum check. Blocking generation until "
+            logger.error(
+                "Upfront curriculum check failed. Blocking generation until "
                 "the request can be evaluated."
             )
             unavailable_messages = {
@@ -621,7 +632,10 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         record_token_usage(ctx, response)
         msg_text = response.text.strip()
     except Exception as e:
-        logger.error(f"Mascot prompt generation error: {e}. Using fallback.")
+        logger.error(
+            "Mascot prompt generation failed (%s). Using fallback.",
+            type(e).__name__,
+        )
         if lang == "de":
             msg_text = f"Hallo! Ich bin {mascot_name}. Um dein cooles Quiz vorzubereiten, brauche ich noch folgende Infos: {missing_str}! Lass es mich wissen!"
         elif lang == "pt":
@@ -651,9 +665,7 @@ async def decision_and_search(ctx: Context, node_input: Any) -> Event:
         )
         return Event()
 
-    logger.info(
-        f"Curriculum Search Skill invoked. Querying Wikipedia for subject='{subject}', topic='{topic}', lang='{lang}'"
-    )
+    logger.info("Curriculum Search Skill invoked.")
     search_query = f"{subject} {topic}"
     wikipedia_data = search_wikipedia(search_query, lang=lang, topic=topic)
     title_match = re.match(
@@ -682,9 +694,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     curriculum_guidance = ctx.state.get("curriculum_guidance", "")
     judge_reasons = list(ctx.state.get("judge_reasons") or [])
 
-    logger.info(
-        f"Generating Quiz (Attempt {attempt}) for Grade={grade}, Subject={subject}, Topic={topic}, previous_score={previous_score}"
-    )
+    logger.info("Generating quiz attempt %s.", attempt)
 
     prompt = (
         f"Create an interactive multiple-choice quiz with exactly 10 questions.\n"
@@ -729,9 +739,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
 
     adaptation_instructions = ""
     if previous_score is not None:
-        logger.info(
-            f"Applying adaptive progression for previous_score={previous_score}"
-        )
+        logger.info("Applying adaptive progression.")
         if previous_score <= 3:
             # Score <= 3/10: Reinforcement Mode (🌱 Easy)
             # No duplicate-prevention, reuse previous questions but shuffle.
@@ -848,7 +856,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         ctx.state["temp_quiz"] = quiz_dict
         return _candidate_ready_event()
     except Exception as e:
-        logger.error(f"Quiz generation failed: {e}")
+        logger.error("Quiz generation failed (%s).", type(e).__name__)
         raise
 
 
@@ -922,7 +930,9 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         record_token_usage(ctx, response)
         assessment = JudgeAssessment.model_validate_json(response.text.strip())
         logger.info(
-            f"LLM Judge Quality Review (Attempt {attempts}): Passed={assessment.passed}. Reason: {assessment.reason}"
+            "LLM Judge quality review attempt %s completed: passed=%s.",
+            attempts,
+            assessment.passed,
         )
 
         if assessment.passed:
@@ -934,9 +944,8 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
             ctx.state["judge_reasons"] = judge_reasons
             ctx.state["quality_failure_type"] = "judge_rejected"
             logger.warning(
-                "Judge failed validation. Routing to %s. Reason: %s",
+                "Judge failed validation. Routing to %s.",
                 failure_route,
-                assessment.reason,
             )
             return Event(actions=EventActions(route=failure_route))
     except Exception as e:
@@ -944,7 +953,10 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         judge_reasons.append(f"Judge unavailable: {type(e).__name__}")
         ctx.state["judge_reasons"] = judge_reasons
         ctx.state["quality_failure_type"] = "judge_exception"
-        logger.error(f"LLM Judge error: {e}. Blocking release of unvalidated quiz.")
+        logger.error(
+            "LLM Judge failed (%s). Blocking release of unvalidated quiz.",
+            type(e).__name__,
+        )
         return Event(actions=EventActions(route="quality_failure"))
 
 
@@ -957,7 +969,7 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     # Reset judge attempts as we successfully finalized the quiz
     ctx.state["judge_attempts"] = 0
 
-    logger.info(f"Finalizing validated quiz: '{quiz_dict.get('title')}'")
+    logger.info("Finalizing validated quiz.")
 
     if lang == "de":
         msg = "🎉 **Dein personalisiertes Quiz ist fertig!**\n\nKlicke unten auf den Knopf, um loszulegen! Ich drücke dir ganz fest die Pfoten! ✨"
@@ -985,10 +997,10 @@ async def ask_more_node(ctx: Context, node_input: Any) -> Event:
 def _save_quality_failure_best_effort(failure: QuizQualityFailure) -> None:
     """Persist diagnostics without replacing the user-facing failure response."""
     try:
-        failure_id = FirestoreRepository().save_quiz_quality_failure(failure)
-        logger.info("Saved quiz quality failure diagnostic: %s", failure_id)
+        FirestoreRepository().save_quiz_quality_failure(failure)
+        logger.info("Saved quiz quality failure diagnostic.")
     except FirestorePersistenceError:
-        logger.exception("Could not persist quiz quality failure diagnostic.")
+        logger.warning("Could not persist quiz quality failure diagnostic.")
 
 
 @node
@@ -1021,13 +1033,54 @@ async def quality_failure_node(ctx: Context, node_input: Any) -> Event:
     )
 
 
+@node
+async def security_checkpoint_node(ctx: Context, node_input: Any) -> Event:
+    """Route an expected plugin block away from every quiz-processing node."""
+    route = "blocked" if ctx.state.get(SECURITY_BLOCK_STATE_KEY) else "allowed"
+    ctx.state[_ALLOWED_INPUT_STATE_KEY] = (
+        _text_from_node_input(node_input) if route == "allowed" else ""
+    )
+    return Event(actions=EventActions(route=route))
+
+
+@node
+async def security_block_node(ctx: Context, node_input: Any) -> Event:
+    """Return the structured block envelope produced by the security plugin."""
+    block_event = ctx.state.get(SECURITY_BLOCK_STATE_KEY)
+    if not isinstance(block_event, dict):
+        logger.error("Security block route reached without a block response.")
+        block_event = {
+            "status": "blocked",
+            "block_type": "SECURITY_UNAVAILABLE",
+            "message": "The safety check is temporarily unavailable. Please try again shortly.",
+        }
+    return Event(
+        content=types.Content(
+            role="model",
+            parts=[
+                types.Part.from_text(text=json.dumps(block_event, ensure_ascii=False))
+            ],
+        )
+    )
+
+
 # --- ADK 2.0 Workflow Definition ---
 
 root_agent = Workflow(
     name="root_agent",
     description="Interactive School Exam Preparation Companion (FoxQuiz)",
     edges=[
-        Edge(from_node=START, to_node=gather_and_route),
+        Edge(from_node=START, to_node=security_checkpoint_node),
+        Edge(
+            from_node=security_checkpoint_node,
+            to_node=gather_and_route,
+            route="allowed",
+        ),
+        Edge(
+            from_node=security_checkpoint_node,
+            to_node=security_block_node,
+            route="blocked",
+        ),
         Edge(
             from_node=gather_and_route,
             to_node=decision_and_search,

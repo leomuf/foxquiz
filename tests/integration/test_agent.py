@@ -19,6 +19,19 @@
 # are licensed under CC BY 4.0. See global LICENSE file for details.
 # ==============================================================================
 
+"""Local-only behavioral integration tests for the real ADK workflow.
+
+Purpose:
+    Exercise streaming, adaptive reinforcement, and curriculum preflight
+    routing for incompatible or ambiguous grade/subject/topic combinations.
+
+Boundary:
+    The module is marked google_cloud because it uses local Application
+    Default Credentials and live Vertex AI calls. Wikipedia is mocked to
+    isolate ADK/LLM behavior from external HTTP availability. Nuanced response
+    quality belongs in agents-cli eval, not deterministic Pytest assertions.
+"""
+
 from unittest.mock import MagicMock, patch
 
 import pytest

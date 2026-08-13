@@ -165,8 +165,11 @@ The mascot sources and listed production derivatives are dedicated under
 **CC0 1.0 Universal (CC0-1.0)**. The repository must retain the accompanying
 AI-provenance notice describing the original character direction, human
 selection/review, generation date, and production processing. This asset
-license does not replace the license governing other repository content and
-does not grant trademark or patent rights.
+license does not grant trademark or patent rights. FoxQuiz software is licensed
+under the **Apache License 2.0 (Apache-2.0)**, while documentation and
+specifications, including this specification, are licensed under **Creative
+Commons Attribution 4.0 International (CC-BY-4.0)**. The top-level `LICENSE`
+file defines the authoritative scope, and individual file notices take precedence.
 
 ---
 
@@ -807,7 +810,7 @@ All security rules, prompts, regexes, and keywords are stored in a private Fires
 # (Schema reference only. All actual classification prompts, regexes, and sensitive blocklist keywords are stored exclusively inside the private Firestore database)
 classification_prompt: |
   <SYSTEM_CLASSIFICATION_PROMPT_TEMPLATE>
-  # Private system instructions directing a fast classifier model to categorize input as SAFE, OFF_TOPIC, or MALICIOUS.
+  # Private system instructions directing a fast classifier model to categorize input as SAFE, OFF_TOPIC, MALICIOUS, or PII.
 
 blocklist_keywords:
   - "<SENSITIVE_KEYWORD_A>"
@@ -827,6 +830,9 @@ responses:
   injection_de: "Dieser Assistent kann dich nur bei der Vorbereitung auf deine Prüfungen unterstützen."
   injection_pt: "Este assistente só pode apoiar você na preparação para seus exames."
   injection_en: "This assistant can only support you in preparing for your exams."
+  pii_de: "<LOCALIZED_PRIVACY_MESSAGE>"
+  pii_pt: "<LOCALIZED_PRIVACY_MESSAGE>"
+  pii_en: "<LOCALIZED_PRIVACY_MESSAGE>"
 ```
 
 ### 10.2 Guardrail Execution Workflow
@@ -844,17 +850,69 @@ application plugin's `before_run_callback`:
      `max_output_tokens=512`, and a small `thinking_budget=256`. Limited
      thinking improves semantic verification while keeping latency and cost
      bounded.
-   - Accept only the exact decisions `SAFE`, `MALICIOUS`, or `OFF_TOPIC`.
+   - Accept only the exact decisions `SAFE`, `MALICIOUS`, `OFF_TOPIC`, or
+     `PII`.
+   - Use the LLM's semantic reasoning to recognize actual personal data and
+     requests to find or investigate a named person across languages,
+     countries, and document types. Do not maintain a fixed country-specific
+     list of document-number patterns.
    - If the result is empty, invalid, or the classifier raises an exception,
      fail closed with a localized temporary-unavailability message.
-   - If the classifier returns `MALICIOUS` or `OFF_TOPIC`, block and
+   - If the classifier returns `MALICIOUS`, `OFF_TOPIC`, or `PII`, block and
      short-circuit.
 4. **Action on Violation**:
    - **Block Prompt**: The prompt is not sent to the main Quiz Generator.
    - **Log Security Event**: If classified as `MALICIOUS`, write a log entry to the `security_events` Firestore collection (storing timestamp, blocked input, violation type, e.g. `RegexMatch`, `KeywordMatch`, `ClassifierBlock`, and anonymous ID).
-   - **Friendly Blocked Response**: Return the corresponding localized message from the dynamic `responses` config.
+   - **Protect PII**: Inputs classified as `PII` are not written to
+     `security_events` and do not count toward a Sheriff ban.
+   - **Friendly Blocked Response**: Store a structured block envelope in
+     invocation-local state. The workflow's first node routes blocked requests
+     directly to a terminal localized response before any quiz-processing node
+     runs. This avoids exceptions from expected blocks in the ADK SSE stream.
 
-### 10.3 The Sheriff Guard (Automated Rate-Limiting & Auto-Banning)
+### 10.3 Firestore Availability and Operational Visibility
+
+Every Firestore operation required before quiz generation fails closed. Client
+initialization, security-configuration loading, ban lookup, personal/global
+budget lookup, malicious-event persistence, Sheriff counting, and ban writes
+must all stop the workflow with a localized `SECURITY_UNAVAILABLE` response.
+The security checkpoint's allowed route must carry the original user input
+unchanged through invocation-local `temp:` state to `gather_and_route`, consume it
+once, and never emit it as an intermediate client-visible workflow output.
+
+The repository emits exactly one privacy-safe structured
+`firestore_operation_failed` event per failed operation. It may contain only
+the fixed phase and operation name, exception class and safe provider code,
+service version, and deployed commit. It must never contain prompts, grade,
+subject, topic, IP addresses, hashed signatures, defensive rules, or exception
+messages. A logs-based counter tracks these events over time.
+
+Post-generation token-budget persistence is best-effort: a failure remains
+observable through the same structured event, but it must not replace an
+already validated quiz with an error. Firestore feedback, sharing, and other
+explicit API persistence failures continue to return HTTP 503 rather than false
+success.
+
+The Sheriff query requires a Firestore composite index on
+`security_events(hashed_ip ASC, timestamp ASC)`. The index must be
+`READY` before release testing.
+
+```gherkin
+Scenario: Firestore is unavailable during the security checkpoint
+  Given a required pre-generation Firestore operation fails
+  When the user requests a quiz
+  Then no quiz-processing or generation node runs
+  And the user receives a localized security-unavailable response
+  And exactly one privacy-safe operational failure event is emitted
+
+Scenario: Token persistence fails after a valid quiz
+  Given the quiz passed academic review
+  When the post-run token-budget write fails
+  Then the valid quiz remains visible to the user
+  And the failure is counted through the structured operational event
+```
+
+### 10.4 The Sheriff Guard (Automated Rate-Limiting & Auto-Banning)
 
 To prevent malicious actors from repeatedly attempting prompt injections and wasting our precious LLM token budget, the security checkpoint includes an automated defense subsystem code-named **The Sheriff Guard** 🤠.
 
@@ -886,7 +944,8 @@ Feature: Security checkpoint & Malicious prompt detection
   Scenario: Personal data is protected
     Given the user enters a credit card number or personal data
     When the prompt is screened
-    Then this data reaches neither the LLM model nor the logs
+    Then this data reaches the security classifier but not the quiz-generation LLM
+    And this data is not written to logs
 
   Scenario: Prompt injection is blocked
     Given the user has opened the chat
@@ -975,8 +1034,9 @@ are sensitive for minors (see Section 14).
 **ADK 2.0 implementation:** token usage is accumulated for every model call
 and flushed by the application plugin after a successful invocation and also
 from its run-error callback. The same plugin checks both personal and global
-budgets before the workflow starts. This ensures failed curriculum, safety,
-generation, and judge calls are still counted.
+budgets before the workflow starts. A post-run Firestore failure is logged and
+counted operationally but does not replace an already validated quiz; its token
+usage may remain uncounted until storage is available again.
 
 ```yaml
 # token-budget-config.yaml

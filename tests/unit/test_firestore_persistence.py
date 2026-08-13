@@ -1,16 +1,17 @@
-# Copyright 2026 Google LLC
+# SPDX-FileCopyrightText: 2026 Leonardo Muffato (AUTOSOFT Engineering)
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Unit tests for production-path Firestore persistence semantics.
+
+Purpose:
+    Validate transactional token increments, Time To Live (TTL) backfilling,
+    and explicit failure propagation for shared-quiz and feedback writes.
+
+Boundary:
+    The repository follows its real-client path with a mocked Firestore client.
+    Production writes must never silently fall back to in-memory success.
+"""
 
 import datetime
 from unittest.mock import MagicMock, patch
@@ -81,8 +82,11 @@ def test_shared_quiz_failure_is_not_reported_as_saved(real_repo):
         "Firestore unavailable"
     )
 
-    with pytest.raises(FirestorePersistenceError, match="save shared quiz"):
+    with pytest.raises(FirestorePersistenceError) as exc_info:
         repo.save_shared_quiz("quiz-id", {"title": "Quiz"})
+
+    assert exc_info.value.operation == "save_shared_quiz"
+    assert exc_info.value.phase == "quiz_persistence"
 
     assert repo.use_mock is False
 
@@ -94,7 +98,7 @@ def test_feedback_failure_is_not_reported_as_saved(real_repo):
         "Firestore unavailable"
     )
 
-    with pytest.raises(FirestorePersistenceError, match="thumbs-up metric"):
+    with pytest.raises(FirestorePersistenceError) as exc_info:
         repo.save_feedback_log(
             score=1,
             text="Great quiz",
@@ -102,4 +106,6 @@ def test_feedback_failure_is_not_reported_as_saved(real_repo):
             anonymous_id="anonymous-id",
         )
 
+    assert exc_info.value.operation == "increment_thumbs_up_metric"
+    assert exc_info.value.phase == "feedback_persistence"
     assert repo.use_mock is False
