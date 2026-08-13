@@ -28,7 +28,9 @@ from pydantic import ValidationError
 from app.agent import (
     _ALLOWED_INPUT_STATE_KEY,
     CurriculumCompatibility,
+    _build_judge_prompt,
     _candidate_ready_event,
+    _expected_quiz_difficulty,
     _is_wikipedia_title_relevant,
     _route_after_failed_judge,
     _save_quality_failure_best_effort,
@@ -148,6 +150,44 @@ def test_generation_ready_event_does_not_expose_unvalidated_quiz() -> None:
 def test_judge_retries_once_then_fails_closed() -> None:
     assert _route_after_failed_judge(1) == "retry"
     assert _route_after_failed_judge(2) == "quality_failure"
+
+
+@pytest.mark.parametrize(
+    ("previous_score", "selected_difficulty", "expected"),
+    [
+        (None, None, "⭐ Medium"),
+        (3, None, "🌱 Easy"),
+        (7, None, "⭐ Medium"),
+        (9, "medium", "⭐ Medium"),
+        (9, "hard", "🚀 Hard"),
+        (10, None, "🚀 Hard"),
+    ],
+)
+def test_expected_quiz_difficulty_is_shared_across_adaptive_modes(
+    previous_score: int | None,
+    selected_difficulty: str | None,
+    expected: str,
+) -> None:
+    """One deterministic contract keeps generation metadata and review aligned."""
+    assert _expected_quiz_difficulty(previous_score, selected_difficulty) == expected
+
+
+def test_judge_prompt_treats_hard_as_relative_to_grade() -> None:
+    """A Grade 5 hard-mode label must not be mistaken for higher-grade content."""
+    prompt = _build_judge_prompt(
+        quiz_dict={"difficulty": "🚀 Hard", "questions": []},
+        grade="Klasse 5",
+        subject="Ciencias",
+        topic="Ciclo de vida de uma planta",
+        curriculum_guidance="Stay within the Grade 5 plant-life-cycle scope.",
+        previous_score=10,
+        selected_difficulty="hard",
+    )
+
+    assert "expected difficulty field is exactly '🚀 Hard'" in prompt
+    assert "relative to the requested grade" in prompt
+    assert "Do not reject a quiz merely because '🚀 Hard'" in prompt
+    assert "within the authoritative curriculum scope" in prompt
 
 
 @pytest.mark.asyncio

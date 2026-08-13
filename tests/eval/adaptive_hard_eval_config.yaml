@@ -1,0 +1,25 @@
+metrics_to_run:
+  - adaptive_hard_followup_quality
+
+custom_metrics:
+  - name: adaptive_hard_followup_quality
+    prompt_template: |
+      Evaluate whether FoxQuiz successfully completed the requested adaptive
+      hard-mode follow-up for Grade 5.
+
+      The user explicitly selected hard mode after a high score. "🚀 Hard" is
+      relative to Grade 5: questions should be more demanding within the Grade 5
+      plant-life-cycle curriculum, not rejected merely because the learner is in
+      Grade 5 and not escalated to higher-grade curriculum.
+
+      Give score 1 when the workflow returns a quality/safety retry error instead
+      of a quiz. Give score 3 when a quiz is returned but its difficulty contract
+      or grade alignment is unclear. Give score 5 only when the trace shows a
+      completed ten-question Portuguese quiz, labeled "🚀 Hard", whose content
+      remains age-appropriate and meaningfully challenging for Grade 5.
+
+      User Prompt: {prompt}
+      Final Response: {response}
+      Full Agent Trace: {agent_data}
+
+      Return JSON: {"score": <1|2|3|4|5>, "explanation": "<reason>"}

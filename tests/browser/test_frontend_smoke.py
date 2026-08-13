@@ -2,8 +2,9 @@
 
 Purpose:
     Protect the learner-visible workflow: changing language and mascot,
-    submitting grade/subject/topic, completing a quiz, sending negative
-    feedback, and receiving a security-block response.
+    displaying accurate license information, submitting grade/subject/topic,
+    completing a quiz, sending negative feedback, and receiving a
+    security-block response.
 
 Boundary:
     A real browser drives the local FastAPI app, while session, Server-Sent
@@ -147,10 +148,18 @@ def test_language_switching_and_mascot_selection(
     expect(page.locator("#input-topic")).to_have_attribute(
         "placeholder", "e.g., Photosynthesis"
     )
+    english_license = page.locator('[data-translate="footer_opensource"]')
+    expect(english_license).to_contain_text("Apache License 2.0")
+    expect(english_license).to_contain_text("CC BY 4.0")
+    expect(english_license).to_contain_text("CC0 1.0")
 
     page.get_by_role("button", name="PT").click()
     expect(page.locator('label[for="input-grade"]')).to_have_text("Ano Escolar")
     expect(page.locator('[data-translate="btn_start"]')).to_have_text("Criar Quiz!")
+    portuguese_license = page.locator('[data-translate="footer_opensource"]')
+    expect(portuguese_license).to_contain_text("Apache License 2.0")
+    expect(portuguese_license).to_contain_text("CC BY 4.0")
+    expect(portuguese_license).to_contain_text("CC0 1.0")
 
     page.locator('.mascot-option[data-mascot="owl"]').click()
     expect(page.locator('.mascot-option[data-mascot="owl"]')).to_have_class(

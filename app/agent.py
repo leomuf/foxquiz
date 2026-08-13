@@ -691,6 +691,68 @@ async def decision_and_search(ctx: Context, node_input: Any) -> Event:
 
 
 MAX_QUIZ_GENERATION_ATTEMPTS = 2
+_HARD_DIFFICULTY_SELECTION = "hard"
+
+
+def _expected_quiz_difficulty(
+    previous_score: int | None,
+    selected_difficulty: str | None,
+) -> str:
+    """Return the authoritative adaptive difficulty label for a quiz request."""
+    if previous_score is not None and previous_score <= 3:
+        return "🌱 Easy"
+    if previous_score is not None and previous_score >= 8:
+        normalized_selection = (
+            selected_difficulty.strip().casefold()
+            if isinstance(selected_difficulty, str)
+            else ""
+        )
+        if normalized_selection == _HARD_DIFFICULTY_SELECTION:
+            return "🚀 Hard"
+        return (
+            "🚀 Hard"
+            if previous_score == 10 and not normalized_selection
+            else "⭐ Medium"
+        )
+    return "⭐ Medium"
+
+
+def _build_judge_prompt(
+    *,
+    quiz_dict: dict[str, Any],
+    grade: Any,
+    subject: Any,
+    topic: Any,
+    curriculum_guidance: str,
+    previous_score: int | None,
+    selected_difficulty: str | None,
+) -> str:
+    """Build the academic-review contract shared with the LLM judge."""
+    expected_difficulty = _expected_quiz_difficulty(previous_score, selected_difficulty)
+    return (
+        "You are a strict, professional school academic reviewer (LLM-as-a-judge).\n"
+        "Assess if the following generated quiz JSON satisfies all standards:\n"
+        f"1. Is the difficulty and content exactly aligned with school standards for Grade '{grade}'?\n"
+        f"2. Does it cover the subject '{subject}' and topic '{topic}' accurately?\n"
+        "3. Does the quiz contain exactly 10 questions?\n"
+        "4. Does each question contain between 3 and 5 options, with exactly ONE correct choice?\n"
+        "5. Is the 'correct_option_index' mathematically and factually correct? "
+        "CRITICAL: For each question, you MUST independently determine the factually correct answer (whether it is a mathematical calculation, a historical date, a biological definition, etc.). Then, verify that the 'correct_option_index' points EXACTLY to that correct answer inside the 0-based options array. "
+        "If there is any mismatch between the factually correct answer, the option at 'correct_option_index', or the correct answer described in your explanation, you MUST set passed to false.\n"
+        "6. Are all answer options neutral and free of emojis or visual correctness cues, and do any emojis in a question avoid depicting, naming, or otherwise revealing its correct answer? If not, you MUST set passed to false.\n\n"
+        "--- AUTHORITATIVE ADAPTIVE DIFFICULTY CONTRACT ---\n"
+        f"The expected difficulty field is exactly '{expected_difficulty}'.\n"
+        f"Previous score: {previous_score if previous_score is not None else 'not available'}/10.\n"
+        f"User-selected progression difficulty: {selected_difficulty or 'not selected'}.\n"
+        "Difficulty labels are relative to the requested grade, never permission to use content from a higher grade. "
+        "In particular, '🚀 Hard' means a deeper, more demanding challenge for a high-achieving student within the authoritative curriculum scope for the requested grade. "
+        "Do not reject a quiz merely because '🚀 Hard' is used for a younger grade when that is the expected user-selected label. "
+        "Instead, verify that its content is meaningfully challenging while remaining age-appropriate and inside the supplied grade-level scope. "
+        "Reject when the label differs from the expected label, when the content is too easy for the selected mode, or when it exceeds or contradicts the grade-level scope.\n\n"
+        "The upfront curriculum evaluator supplied this authoritative grade-level scope. The quiz must comply with it:\n"
+        f"{curriculum_guidance or 'No additional scope guidance was available.'}\n\n"
+        f"Quiz JSON:\n{json.dumps(quiz_dict)}\n"
+    )
 
 
 @node
@@ -707,6 +769,8 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     previous_score = ctx.state.get("previous_score")
     previous_questions = ctx.state.get("previous_questions")
     previous_quiz_json = ctx.state.get("previous_quiz_json")
+    selected_difficulty = ctx.state.get("selected_difficulty")
+    expected_difficulty = _expected_quiz_difficulty(previous_score, selected_difficulty)
     curriculum_guidance = ctx.state.get("curriculum_guidance", "")
     judge_reasons = list(ctx.state.get("judge_reasons") or [])
     deterministic_retry_guidance = ctx.state.get("deterministic_retry_guidance", "")
@@ -783,16 +847,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
                 adaptation_instructions += f"Here is the exact previous quiz JSON for reference:\n{previous_quiz_json}\n"
         elif previous_score >= 8:
             # Score >= 8/10: User-Choice Progression Mode (choose between ⭐ Medium and 🚀 Hard)
-            selected_difficulty = ctx.state.get("selected_difficulty")
-            # Normalize selected_difficulty
-            if isinstance(selected_difficulty, str):
-                sel_diff_lower = selected_difficulty.lower()
-            else:
-                sel_diff_lower = (
-                    "hard" if previous_score == 10 else "medium"
-                )  # Fallback if not specified
-
-            if sel_diff_lower in ["hard", "rocket hard", "🚀 hard"]:
+            if expected_difficulty == "🚀 Hard":
                 adaptation_instructions = (
                     f"\n--- ADAPTIVE PROGRESSION MODE (CHALLENGE) ---\n"
                     f"The student scored {previous_score}/10 on the previous quiz and selected the DIFFICULT (Advanced) level.\n"
@@ -851,33 +906,9 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         )
         record_token_usage(ctx, response)
         quiz_dict = json.loads(response.text.strip())
-        # Ensure difficulty field is set in quiz_dict
-        if "difficulty" not in quiz_dict or not quiz_dict["difficulty"]:
-            if previous_score is not None:
-                if previous_score <= 3:
-                    quiz_dict["difficulty"] = "🌱 Easy"
-                elif previous_score >= 8:
-                    sel_diff = ctx.state.get("selected_difficulty")
-                    if isinstance(sel_diff, str) and sel_diff.lower() in [
-                        "hard",
-                        "rocket hard",
-                        "🚀 hard",
-                    ]:
-                        quiz_dict["difficulty"] = "🚀 Hard"
-                    elif isinstance(sel_diff, str) and sel_diff.lower() in [
-                        "medium",
-                        "star medium",
-                        "⭐ medium",
-                    ]:
-                        quiz_dict["difficulty"] = "⭐ Medium"
-                    else:
-                        quiz_dict["difficulty"] = (
-                            "🚀 Hard" if previous_score == 10 else "⭐ Medium"
-                        )
-                else:
-                    quiz_dict["difficulty"] = "⭐ Medium"
-            else:
-                quiz_dict["difficulty"] = "⭐ Medium"
+        # Keep user-visible metadata deterministic and consistent with the
+        # adaptive mode reviewed by the academic judge.
+        quiz_dict["difficulty"] = expected_difficulty
         ctx.state["temp_quiz"] = quiz_dict
         return _candidate_ready_event()
     except Exception as e:
@@ -969,20 +1000,14 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
     topic = ctx.state.get("topic")
     curriculum_guidance = ctx.state.get("curriculum_guidance", "")
 
-    judge_prompt = (
-        "You are a strict, professional school academic reviewer (LLM-as-a-judge).\n"
-        "Assess if the following generated quiz JSON satisfies all standards:\n"
-        f"1. Is the difficulty and content exactly aligned with school standards for Grade '{grade}'?\n"
-        f"2. Does it cover the subject '{subject}' and topic '{topic}' accurately?\n"
-        "3. Does the quiz contain exactly 10 questions?\n"
-        "4. Does each question contain between 3 and 5 options, with exactly ONE correct choice?\n"
-        "5. Is the 'correct_option_index' mathematically and factually correct? "
-        "CRITICAL: For each question, you MUST independently determine the factually correct answer (whether it is a mathematical calculation, a historical date, a biological definition, etc.). Then, verify that the 'correct_option_index' points EXACTLY to that correct answer inside the 0-based options array. "
-        "If there is any mismatch between the factually correct answer, the option at 'correct_option_index', or the correct answer described in your explanation, you MUST set passed to false.\n"
-        "6. Are all answer options neutral and free of emojis or visual correctness cues, and do any emojis in a question avoid depicting, naming, or otherwise revealing its correct answer? If not, you MUST set passed to false.\n\n"
-        "The upfront curriculum evaluator supplied this authoritative grade-level scope. The quiz must comply with it:\n"
-        f"{curriculum_guidance or 'No additional scope guidance was available.'}\n\n"
-        f"Quiz JSON:\n{json.dumps(quiz_dict)}\n"
+    judge_prompt = _build_judge_prompt(
+        quiz_dict=quiz_dict,
+        grade=grade,
+        subject=subject,
+        topic=topic,
+        curriculum_guidance=curriculum_guidance,
+        previous_score=previous_score,
+        selected_difficulty=ctx.state.get("selected_difficulty"),
     )
 
     client = Client()
