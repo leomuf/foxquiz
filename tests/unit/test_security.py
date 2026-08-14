@@ -279,6 +279,53 @@ async def test_firestore_checkpoint_outages_fail_closed(
         client_locale_ctx.reset(tokens[2])
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tokens_used", "should_block"),
+    [
+        (callbacks.DAILY_USER_TOKEN_LIMIT - 1, False),
+        (callbacks.DAILY_USER_TOKEN_LIMIT, True),
+    ],
+)
+async def test_daily_user_budget_boundary(tokens_used: int, should_block: bool) -> None:
+    """Allow usage below the central daily limit and block at the limit."""
+    tokens = (
+        client_ip_ctx.set("203.0.113.7"),
+        anonymous_id_ctx.set("budget-boundary-user"),
+        client_locale_ctx.set("en"),
+    )
+
+    try:
+        with (
+            patch("app.app_utils.callbacks.FirestoreRepository") as repo_class,
+            patch("app.app_utils.callbacks.Client") as client_class,
+        ):
+            repo = repo_class.return_value
+            _configure_semantic_classifier_repo(repo)
+            repo.get_token_budget.side_effect = [
+                {"tokens_used": tokens_used},
+                {"tokens_used": 0},
+            ]
+            response = MagicMock()
+            response.text = "SAFE"
+            response.usage_metadata.total_token_count = 7
+            client_class.return_value.models.generate_content.return_value = response
+
+            if should_block:
+                with pytest.raises(SecurityBlockException) as exc_info:
+                    await before_agent_callback(_semantic_classifier_context())
+
+                assert exc_info.value.block_type == "BUDGET_EXCEEDED"
+                client_class.return_value.models.generate_content.assert_not_called()
+            else:
+                await before_agent_callback(_semantic_classifier_context())
+                client_class.return_value.models.generate_content.assert_called_once()
+    finally:
+        client_ip_ctx.reset(tokens[0])
+        anonymous_id_ctx.reset(tokens[1])
+        client_locale_ctx.reset(tokens[2])
+
+
 def test_security_block_exception_strips_legacy_mascot_glyphs():
     """Keep old Firestore response values from rendering vendor emoji artwork."""
     glyphs = "".join(
