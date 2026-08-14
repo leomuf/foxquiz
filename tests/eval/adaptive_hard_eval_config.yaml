@@ -8,15 +8,27 @@ custom_metrics:
       hard-mode follow-up for Grade 5.
 
       The user explicitly selected hard mode after a high score. "🚀 Hard" is
-      relative to Grade 5: questions should be more demanding within the Grade 5
-      plant-life-cycle curriculum, not rejected merely because the learner is in
-      Grade 5 and not escalated to higher-grade curriculum.
+      relative to Grade 5: questions must become more demanding through
+      age-appropriate reasoning while remaining inside the requested subject,
+      topic, language, and Grade 5 curriculum.
 
       Give score 1 when the workflow returns a quality/safety retry error instead
-      of a quiz. Give score 3 when a quiz is returned but its difficulty contract
-      or grade alignment is unclear. Give score 5 only when the trace shows a
-      completed ten-question Portuguese quiz, labeled "🚀 Hard", whose content
-      remains age-appropriate and meaningfully challenging for Grade 5.
+      of a quiz. Give score 3 when a ten-question "🚀 Hard" quiz is returned but
+      its grade alignment, task variety, or cognitive challenge is unclear. Give
+      score 5 only when the trace shows a completed ten-question Portuguese quiz
+      labeled "🚀 Hard" that is meaningfully challenging and age-appropriate.
+
+      All ten questions must remain in FoxQuiz's required multiple-choice
+      format. Task variety means different cognitive demands and problem
+      patterns within that format, not different UI response formats.
+
+      For mathematics or other quantitative topics, score 5 also requires at
+      least four meaningfully different task forms when the topic permits, no
+      more than two pure long-form exact calculations when conceptual
+      alternatives exist, manageable non-calculator workload, and distractors
+      based on varied plausible misconceptions rather than only tightly
+      clustered numbers. Hard must come from reasoning, application, estimation,
+      strategy, comparison, or error analysis—not merely larger operands.
 
       User Prompt: {prompt}
       Final Response: {response}

@@ -142,7 +142,7 @@ class CurriculumCompatibility(BaseModel):
     )
     difficulty_guidance: str = Field(
         default="",
-        description="Concrete scope, concepts, and exclusions needed to keep the quiz aligned with the requested grade. Required when status is compatible.",
+        description="Concrete scope, workload, task variety, concepts, and exclusions needed to keep the quiz aligned with the requested grade and difficulty. Required when status is compatible.",
     )
     clarification_question: str = Field(
         default="",
@@ -443,6 +443,13 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     lang = ctx.state.get("preferred_language") or "en"
 
     if grade and subject and topic:
+        expected_difficulty = _expected_quiz_difficulty(
+            ctx.state.get("previous_score"), ctx.state.get("selected_difficulty")
+        )
+        difficulty_design_guidance = _build_difficulty_design_guidance(
+            expected_difficulty
+        )
+
         # Perform Upfront Curriculum Validation Check to prevent mismatched/inappropriate topics
         logger.info("Performing upfront curriculum validation check.")
         client = Client()
@@ -450,9 +457,12 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
             validation_prompt = (
                 "You are a strict but supportive school curriculum scope evaluator.\n"
                 f"Grade/Year: {grade}\nSubject: {subject}\nTopic: {topic}\n\n"
+                f"Requested adaptive level: {expected_difficulty}.\n"
+                "Apply this generator-wide difficulty design contract:\n"
+                f"{difficulty_design_guidance}\n\n"
                 "Decide whether this exact combination is ready for quiz generation.\n"
                 "Use status='compatible' only when the topic has a clear interpretation at the requested grade level without silently changing the requested topic. "
-                "Provide difficulty_guidance with concrete grade-level concepts to include and elementary or overly advanced concepts to exclude.\n"
+                "Provide difficulty_guidance with concrete grade-level concepts, reasonable workload and task types to include, plus elementary or overly advanced concepts and repetitive task patterns to exclude. Translate the design contract into topic-specific guidance rather than weakening it.\n"
                 "Use status='needs_clarification' when the topic is valid for the subject but too broad, elementary, ambiguous, or level-dependent to infer the intended grade-level scope safely. "
                 "For example, Grade 12 Mathematics plus 'Multiplication' needs clarification between matrix multiplication, polynomial multiplication, complex-number multiplication, or another advanced scope; it must not generate elementary multiplication questions. "
                 "Provide a short clarification_question and two or three suggested_topics/scopes.\n"
@@ -717,6 +727,47 @@ def _expected_quiz_difficulty(
     return "⭐ Medium"
 
 
+def _build_difficulty_design_guidance(expected_difficulty: str) -> str:
+    """Define varied, age-appropriate challenge without rewarding busywork."""
+    common = (
+        "Use varied cognitive task forms that fit the subject instead of repeating "
+        "one question template with different facts or numbers. All ten questions "
+        "must still use the required multiple-choice schema; variety refers to the "
+        "cognitive demand and problem pattern, not a different response format. "
+        "Distractors should "
+        "represent different plausible misconceptions; for numeric answers, do not "
+        "create difficulty only by clustering every option around the correct value. "
+    )
+    if expected_difficulty == "🌱 Easy":
+        return common + (
+            "Keep questions short, concrete, mostly one-step, and focused on core "
+            "understanding. Keep arithmetic and reading load manageable, and avoid "
+            "unnecessarily large numbers. Reinforcement may reuse prior concepts, "
+            "so clarity matters more than novelty."
+        )
+    if expected_difficulty == "🚀 Hard":
+        return common + (
+            "Create challenge through deeper reasoning while remaining strictly "
+            "inside the requested grade. When the topic permits, use at least four "
+            "meaningfully different task forms across the ten questions, such as "
+            "application, multi-step reasoning, estimation or reasonableness, "
+            "strategy choice, comparison, and error analysis. For mathematics or "
+            "other quantitative topics, use at most two pure long-form exact "
+            "calculations when conceptual alternatives exist. Do not open with an "
+            "unusually laborious calculation, require calculator-like busywork, "
+            "move into a higher-grade curriculum, or simulate difficulty merely "
+            "with larger operands and tightly clustered numeric distractors."
+        )
+    return common + (
+        "Provide a balanced standard-grade mix of recall, understanding, application, "
+        "and reasoning. When the topic permits, use at least four meaningfully "
+        "different task forms across the ten questions. For mathematics or other "
+        "quantitative topics, balance computation with estimation, strategy, and "
+        "short applications, and keep manual calculation proportionate to the "
+        "learning objective."
+    )
+
+
 def _build_judge_prompt(
     *,
     quiz_dict: dict[str, Any],
@@ -729,6 +780,7 @@ def _build_judge_prompt(
 ) -> str:
     """Build the academic-review contract shared with the LLM judge."""
     expected_difficulty = _expected_quiz_difficulty(previous_score, selected_difficulty)
+    difficulty_design_guidance = _build_difficulty_design_guidance(expected_difficulty)
     return (
         "You are a strict, professional school academic reviewer (LLM-as-a-judge).\n"
         "Assess if the following generated quiz JSON satisfies all standards:\n"
@@ -749,6 +801,8 @@ def _build_judge_prompt(
         "Do not reject a quiz merely because '🚀 Hard' is used for a younger grade when that is the expected user-selected label. "
         "Instead, verify that its content is meaningfully challenging while remaining age-appropriate and inside the supplied grade-level scope. "
         "Reject when the label differs from the expected label, when the content is too easy for the selected mode, or when it exceeds or contradicts the grade-level scope.\n\n"
+        "Apply the following task-design contract as a required quality criterion. Reject a quiz that materially violates it:\n"
+        f"{difficulty_design_guidance}\n\n"
         "The upfront curriculum evaluator supplied this authoritative grade-level scope. The quiz must comply with it:\n"
         f"{curriculum_guidance or 'No additional scope guidance was available.'}\n\n"
         f"Quiz JSON:\n{json.dumps(quiz_dict)}\n"
@@ -771,6 +825,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     previous_quiz_json = ctx.state.get("previous_quiz_json")
     selected_difficulty = ctx.state.get("selected_difficulty")
     expected_difficulty = _expected_quiz_difficulty(previous_score, selected_difficulty)
+    difficulty_design_guidance = _build_difficulty_design_guidance(expected_difficulty)
     curriculum_guidance = ctx.state.get("curriculum_guidance", "")
     judge_reasons = list(ctx.state.get("judge_reasons") or [])
     deterministic_retry_guidance = ctx.state.get("deterministic_retry_guidance", "")
@@ -786,6 +841,12 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         f"\nPedagogical Tone Scaling:\n"
         f"- For younger students (Grades 5-8, ages 10-14): Keep the tone highly playful, simplified, and kid-friendly. Decorative emojis may appear in titles, questions, or explanations, but never in answer options and never when they reveal the correct answer.\n"
         f"- For older students (Grades 9-12, ages 14-18): Switch to a supportive peer-mentor tone. Keep the mascot identity (e.g. Felix/Olivia/Dino) but communicate with intellectual respect, using advanced, clear explanations without sounding overly simple or talking down to them.\n"
+    )
+
+    prompt += (
+        "\n--- REQUIRED DIFFICULTY AND TASK-DESIGN CONTRACT ---\n"
+        f"{difficulty_design_guidance}\n"
+        "Follow this contract across the complete quiz; it is part of the acceptance criteria.\n"
     )
 
     if curriculum_guidance:
@@ -851,7 +912,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
                 adaptation_instructions = (
                     f"\n--- ADAPTIVE PROGRESSION MODE (CHALLENGE) ---\n"
                     f"The student scored {previous_score}/10 on the previous quiz and selected the DIFFICULT (Advanced) level.\n"
-                    f"You must significantly SCALE UP the difficulty of this new quiz. Introduce more advanced concepts, trickier options/distractors, and deeper questions suitable for a high-achieving student in Grade {grade}.\n"
+                    f"You must significantly SCALE UP the cognitive depth of this new quiz while staying inside Grade {grade}. Use varied reasoning, application, strategy, estimation, comparison, or error-analysis tasks when they fit the topic. Do not create difficulty mainly through larger numbers, calculator-like manual work, or tightly clustered answer choices.\n"
                     f"Set the 'difficulty' field to exactly: '🚀 Hard'.\n"
                 )
             else:

@@ -436,9 +436,11 @@ When the user finishes a quiz, they can choose to continue learning the same top
      - When a student finishes a quiz with a score of **$\ge 8/10$** and clicks **"Let's go for more questions"**, the app halts the standard request.
      - An interactive, beautifully styled **Difficulty Choice Modal** is presented to the user.
      - The user is prompted to choose between:
-       - **Medium (Standard)**: Generates 10 completely fresh standard-difficulty questions (`⭐ Medium`).
-       - **Difficult (Advanced)**: Generates 10 advanced-level questions introducing trickier distractors, deeper cognitive questions, and high-achiever curriculum concepts (`🚀 Hard`). `🚀 Hard` is relative to the selected grade: it increases cognitive depth within the authoritative grade-level curriculum and never permits content from a higher grade merely to make the quiz harder.
+       - **Medium (Standard)**: Generates 10 completely fresh standard-difficulty questions (`⭐ Medium`) with a balanced mix of recall, understanding, application, and reasoning.
+       - **Difficult (Advanced)**: Generates 10 questions with greater cognitive depth (`🚀 Hard`). `🚀 Hard` is relative to the selected grade: it uses varied application, multi-step reasoning, estimation, strategy choice, comparison, or error analysis within the authoritative grade-level curriculum. It must not create difficulty primarily through larger operands, calculator-like manual work, tightly clustered numeric distractors, or higher-grade content.
      - **Duplication-Prevention**: For both options, duplication-prevention is strictly enforced (absolutely zero questions from the previous run are repeated).
+
+Across all generated levels, question templates and distractors must remain pedagogically varied when the topic permits. All ten questions retain the required multiple-choice response format; variety refers to cognitive demands and problem patterns within that format. Easy prioritizes short, concrete core-understanding tasks and manageable workload. Medium and Hard should use at least four meaningfully different task forms across ten questions when suitable. For quantitative Hard quizzes, at most two questions may be pure long-form exact calculations when conceptual alternatives exist, and the opening question must not be an unusually laborious calculation.
 
 #### 6.2.2 Dynamic Difficulty Localization
 
@@ -770,6 +772,13 @@ Feature: Share and freeze a quiz
     Then the quiz is frozen in its current state
     And a second instance is stored in Firestore with a 30-day expiration
     And a link is generated
+
+  Scenario: Share a newly generated follow-up quiz
+    Given the current quiz was shared
+    And a new adaptive follow-up quiz has since been generated successfully
+    When the user clicks "Share"
+    Then the follow-up quiz is frozen as a new Firestore instance
+    And a new link is generated instead of reusing the previous quiz link
 
   Scenario: Recipient opens the share link
     Given a shared quiz link exists
