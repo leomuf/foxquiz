@@ -41,7 +41,7 @@ eval = [
     "google-cloud-aiplatform[evaluation]>=1.163.0",
 ]
 lint = [
-    "ruff>=0.16.1,<1.0.0",
+    "ruff>=0.16.2,<1.0.0",
     "ty>=0.0.70",
     "codespell>=2.4.3,<3.0.0",
 ]
