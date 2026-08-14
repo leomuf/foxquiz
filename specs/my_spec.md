@@ -1074,7 +1074,7 @@ token_budget:
 
   # --- Personal limit (gentle pacing, no sign-in) ---
   per_user:
-    max_tokens_per_day: 100000          # CONFIGURABLE
+    max_tokens_per_day: 150000          # CONFIGURABLE
     identification:
       method: "client_anonymous_id"     # cookie / LocalStorage
       fallback: "best_effort"           # bypassable (incognito) — tolerated

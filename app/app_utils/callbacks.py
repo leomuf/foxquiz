@@ -30,7 +30,7 @@ from app.database.firestore_repo import (
 
 logger = logging.getLogger(__name__)
 
-DAILY_USER_TOKEN_LIMIT = 100_000
+DAILY_USER_TOKEN_LIMIT = 150_000
 DAILY_GLOBAL_TOKEN_LIMIT = 5_000_000
 
 # Config caches
