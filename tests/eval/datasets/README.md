@@ -20,9 +20,12 @@ agents-cli eval grade --metrics general_quality --traces custom_traces/
 
 ### Adaptive Hard-Mode Regression
 
-This local-only behavioral case reproduces a Grade 5 learner selecting the
-hard follow-up after a perfect score. It verifies that `🚀 Hard` is treated as
+These local-only behavioral cases reproduce a Grade 5 learner selecting the
+hard follow-up after a perfect score. They verify that `🚀 Hard` is treated as
 relative to Grade 5 and is not rejected merely because of the learner's grade.
+The mathematics case additionally checks varied task forms, manageable manual
+calculation, and misconception-based distractors instead of difficulty created
+only through larger numbers or tightly clustered answer choices.
 
 ```bash
 agents-cli eval generate \

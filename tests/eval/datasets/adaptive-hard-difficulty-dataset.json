@@ -10,6 +10,17 @@
           }
         ]
       }
+    },
+    {
+      "eval_case_id": "grade_5_hard_followup_multiplication_variety",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\": \"Klasse 5\", \"subject\": \"Matematica\", \"topic\": \"Multiplicacao\", \"preferred_language\": \"pt\", \"previous_score\": 10, \"previous_questions\": [\"Quanto é 7 vezes 8?\", \"Calcule 24 vezes 6.\", \"Quanto é 35 vezes 4?\", \"Calcule 12 vezes 9.\", \"Quanto é 15 vezes 8?\", \"Calcule 23 vezes 5.\", \"Quanto é 42 vezes 3?\", \"Calcule 18 vezes 7.\", \"Quanto é 16 vezes 6?\", \"Calcule 25 vezes 4.\"], \"selected_difficulty\": \"hard\"}"
+          }
+        ]
+      }
     }
   ]
 }

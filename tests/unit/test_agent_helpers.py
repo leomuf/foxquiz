@@ -7,8 +7,8 @@
 Purpose:
     Cover Wikipedia relevance, grounding selection, security-router privacy,
     non-exposure of unvalidated quiz candidates, deterministic validation
-    routing and structured event classification, judge retry limits, curriculum
-    schema validation, and best-effort quality diagnostics.
+    routing and structured event classification, judge retry limits, difficulty
+    design contracts, curriculum schema validation, and quality diagnostics.
 
 Regression focus:
     Safe input must reach gather_and_route without becoming client-visible
@@ -28,6 +28,7 @@ from pydantic import ValidationError
 from app.agent import (
     _ALLOWED_INPUT_STATE_KEY,
     CurriculumCompatibility,
+    _build_difficulty_design_guidance,
     _build_judge_prompt,
     _candidate_ready_event,
     _expected_quiz_difficulty,
@@ -172,6 +173,31 @@ def test_expected_quiz_difficulty_is_shared_across_adaptive_modes(
     assert _expected_quiz_difficulty(previous_score, selected_difficulty) == expected
 
 
+@pytest.mark.parametrize(
+    ("difficulty", "required_fragments"),
+    [
+        ("🌱 Easy", ("short, concrete", "unnecessarily large numbers")),
+        ("⭐ Medium", ("balanced standard-grade mix", "estimation, strategy")),
+        (
+            "🚀 Hard",
+            (
+                "at least four meaningfully different task forms",
+                "at most two pure long-form exact calculations",
+                "calculator-like busywork",
+                "tightly clustered numeric distractors",
+            ),
+        ),
+    ],
+)
+def test_difficulty_design_guidance_controls_variety_and_workload(
+    difficulty: str, required_fragments: tuple[str, ...]
+) -> None:
+    """Each adaptive level defines task variety and manageable cognitive load."""
+    guidance = _build_difficulty_design_guidance(difficulty)
+    assert all(fragment in guidance for fragment in required_fragments)
+    assert "required multiple-choice schema" in guidance
+
+
 def test_judge_prompt_treats_hard_as_relative_to_grade() -> None:
     """A Grade 5 hard-mode label must not be mistaken for higher-grade content."""
     prompt = _build_judge_prompt(
@@ -187,6 +213,9 @@ def test_judge_prompt_treats_hard_as_relative_to_grade() -> None:
     assert "expected difficulty field is exactly '🚀 Hard'" in prompt
     assert "relative to the requested grade" in prompt
     assert "Do not reject a quiz merely because '🚀 Hard'" in prompt
+    assert "required quality criterion" in prompt
+    assert "at most two pure long-form exact calculations" in prompt
+    assert "calculator-like busywork" in prompt
     assert "within the authoritative curriculum scope" in prompt
 
 

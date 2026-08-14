@@ -80,13 +80,15 @@ def frontend_base_url() -> Iterator[str]:
         process.wait(timeout=10)
 
 
-def _quiz_fixture() -> dict:
+def _quiz_fixture(
+    *, title: str = "Cells", difficulty: str = "Medium", subject: str = "Biology"
+) -> dict:
     return {
-        "title": "Cells",
-        "difficulty": "Medium",
+        "title": title,
+        "difficulty": difficulty,
         "questions": [
             {
-                "question": f"Biology question {index}? \U0001f4a1",
+                "question": f"{subject} question {index}? \U0001f4a1",
                 "options": [
                     "Correct <strong>answer</strong>",
                     "Incorrect A",
@@ -234,6 +236,81 @@ def test_complete_quiz_and_negative_feedback_flow(
         "preferred_language": "en",
     }
     assert feedback_requests[0]["quiz_data"]["title"] == "Cells"
+
+
+def test_adaptive_quiz_sharing_freezes_the_new_quiz_snapshot(
+    page: Page, frontend_base_url: str
+) -> None:
+    """Sharing a follow-up quiz must not reuse the first quiz's frozen link."""
+    generated_requests: list[dict] = []
+    shared_requests: list[dict] = []
+    quizzes = [
+        _quiz_fixture(title="Multiplication Medium", difficulty="⭐ Medium"),
+        _quiz_fixture(
+            title="Multiplication Hard",
+            difficulty="🚀 Hard",
+            subject="Mathematics",
+        ),
+    ]
+
+    page.route(
+        "**/apps/app/users/anonymous_student/sessions",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"id": "browser-session"}),
+        ),
+    )
+
+    def fulfill_stream(route) -> None:
+        generated_requests.append(route.request.post_data_json)
+        quiz = quizzes[len(generated_requests) - 1]
+        route.fulfill(
+            status=200,
+            content_type="text/event-stream",
+            body=f"data: {json.dumps({'output': quiz})}\n\n",
+        )
+
+    def fulfill_share(route) -> None:
+        shared_requests.append(route.request.post_data_json)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {"status": "success", "quiz_id": f"quiz-{len(shared_requests)}"}
+            ),
+        )
+
+    page.route("**/run_sse", fulfill_stream)
+    page.route("**/share", fulfill_share)
+    page.goto(f"{frontend_base_url}/?lang=en")
+    page.locator("#input-grade").select_option("Klasse 5")
+    page.locator("#input-subject").fill("Mathematics")
+    page.locator("#input-topic").fill("Multiplication")
+    page.locator("#start-btn").click()
+
+    for _ in range(10):
+        page.locator(".option-btn").first.click()
+        page.locator("#next-btn").click()
+
+    page.locator('button[onclick="shareCurrentQuiz()"]').click()
+    expect(page.locator("#summary-screen")).to_be_visible()
+    assert len(shared_requests) == 1
+    assert shared_requests[0]["quiz_data"]["difficulty"] == "⭐ Medium"
+
+    page.locator("#btn-more-questions").click()
+    expect(page.locator("#choice-modal")).to_be_visible()
+    page.locator(".choice-btn-hard").click()
+    expect(page.locator("#quiz-screen")).to_be_visible()
+
+    for _ in range(10):
+        page.locator(".option-btn").first.click()
+        page.locator("#next-btn").click()
+
+    page.locator('button[onclick="shareCurrentQuiz()"]').click()
+    assert len(shared_requests) == 2
+    assert shared_requests[1]["quiz_data"]["title"] == "Multiplication Hard"
+    assert shared_requests[1]["quiz_data"]["difficulty"] == "🚀 Hard"
 
 
 def test_blocked_generation_never_displays_a_quiz(

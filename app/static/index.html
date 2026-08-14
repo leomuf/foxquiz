@@ -2028,6 +2028,9 @@
 
                 if (quiz && quiz.questions && quiz.questions.length === 10) {
                     currentQuizData = quiz;
+                    // A share ID identifies one frozen quiz snapshot. A newly
+                    // generated quiz must therefore receive its own ID when shared.
+                    currentQuizId = '';
                     stopProgressLoader();
                     updateProgress(100);
                     setTimeout(() => {
