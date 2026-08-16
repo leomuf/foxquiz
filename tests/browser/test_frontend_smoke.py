@@ -3,8 +3,10 @@
 Purpose:
     Protect the learner-visible workflow: changing language and mascot,
     displaying accurate license information, submitting grade/subject/topic,
-    completing a quiz, sending negative feedback, and receiving a
-    security-block response.
+    completing a quiz, keeping newly displayed mobile content in view,
+    preserving curriculum clarification context, recovering one missing ADK
+    session, sending negative feedback, and receiving a security-block
+    response.
 
 Boundary:
     A real browser drives the local FastAPI app, while session, Server-Sent
@@ -173,7 +175,13 @@ def test_language_switching_and_mascot_selection(
 def test_complete_quiz_and_negative_feedback_flow(
     page: Page, frontend_base_url: str
 ) -> None:
-    """Exercise the complete quiz and feedback journey with mocked APIs."""
+    """Exercise the complete quiz and feedback journey with mocked APIs.
+
+    The mobile-sized run also verifies that every newly rendered question is
+    scrolled into view and receives programmatic focus.
+    """
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.emulate_media(reduced_motion="reduce")
     generated_requests: list[dict] = []
     feedback_requests: list[dict] = []
     _mock_quiz_generation(page, generated_requests)
@@ -217,7 +225,18 @@ def test_complete_quiz_and_negative_feedback_flow(
         expect(page.locator(".option-btn strong")).to_have_count(0)
         page.locator(".option-btn").first.click()
         expect(page.locator("#explanation-card")).to_be_visible()
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         page.locator("#next-btn").click()
+        if question_number < 10:
+            page.wait_for_function(
+                """() => {
+                    const question = document.getElementById("question-text");
+                    const bounds = question.getBoundingClientRect();
+                    return document.activeElement === question
+                        && bounds.top >= 0
+                        && bounds.bottom <= window.innerHeight;
+                }"""
+            )
 
     expect(page.locator("#summary-screen")).to_be_visible()
     expect(page.locator("#score-text")).to_have_text("10 / 10")
@@ -365,3 +384,147 @@ def test_blocked_generation_never_displays_a_quiz(
         "Please do not share personal data."
     )
     expect(page.locator("#quiz-screen")).to_be_hidden()
+
+
+def test_clarification_stays_visible_and_keeps_the_original_topic(
+    page: Page, frontend_base_url: str
+) -> None:
+    """Keep a curriculum clarification visible without losing the original topic.
+
+    The first mocked SSE response requests clarification. The second submission
+    must combine the learner's answer with the original grade, subject, and
+    topic instead of treating the answer as a new standalone topic.
+    """
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.emulate_media(reduced_motion="reduce")
+    generated_requests: list[dict] = []
+    quiz = _quiz_fixture(title="As Grandes Navegacoes", subject="Historia")
+
+    page.route(
+        "**/apps/app/users/anonymous_student/sessions",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"id": "clarification-session"}),
+        ),
+    )
+
+    def fulfill_stream(route) -> None:
+        generated_requests.append(route.request.post_data_json)
+        if len(generated_requests) == 1:
+            event = {
+                "status": "clarification_required",
+                "message": "Que parte deste tema voce gostaria de estudar?",
+            }
+        else:
+            event = {"output": quiz}
+        route.fulfill(
+            status=200,
+            content_type="text/event-stream",
+            body=f"data: {json.dumps(event)}\n\n",
+        )
+
+    page.route("**/run_sse", fulfill_stream)
+    page.goto(f"{frontend_base_url}/?lang=pt")
+    page.locator("#input-grade").select_option("Klasse 5")
+    page.locator("#input-subject").fill("Historia")
+    page.locator("#input-topic").fill("As Grandes Navegacoes")
+    page.locator("#start-btn").click()
+
+    expect(page.locator("#setup-screen")).to_be_visible()
+    expect(page.locator("#welcome-bubble")).to_contain_text(
+        "Que parte deste tema voce gostaria de estudar?"
+    )
+    page.wait_for_function(
+        """() => {
+            const bubble = document.getElementById("welcome-bubble");
+            const bounds = bubble.getBoundingClientRect();
+            return document.activeElement === bubble
+                && bounds.top >= 0
+                && bounds.bottom <= window.innerHeight;
+        }"""
+    )
+
+    page.locator("#input-topic").fill("informacoes gerais")
+    page.locator("#start-btn").click()
+    expect(page.locator("#quiz-screen")).to_be_visible()
+
+    follow_up = json.loads(generated_requests[1]["new_message"]["parts"][0]["text"])
+    assert follow_up == {
+        "grade": "Klasse 5",
+        "subject": "Historia",
+        "topic": "As Grandes Navegacoes",
+        "preferred_language": "pt",
+        "clarification_response": "informacoes gerais",
+    }
+
+
+def test_hard_follow_up_recreates_a_missing_session_once(
+    page: Page, frontend_base_url: str
+) -> None:
+    """Recover a hard follow-up once when its in-memory ADK session is missing.
+
+    The first follow-up request receives HTTP 404. The browser must create one
+    replacement session, resend the identical adaptive prompt exactly once,
+    and display the returned hard quiz instead of the generic error screen.
+    """
+    session_ids: list[str] = []
+    generated_requests: list[dict] = []
+    quizzes = [
+        _quiz_fixture(title="Multiplication Medium", difficulty="Medium"),
+        _quiz_fixture(
+            title="Multiplication Hard",
+            difficulty="Hard",
+            subject="Mathematics",
+        ),
+    ]
+
+    def fulfill_session(route) -> None:
+        session_id = f"browser-session-{len(session_ids) + 1}"
+        session_ids.append(session_id)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"id": session_id}),
+        )
+
+    def fulfill_stream(route) -> None:
+        generated_requests.append(route.request.post_data_json)
+        if len(generated_requests) == 2:
+            route.fulfill(status=404, body="Session not found")
+            return
+
+        quiz = quizzes[0] if len(generated_requests) == 1 else quizzes[1]
+        route.fulfill(
+            status=200,
+            content_type="text/event-stream",
+            body=f"data: {json.dumps({'output': quiz})}\n\n",
+        )
+
+    page.route("**/apps/app/users/anonymous_student/sessions", fulfill_session)
+    page.route("**/run_sse", fulfill_stream)
+    page.goto(f"{frontend_base_url}/?lang=en")
+    page.locator("#input-grade").select_option("Klasse 5")
+    page.locator("#input-subject").fill("Mathematics")
+    page.locator("#input-topic").fill("Multiplication")
+    page.locator("#start-btn").click()
+
+    for _ in range(10):
+        page.locator(".option-btn").first.click()
+        page.locator("#next-btn").click()
+
+    page.locator("#btn-more-questions").click()
+    page.locator(".choice-btn-hard").click()
+    expect(page.locator("#quiz-screen")).to_be_visible()
+    expect(page.locator("#question-text")).to_contain_text("Mathematics question 1")
+
+    assert session_ids == ["browser-session-1", "browser-session-2"]
+    assert len(generated_requests) == 3
+    failed_request = generated_requests[1]
+    retried_request = generated_requests[2]
+    assert failed_request["session_id"] == "browser-session-1"
+    assert retried_request["session_id"] == "browser-session-2"
+    assert failed_request["new_message"] == retried_request["new_message"]
+    adaptive_prompt = json.loads(retried_request["new_message"]["parts"][0]["text"])
+    assert adaptive_prompt["selected_difficulty"] == "hard"
+    assert adaptive_prompt["topic"] == "Multiplication"

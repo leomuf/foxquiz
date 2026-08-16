@@ -24,13 +24,16 @@
 Purpose:
     Exercise streaming, adaptive reinforcement and user-selected hard mode, and
     curriculum preflight routing for incompatible or ambiguous
-    grade/subject/topic combinations.
+    grade/subject/topic combinations. Meaningful agents-cli eval inputs are
+    replayed here when the eval runner itself cannot execute the workflow
+    locally.
 
 Boundary:
     The module is marked google_cloud because it uses local Application
     Default Credentials and live Vertex AI calls. Wikipedia is mocked to
-    isolate ADK/LLM behavior from external HTTP availability. Nuanced response
-    quality belongs in agents-cli eval, not deterministic Pytest assertions.
+    isolate ADK/LLM behavior from external HTTP availability. Eval-derived
+    cases assert only stable routing and output-shape contracts; nuanced
+    response quality remains an agents-cli eval responsibility.
 """
 
 from unittest.mock import MagicMock, patch
@@ -178,8 +181,44 @@ def test_adaptive_quiz_generation() -> None:
     )
 
 
-def test_adaptive_hard_mode_remains_relative_to_grade() -> None:
-    """A selected hard follow-up must pass review within the Grade 5 scope."""
+@pytest.mark.parametrize(
+    ("subject", "topic", "previous_questions"),
+    [
+        (
+            "Ciencias",
+            "Ciclo de vida de uma planta",
+            [f"Pergunta anterior {number}" for number in range(1, 11)],
+        ),
+        (
+            "Matematica",
+            "Multiplicacao",
+            [
+                "Quanto é 7 vezes 8?",
+                "Calcule 24 vezes 6.",
+                "Quanto é 35 vezes 4?",
+                "Calcule 12 vezes 9.",
+                "Quanto é 15 vezes 8?",
+                "Calcule 23 vezes 5.",
+                "Quanto é 42 vezes 3?",
+                "Calcule 18 vezes 7.",
+                "Quanto é 16 vezes 6?",
+                "Calcule 25 vezes 4.",
+            ],
+        ),
+    ],
+    ids=["plant-life-cycle", "multiplication-variety"],
+)
+def test_adaptive_hard_mode_remains_relative_to_grade(
+    subject: str,
+    topic: str,
+    previous_questions: list[str],
+) -> None:
+    """Replay both adaptive-hard eval inputs through the real ADK workflow.
+
+    Each case must reach the validated terminal output with ten questions and
+    the requested hard label. Task variety, distractor quality, and nuanced
+    grade alignment remain LLM-judge criteria rather than Pytest assertions.
+    """
     import json
 
     session_service = InMemorySessionService()
@@ -187,13 +226,11 @@ def test_adaptive_hard_mode_remains_relative_to_grade() -> None:
     runner = Runner(agent=root_agent, session_service=session_service, app_name="test")
     payload = {
         "grade": "Klasse 5",
-        "subject": "Ciencias",
-        "topic": "Ciclo de vida de uma planta",
+        "subject": subject,
+        "topic": topic,
         "preferred_language": "pt",
         "previous_score": 10,
-        "previous_questions": [
-            f"Pergunta anterior {number}" for number in range(1, 11)
-        ],
+        "previous_questions": previous_questions,
         "selected_difficulty": "hard",
     }
     message = types.Content(
@@ -281,8 +318,12 @@ def test_upfront_curriculum_validation_mismatch() -> None:
     )
 
 
-def test_upfront_curriculum_validation_clarifies_broad_advanced_topic() -> None:
-    """Avoid generating before an ambiguous topic has a grade-appropriate scope."""
+def test_upfront_curriculum_validation_clarifies_a_level_dependent_topic() -> None:
+    """Preserve and clarify the level-dependent Grade 12 multiplication topic.
+
+    The workflow must emit one structured clarification, expose no quiz, and
+    retain the original topic in session state for the learner's next answer.
+    """
     import json
 
     session_service = InMemorySessionService()
@@ -308,12 +349,17 @@ def test_upfront_curriculum_validation_clarifies_broad_advanced_topic() -> None:
         )
     )
 
-    has_clarification = any(
-        event.content
-        and event.content.parts
-        and any(part.text for part in event.content.parts)
-        for event in events
-    )
+    clarification_payloads = []
+    for event in events:
+        for part in (event.content.parts or []) if event.content else []:
+            if not part.text:
+                continue
+            try:
+                payload = json.loads(part.text)
+            except json.JSONDecodeError:
+                continue
+            if payload.get("status") == "clarification_required":
+                clarification_payloads.append(payload)
     has_quiz_output = any(
         event.output and isinstance(event.output, dict) and "questions" in event.output
         for event in events
@@ -322,7 +368,68 @@ def test_upfront_curriculum_validation_clarifies_broad_advanced_topic() -> None:
         user_id="test_user", session_id=session.id, app_name="test"
     )
 
-    assert has_clarification
+    assert len(clarification_payloads) == 1
+    assert clarification_payloads[0]["message"]
     assert not has_quiz_output
     assert final_session.state.get("curriculum_status") == "needs_clarification"
-    assert final_session.state.get("topic") is None
+    assert final_session.state.get("topic") == "Multiplication"
+    assert final_session.state.get("pending_topic") == "Multiplication"
+
+
+@pytest.mark.parametrize(
+    ("grade", "subject", "topic"),
+    [
+        ("Klasse 5", "Historia", "As Grandes Navegacoes"),
+        ("Klasse 12", "economia", "opcoes e certificados"),
+    ],
+    ids=["general-history-overview", "financial-education-topic"],
+)
+def test_upfront_curriculum_validation_accepts_a_recognizable_broad_topic(
+    grade: str,
+    subject: str,
+    topic: str,
+) -> None:
+    """Route recognizable broad topics directly to a validated general quiz.
+
+    The parameters cover the reported history scenario and the financial-topic
+    eval input. Pytest verifies compatible routing, retained topic state, and
+    the ten-question output contract, not the wording of generated questions.
+    """
+    import json
+
+    session_service = InMemorySessionService()
+    session = session_service.create_session_sync(user_id="test_user", app_name="test")
+    runner = Runner(agent=root_agent, session_service=session_service, app_name="test")
+    payload = {
+        "grade": grade,
+        "subject": subject,
+        "topic": topic,
+        "preferred_language": "pt",
+    }
+    message = types.Content(
+        role="user", parts=[types.Part.from_text(text=json.dumps(payload))]
+    )
+
+    events = list(
+        runner.run(
+            new_message=message,
+            user_id="test_user",
+            session_id=session.id,
+            run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+        )
+    )
+    quiz_outputs = [
+        event.output
+        for event in events
+        if event.output
+        and isinstance(event.output, dict)
+        and "questions" in event.output
+    ]
+    final_session = session_service.get_session_sync(
+        user_id="test_user", session_id=session.id, app_name="test"
+    )
+
+    assert len(quiz_outputs) == 1
+    assert len(quiz_outputs[0].get("questions", [])) == 10
+    assert final_session.state.get("curriculum_status") == "compatible"
+    assert final_session.state.get("topic") == topic

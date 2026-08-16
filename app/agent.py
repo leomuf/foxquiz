@@ -100,6 +100,10 @@ class ExtractedQuizInfo(BaseModel):
         None,
         description="The user selected progression difficulty ('medium' or 'hard') if chosen via the modal.",
     )
+    clarification_response: Optional[str] = Field(
+        None,
+        description="Additional scope supplied after a clarification question while retaining the original topic.",
+    )
 
 
 class QuizQuestion(BaseModel):
@@ -146,7 +150,7 @@ class CurriculumCompatibility(BaseModel):
     )
     clarification_question: str = Field(
         default="",
-        description="A short localized question that helps the user narrow an ambiguous or overly broad topic.",
+        description="A short localized question that resolves a genuinely ambiguous or unintelligible topic.",
     )
     suggested_topics: List[str] = Field(
         default_factory=list,
@@ -387,6 +391,9 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     ctx.state["previous_quiz_json"] = parsed["previous_quiz_json"]
                 if "selected_difficulty" in parsed:
                     ctx.state["selected_difficulty"] = parsed["selected_difficulty"]
+                ctx.state["clarification_response"] = parsed.get(
+                    "clarification_response"
+                )
                 is_json_payload = True
         except Exception as e:
             logger.info(
@@ -433,6 +440,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 ctx.state["previous_quiz_json"] = extracted.previous_quiz_json
             if extracted.selected_difficulty:
                 ctx.state["selected_difficulty"] = extracted.selected_difficulty
+            ctx.state["clarification_response"] = extracted.clarification_response
         except Exception as e:
             logger.error("Information extraction failed (%s).", type(e).__name__)
 
@@ -441,6 +449,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     subject = ctx.state.get("subject")
     topic = ctx.state.get("topic")
     lang = ctx.state.get("preferred_language") or "en"
+    clarification_response = ctx.state.get("clarification_response")
 
     if grade and subject and topic:
         expected_difficulty = _expected_quiz_difficulty(
@@ -457,18 +466,24 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
             validation_prompt = (
                 "You are a strict but supportive school curriculum scope evaluator.\n"
                 f"Grade/Year: {grade}\nSubject: {subject}\nTopic: {topic}\n\n"
+                "Additional scope supplied after a clarification question: "
+                f"{clarification_response or 'none'}\n\n"
                 f"Requested adaptive level: {expected_difficulty}.\n"
                 "Apply this generator-wide difficulty design contract:\n"
                 f"{difficulty_design_guidance}\n\n"
                 "Decide whether this exact combination is ready for quiz generation.\n"
                 "Use status='compatible' only when the topic has a clear interpretation at the requested grade level without silently changing the requested topic. "
+                "A recognizable school topic is compatible even when it is broad: when no narrower scope is supplied, interpret it as a balanced general overview of the topic. "
+                "Treat an answer such as 'general information' as an explicit request for that overview. "
                 "Provide difficulty_guidance with concrete grade-level concepts, reasonable workload and task types to include, plus elementary or overly advanced concepts and repetitive task patterns to exclude. Translate the design contract into topic-specific guidance rather than weakening it.\n"
-                "Use status='needs_clarification' when the topic is valid for the subject but too broad, elementary, ambiguous, or level-dependent to infer the intended grade-level scope safely. "
+                "Use status='needs_clarification' only when the topic is genuinely ambiguous, unintelligible, or level-dependent in a way that would produce materially different quizzes and no safe conventional school interpretation exists. "
+                "Do not request clarification merely because a valid school topic covers many facts or subtopics. "
                 "For example, Grade 12 Mathematics plus 'Multiplication' needs clarification between matrix multiplication, polynomial multiplication, complex-number multiplication, or another advanced scope; it must not generate elementary multiplication questions. "
                 "Provide a short clarification_question and two or three suggested_topics/scopes.\n"
                 "Use status='incompatible' when the topic is fundamentally outside the subject, cognitively inappropriate for the grade, or not a suitable school-learning topic. "
                 "Provide two or three age-appropriate alternatives.\n"
                 "Do not accept a combination merely because the topic could be simplified or made harder. First require enough scope to produce a genuinely grade-aligned quiz.\n"
+                "When additional clarification is present, interpret it together with the original topic rather than replacing the original topic.\n"
                 f"Write explanation, clarification_question, suggested_topics, and difficulty_guidance in language '{lang}' ('de', 'pt', or 'en').\n"
                 "Return structured JSON matching CurriculumCompatibility."
             )
@@ -493,21 +508,33 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
             ctx.state["curriculum_guidance"] = compatibility.difficulty_guidance
 
             if compatibility.status == "compatible":
+                ctx.state["pending_topic"] = None
+                ctx.state["clarification_response"] = None
                 return Event(actions=EventActions(route="generate_quiz"))
             elif compatibility.status == "needs_clarification":
-                ctx.state["topic"] = None
+                ctx.state["pending_topic"] = topic
                 msg_text = (
                     compatibility.clarification_question or compatibility.explanation
                 )
+                clarification_payload = json.dumps(
+                    {
+                        "status": "clarification_required",
+                        "message": msg_text,
+                    },
+                    ensure_ascii=False,
+                )
                 return Event(
                     content=types.Content(
-                        role="model", parts=[types.Part.from_text(text=msg_text)]
+                        role="model",
+                        parts=[types.Part.from_text(text=clarification_payload)],
                     ),
                     actions=EventActions(route="ask_more"),
                 )
             else:
                 # Clear incompatible topic from state so they can enter a new one
                 ctx.state["topic"] = None
+                ctx.state["pending_topic"] = None
+                ctx.state["clarification_response"] = None
 
                 # Select and localize mascot for friendly dialogue delivery
                 mascots = [

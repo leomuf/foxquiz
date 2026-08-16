@@ -1081,7 +1081,7 @@
             </div>
 
             <div class="chat-section">
-                <div id="welcome-bubble" class="chat-bubble">
+                <div id="welcome-bubble" class="chat-bubble" role="status" aria-live="polite" tabindex="-1">
                     Hallo! Ich bin Felix der Fuchs. Lass uns zusammen für deine nächste Prüfung lernen! Für welches Fach und welches Thema soll ich dein Quiz erstellen?
                 </div>
                 
@@ -1148,7 +1148,7 @@
                     </div>
                 </div>
 
-                <div id="question-text" class="question-text">
+                <div id="question-text" class="question-text" aria-live="polite" tabindex="-1">
                     Lade Frage...
                 </div>
 
@@ -1520,6 +1520,7 @@
             topic: null,
             preferred_language: currentLanguage
         };
+        let pendingClarificationContext = null;
         let currentQuestionIndex = 0;
         let userAnswers = []; // stores index of answers selected by user
         let score = 0;
@@ -1868,6 +1869,89 @@
             return null;
         }
 
+        /**
+         * Extracts the structured curriculum clarification envelope from an SSE event.
+         * @param {object} event Parsed Server-Sent Events (SSE) frame.
+         * @returns {{status: string, message: string}|null} Clarification request.
+         */
+        function extractClarificationEvent(event) {
+            if (
+                event?.status === "clarification_required" &&
+                typeof event.message === "string"
+            ) {
+                return event;
+            }
+
+            const parts = event?.content?.parts;
+            if (!Array.isArray(parts)) {
+                return null;
+            }
+
+            for (const part of parts) {
+                if (typeof part.text !== "string") {
+                    continue;
+                }
+
+                try {
+                    const parsedEvent = JSON.parse(part.text);
+                    if (
+                        parsedEvent?.status === "clarification_required" &&
+                        typeof parsedEvent.message === "string"
+                    ) {
+                        return parsedEvent;
+                    }
+                } catch {
+                    // Normal ADK content can be plain text instead of structured JSON.
+                }
+            }
+
+            return null;
+        }
+
+        /**
+         * Creates an ephemeral ADK session and returns its identifier.
+         * @returns {Promise<string>} Newly created session identifier.
+         */
+        async function createAgentSession() {
+            const sessionUrl = "/apps/app/users/anonymous_student/sessions";
+            const sessionRes = await fetch(sessionUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ state: { preferred_language: currentLanguage } })
+            });
+            if (!sessionRes.ok) {
+                throw new Error("Failed to pre-register session on backend. Status: " + sessionRes.status);
+            }
+            const sessionData = await sessionRes.json();
+            return sessionData.id;
+        }
+
+        /**
+         * Sends one quiz request through the standard ADK SSE endpoint.
+         * @param {string} userPrompt Structured quiz request serialized as JSON.
+         * @returns {Promise<Response>} Raw SSE response.
+         */
+        function requestQuizRun(userPrompt) {
+            return fetch("/run_sse", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept-Language": currentLanguage
+                },
+                body: JSON.stringify({
+                    app_name: "app",
+                    user_id: "anonymous_student",
+                    session_id: currentSessionId,
+                    new_message: {
+                        role: "user",
+                        parts: [{ text: userPrompt }]
+                    },
+                    streaming: false
+                })
+            });
+        }
+
+
         // 4. Generate Quiz via Agent Workflow
         /**
          * Runs the complete quiz-generation transaction through the ADK SSE API.
@@ -1902,16 +1986,23 @@
             startProgressLoader();
 
             // Send deterministic structured parameters so the agent can skip an extraction LLM call.
+            const clarificationContext = pendingClarificationContext;
+            const requestedGrade = clarificationContext?.grade || grade;
+            const requestedSubject = clarificationContext?.subject || subject;
+            const requestedTopic = clarificationContext?.topic || topic;
             const payload = {
-                grade: grade,
-                subject: subject,
-                topic: topic,
+                grade: requestedGrade,
+                subject: requestedSubject,
+                topic: requestedTopic,
                 preferred_language: currentLanguage
             };
+            if (clarificationContext) {
+                payload.clarification_response = topic;
+            }
             currentQuizContext = {
-                grade: grade,
-                subject: subject,
-                topic: topic,
+                grade: requestedGrade,
+                subject: requestedSubject,
+                topic: requestedTopic,
                 preferred_language: currentLanguage
             };
 
@@ -1936,38 +2027,15 @@
             
             try {
                 if (!currentSessionId) {
-                    // Pre-register session in the backend store first to avoid 404 on /run_sse
-                    const sessionUrl = "/apps/app/users/anonymous_student/sessions";
-                    const sessionRes = await fetch(sessionUrl, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ state: { preferred_language: currentLanguage } })
-                    });
-                    if (!sessionRes.ok) {
-                        throw new Error("Failed to pre-register session on backend. Status: " + sessionRes.status);
-                    }
-                    const sessionData = await sessionRes.json();
-                    currentSessionId = sessionData.id;
+                    currentSessionId = await createAgentSession();
                 }
 
-                // Call standard stream route of FastAPI App (get_fast_api_app setup /run_sse)
-                const response = await fetch("/run_sse", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Accept-Language": currentLanguage
-                    },
-                    body: JSON.stringify({
-                        app_name: "app",
-                        user_id: "anonymous_student",
-                        session_id: currentSessionId,
-                        new_message: {
-                            role: "user",
-                            parts: [{ text: userPrompt }]
-                        },
-                        streaming: false // Get full block at once for robust JSON parsing
-                    })
-                });
+                let response = await requestQuizRun(userPrompt);
+                if (response.status === 404) {
+                    console.warn("ADK session was unavailable; recreating it once.");
+                    currentSessionId = await createAgentSession();
+                    response = await requestQuizRun(userPrompt);
+                }
 
                 if (!response.ok) {
                     throw new Error("HTTP error " + response.status);
@@ -2016,6 +2084,23 @@
                         return;
                     }
                 }
+                // A clarification keeps the original grade, subject, and topic.
+                for (const event of events) {
+                    const clarificationEvent = extractClarificationEvent(event);
+                    if (clarificationEvent) {
+                        pendingClarificationContext = { ...currentQuizContext };
+                        const formattedText = stripMascotEmoji(clarificationEvent.message)
+                            .replace(/\n/g, "<br>")
+                            .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+                            .replace(/\*(.*?)\*/g, "<em>$1</em>");
+                        const welcomeBubble = document.getElementById("welcome-bubble");
+                        welcomeBubble.innerHTML = formattedText;
+                        document.getElementById("input-topic").value = "";
+                        showScreen("setup-screen");
+                        revealAndFocus(welcomeBubble, "center");
+                        return;
+                    }
+                }
 
                 // Parse terminal output containing the structured Quiz object
                 let quiz = null;
@@ -2028,6 +2113,7 @@
 
                 if (quiz && quiz.questions && quiz.questions.length === 10) {
                     currentQuizData = quiz;
+                    pendingClarificationContext = null;
                     // A share ID identifies one frozen quiz snapshot. A newly
                     // generated quiz must therefore receive its own ID when shared.
                     currentQuizId = '';
@@ -2055,9 +2141,12 @@
                             .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
                             .replace(/\*(.*?)\*/g, "<em>$1</em>");
                         
-                        document.getElementById("welcome-bubble").innerHTML = formattedText;
+                        pendingClarificationContext = null;
+                        const welcomeBubble = document.getElementById("welcome-bubble");
+                        welcomeBubble.innerHTML = formattedText;
                         document.getElementById("input-topic").value = ""; // Clear incompatible topic
                         showScreen("setup-screen");
+                        revealAndFocus(welcomeBubble, "center");
                     } else {
                         throw new Error("Failed to extract 10 questions from response output.");
                     }
@@ -2124,6 +2213,8 @@
                 btn.onclick = () => selectOption(idx);
                 optContainer.appendChild(btn);
             });
+
+            revealAndFocus(document.getElementById("question-text"), "center");
         }
 
         /**
@@ -2504,6 +2595,26 @@
         }
 
         /**
+         * Moves newly displayed content into the viewport and gives it
+         * programmatic focus so mobile and keyboard users notice the update.
+         * @param {HTMLElement|null} element Content that should become visible.
+         * @param {ScrollLogicalPosition} block Vertical alignment in the viewport.
+         */
+        function revealAndFocus(element, block = "center") {
+            if (!element) return;
+
+            const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                ? "auto"
+                : "smooth";
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    element.scrollIntoView({ behavior, block, inline: "nearest" });
+                    element.focus({ preventScroll: true });
+                });
+            });
+        }
+
+        /**
          * Shows a terminal safety, error, or notice screen and derives a localized
          * title from the icon when no explicit title is supplied.
          */
@@ -2540,6 +2651,7 @@
             currentQuizData = null;
             currentQuizId = "";
             currentSessionId = "";
+            pendingClarificationContext = null;
             showScreen("setup-screen");
         }
 
