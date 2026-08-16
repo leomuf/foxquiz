@@ -65,6 +65,36 @@ os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 
 logger = logging.getLogger(__name__)
+DEFAULT_MASCOT_ID = "fox"
+MASCOT_NAMES = {
+    "fox": {
+        "de": "Felix der Fuchs",
+        "pt": "Felix, a Raposa",
+        "en": "Felix the Fox",
+    },
+    "owl": {
+        "de": "Olivia die Eule",
+        "pt": "Olivia, a Coruja",
+        "en": "Olivia the Owl",
+    },
+    "dragon": {
+        "de": "Dino der Drache",
+        "pt": "Dino, o Dragão",
+        "en": "Dino the Dragon",
+    },
+}
+
+
+def _resolve_mascot(mascot_id: Any, language: str) -> tuple[str, str]:
+    """Return an allowlisted mascot ID and its localized display name."""
+    normalized_id = (
+        mascot_id
+        if isinstance(mascot_id, str) and mascot_id in MASCOT_NAMES
+        else DEFAULT_MASCOT_ID
+    )
+    normalized_language = language if language in {"de", "pt", "en"} else "en"
+    return normalized_id, MASCOT_NAMES[normalized_id][normalized_language]
+
 
 # --- Pydantic Models for Quiz and Safety Structures ---
 
@@ -84,6 +114,10 @@ class ExtractedQuizInfo(BaseModel):
     )
     preferred_language: Optional[str] = Field(
         None, description="The detected preferred language ('de', 'pt', 'en') if clear."
+    )
+    mascot_id: Optional[str] = Field(
+        None,
+        description="The selected FoxQuiz mascot ID ('fox', 'owl', or 'dragon').",
     )
     previous_score: Optional[int] = Field(
         None, description="The previous quiz score out of 10 if provided (e.g., 3, 10)."
@@ -349,6 +383,8 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         ctx.state["topic"] = None
     if "preferred_language" not in ctx.state:
         ctx.state["preferred_language"] = get_client_locale() or "en"
+    if "mascot_id" not in ctx.state:
+        ctx.state["mascot_id"] = DEFAULT_MASCOT_ID
     # Reset quality diagnostics on any fresh start or new turn.
     ctx.state["judge_attempts"] = 0
     ctx.state["judge_reasons"] = []
@@ -383,6 +419,8 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     ctx.state["topic"] = parsed["topic"]
                 if parsed.get("preferred_language"):
                     ctx.state["preferred_language"] = parsed["preferred_language"]
+                if "mascot_id" in parsed:
+                    ctx.state["mascot_id"] = parsed["mascot_id"]
                 if "previous_score" in parsed:
                     ctx.state["previous_score"] = parsed["previous_score"]
                 if "previous_questions" in parsed:
@@ -434,6 +472,8 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 ctx.state["preferred_language"] = extracted.preferred_language
             if extracted.previous_score is not None:
                 ctx.state["previous_score"] = extracted.previous_score
+            if extracted.mascot_id:
+                ctx.state["mascot_id"] = extracted.mascot_id
             if extracted.previous_questions:
                 ctx.state["previous_questions"] = extracted.previous_questions
             if extracted.previous_quiz_json:
@@ -449,6 +489,8 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     subject = ctx.state.get("subject")
     topic = ctx.state.get("topic")
     lang = ctx.state.get("preferred_language") or "en"
+    mascot_id, mascot_name = _resolve_mascot(ctx.state.get("mascot_id"), lang)
+    ctx.state["mascot_id"] = mascot_id
     clarification_response = ctx.state.get("clarification_response")
 
     if grade and subject and topic:
@@ -536,38 +578,9 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 ctx.state["pending_topic"] = None
                 ctx.state["clarification_response"] = None
 
-                # Select and localize mascot for friendly dialogue delivery
-                mascots = [
-                    {
-                        "id": "fox",
-                        "name": "Felix der Fuchs",
-                        "name_pt": "Felix, a Raposa",
-                        "name_en": "Felix the Fox",
-                    },
-                    {
-                        "id": "owl",
-                        "name": "Olivia die Eule",
-                        "name_pt": "Olivia, a Coruja",
-                        "name_en": "Olivia the Owl",
-                    },
-                    {
-                        "id": "dragon",
-                        "name": "Dino der Drache",
-                        "name_pt": "Dino, o Dragão",
-                        "name_en": "Dino the Dragon",
-                    },
-                ]
-                mascot = mascots[len(prompt or "") % 3]
-                mascot_name = (
-                    mascot["name"]
-                    if lang == "de"
-                    else mascot["name_pt"]
-                    if lang == "pt"
-                    else mascot["name_en"]
-                )
-
                 mascot_prompt = (
                     f"You are {mascot_name}, a friendly, encouraging school learning companion mascot speaking directly to a child.\n"
+                    f"If you introduce yourself, use exactly the name '{mascot_name}' and never claim to be another mascot.\n"
                     f"The child asked for a quiz about '{topic}' in Grade '{grade}' and Subject '{subject}', but this topic is too complex or not appropriate (Explanation: {compatibility.explanation}).\n"
                     f"In a playful, extremely encouraging, and kind tone, explain in language '{lang}' that this topic is usually learned by older students, and suggest these age-appropriate alternatives: {', '.join(compatibility.suggested_topics)}.\n"
                     f"Ask them which of these cool topics they would like to do instead, or if they want to choose a different grade/topic. Keep the response short, clear, and full of positive energy!"
@@ -613,35 +626,6 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
             )
 
     # Otherwise, ask conversationally for what is missing in their language
-    mascots = [
-        {
-            "id": "fox",
-            "name": "Felix der Fuchs",
-            "name_pt": "Felix, a Raposa",
-            "name_en": "Felix the Fox",
-        },
-        {
-            "id": "owl",
-            "name": "Olivia die Eule",
-            "name_pt": "Olivia, a Coruja",
-            "name_en": "Olivia the Owl",
-        },
-        {
-            "id": "dragon",
-            "name": "Dino der Drache",
-            "name_pt": "Dino, o Dragão",
-            "name_en": "Dino the Dragon",
-        },
-    ]
-    mascot = mascots[len(prompt or "") % 3]
-    mascot_name = (
-        mascot["name"]
-        if lang == "de"
-        else mascot["name_pt"]
-        if lang == "pt"
-        else mascot["name_en"]
-    )
-
     missing_fields = []
     if not grade:
         missing_fields.append(
@@ -664,6 +648,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
 
     system_conv_prompt = (
         f"You are {mascot_name}, a playful, friendly learning companion for kids.\n"
+        f"If you introduce yourself, use exactly the name '{mascot_name}' and never claim to be another mascot.\n"
         f"The user wants a quiz but some info is missing: ({missing_str}).\n"
         f"Ask them conversationally to fill in these missing values. Speak directly to them in '{lang}'.\n"
         f"Keep your message encouraging, short, and clear. Do not use animal emoji because the frontend renders the selected mascot artwork separately."

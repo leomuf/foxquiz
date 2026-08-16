@@ -210,6 +210,7 @@ def test_complete_quiz_and_negative_feedback_flow(
         "subject": "Biology",
         "topic": "Cells",
         "preferred_language": "en",
+        "mascot_id": "fox",
     }
 
     for question_number in range(1, 11):
@@ -455,6 +456,7 @@ def test_clarification_stays_visible_and_keeps_the_original_topic(
         "subject": "Historia",
         "topic": "As Grandes Navegacoes",
         "preferred_language": "pt",
+        "mascot_id": "fox",
         "clarification_response": "informacoes gerais",
     }
 
@@ -528,3 +530,22 @@ def test_hard_follow_up_recreates_a_missing_session_once(
     adaptive_prompt = json.loads(retried_request["new_message"]["parts"][0]["text"])
     assert adaptive_prompt["selected_difficulty"] == "hard"
     assert adaptive_prompt["topic"] == "Multiplication"
+
+
+def test_selected_mascot_is_sent_with_the_quiz_request(
+    page: Page, frontend_base_url: str
+) -> None:
+    """Send the active mascot ID so backend dialogue keeps the selected identity."""
+    generated_requests: list[dict] = []
+    _mock_quiz_generation(page, generated_requests)
+
+    page.goto(f"{frontend_base_url}/?lang=en")
+    page.locator('.mascot-option[data-mascot="owl"]').click()
+    page.locator("#input-grade").select_option("Klasse 5")
+    page.locator("#input-subject").fill("Mathematics")
+    page.locator("#input-topic").fill("Functions")
+    page.locator("#start-btn").click()
+
+    expect(page.locator("#quiz-screen")).to_be_visible()
+    prompt = json.loads(generated_requests[0]["new_message"]["parts"][0]["text"])
+    assert prompt["mascot_id"] == "owl"

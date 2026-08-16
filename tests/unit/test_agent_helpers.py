@@ -33,6 +33,7 @@ from app.agent import (
     _candidate_ready_event,
     _expected_quiz_difficulty,
     _is_wikipedia_title_relevant,
+    _resolve_mascot,
     _route_after_failed_judge,
     _save_quality_failure_best_effort,
     deterministic_quiz_validation,
@@ -41,6 +42,30 @@ from app.agent import (
 )
 from app.app_utils.typing import QuizContext, QuizQualityFailure
 from app.database.firestore_repo import FirestorePersistenceError
+
+
+@pytest.mark.parametrize(
+    ("mascot_id", "language", "expected"),
+    [
+        ("fox", "pt", ("fox", "Felix, a Raposa")),
+        ("owl", "en", ("owl", "Olivia the Owl")),
+        ("dragon", "de", ("dragon", "Dino der Drache")),
+        ("tampered", "pt", ("fox", "Felix, a Raposa")),
+        (None, "unsupported", ("fox", "Felix the Fox")),
+    ],
+    ids=[
+        "fox-portuguese",
+        "owl-english",
+        "dragon-german",
+        "invalid-id-falls-back-to-fox",
+        "missing-id-and-language-fall-back",
+    ],
+)
+def test_mascot_resolution_uses_allowlisted_identity_and_safe_fallback(
+    mascot_id: object, language: str, expected: tuple[str, str]
+) -> None:
+    """Keep the selected identity, falling back to English Felix when invalid."""
+    assert _resolve_mascot(mascot_id, language) == expected
 
 
 def test_wikipedia_title_relevance_rejects_unrelated_legal_it() -> None:
