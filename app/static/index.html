@@ -1118,7 +1118,7 @@
         </div>
 
         <!-- Card 2: Generating Quiz Screen -->
-        <div id="loading-screen" class="glass-card hide">
+        <div id="loading-screen" class="glass-card hide" tabindex="-1">
             <div class="loading-screen">
                 <div class="loader-container">
                     <div class="loader-spinner"></div>
@@ -1982,6 +1982,7 @@
             }
 
             showScreen("loading-screen");
+            revealAndFocus(document.getElementById("loading-screen"), "start");
             startTicker();
             startProgressLoader();
 
