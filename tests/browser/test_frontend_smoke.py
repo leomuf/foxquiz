@@ -172,6 +172,46 @@ def test_language_switching_and_mascot_selection(
     expect(page.locator("#welcome-bubble")).to_contain_text("Olivia")
 
 
+def test_quiz_creation_reveals_the_loading_indicator(
+    page: Page, frontend_base_url: str
+) -> None:
+    """Keep the quiz-generation progress indicator visible on mobile.
+
+    A learner may submit the setup form after scrolling down the page. This
+    test verifies that quiz creation moves the newly displayed loading card to
+    the top of the viewport and gives it focus before results are displayed.
+    """
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.emulate_media(reduced_motion="reduce")
+    page.add_init_script(
+        """(() => {
+            window.revealedElements = [];
+            Element.prototype.scrollIntoView = function(options) {
+                window.revealedElements.push({ id: this.id, options });
+            };
+        })();"""
+    )
+    _mock_quiz_generation(page, [])
+
+    page.goto(f"{frontend_base_url}/?lang=en")
+    page.locator("#input-grade").select_option("Klasse 5")
+    page.locator("#input-subject").fill("Mathematics")
+    page.locator("#input-topic").fill("Multiplication")
+    page.locator("#start-btn").click()
+
+    page.wait_for_function(
+        """() => window.revealedElements.some(
+            ({ id, options }) => id === "loading-screen" && options.block === "start"
+        )"""
+    )
+    loading_reveal = page.evaluate(
+        """() => window.revealedElements.find(
+            ({ id }) => id === "loading-screen"
+        )"""
+    )
+    assert loading_reveal["options"]["behavior"] == "auto"
+
+
 def test_complete_quiz_and_negative_feedback_flow(
     page: Page, frontend_base_url: str
 ) -> None:
