@@ -218,5 +218,14 @@ def build_retry_guidance(result: QuizValidationResult) -> str:
             location += f", option {issue.option_index + 1}"
         prefix = f"{location}: " if location else ""
         lines.append(f"- {prefix}{issue.code.value.replace('_', ' ')}.")
+    if any(
+        issue.code is QuizValidationCode.DUPLICATE_OPTION for issue in result.issues
+    ):
+        lines.append(
+            "- Duplicate-option correction: within each affected question, "
+            "compare every pair of options after Unicode normalization, trimming or "
+            "collapsing whitespace, and ignoring capitalization; replace every "
+            "repeated or equivalent choice with a meaningfully distinct distractor."
+        )
     lines.append("Regenerate the complete quiz and correct every listed issue.")
     return "\n".join(lines)
