@@ -218,9 +218,14 @@ flowchart TD
         Search --> Generate["quiz_generation"]
         Generate --> Validate["deterministic_quiz_validation<br/>structure and answer-cue checks"]
         Validate -- "valid edge" --> Judge["llm_as_a_judge<br/>semantic and factual review"]
-        Validate -- "retry edge: once" --> Generate
+        Validate -- "retry edge: shared budget" --> RetryEntry["quiz_generation retry entry"]
+        RetryEntry --> RepairDecision{"Internal branch:<br/>duplicate-option issues only?"}
+        RepairDecision -- "Yes" --> Repair["Repair affected option lists only"]
+        RepairDecision -- "No" --> Regenerate["Regenerate the complete quiz"]
+        Repair --> Validate
+        Regenerate --> Validate
         Validate -- "quality_failure edge" --> QualityFailure["quality_failure_node<br/>safe retry message and diagnostic"]
-        Judge -- "retry edge: shared budget" --> Generate
+        Judge -- "retry edge: shared budget" --> RetryEntry
         Judge -- "success edge" --> QuizOutput["quiz_output_node<br/>final invariant and validated quiz"]
         Judge -- "quality_failure edge" --> QualityFailure
     end
@@ -243,6 +248,54 @@ flowchart TD
     RunError --> Tokens
 ```
 
+#### Duplicate-option repair and academic review
+
+The duplicate-option repair is an internal branch of `quiz_generation`, not a
+separate ADK workflow node. Initial generation must create the complete quiz:
+ten questions, 30–50 answer options, explanations, correct indices, curriculum
+alignment, difficulty, language, and tone. Even with an explicit uniqueness
+instruction, that larger generative task can occasionally produce equivalent
+options. An unvalidated candidate is never sent to the learner.
+
+`deterministic_quiz_validation` first checks objective invariants, including
+question and option counts, normalized duplicate options, valid index ranges,
+empty content, emojis, and visual correctness cues. When every reported issue
+is a duplicate option and the shared retry budget remains, the retry edge
+returns to `quiz_generation`, which selects its targeted repair branch. That
+branch receives only the affected questions and returns a small structured
+response containing replacement option lists and their corrected
+`correct_option_index` values. It cannot rewrite the title, question text,
+explanations, or unaffected questions because those fields are absent from the
+repair response schema. The repair also uses a lower generation temperature
+than full quiz generation to reduce unnecessary variation.
+
+The repaired candidate is not trusted automatically. It passes through
+`deterministic_quiz_validation` again. A malformed or incomplete repair is
+blocked when the retry budget is exhausted. If the first candidate contains
+mixed or non-duplicate defects, FoxQuiz uses the existing full-regeneration
+branch instead because changing options alone cannot safely correct those
+problems.
+
+After deterministic validation succeeds, `llm_as_a_judge` still performs the
+semantic and academic review. The Judge checks factual correctness, curriculum
+and grade alignment, requested difficulty, and whether each
+`correct_option_index` points to the genuinely correct answer described by the
+explanation. A successful repair therefore follows this sequence:
+
+```text
+full quiz generation
+  -> deterministic validation
+  -> targeted duplicate-option repair
+  -> deterministic validation again
+  -> LLM-as-a-Judge
+  -> final invariant check and learner output, or fail closed
+```
+
+The existing reinforcement-mode exception is unchanged: when
+`previous_score <= 3`, FoxQuiz reuses previously validated questions and skips
+the academic Judge. All other repaired candidates must pass the Judge before
+release.
+
 The similarly named decisions and routes have different responsibilities:
 
 | Term | Layer | Meaning |
@@ -255,7 +308,8 @@ The similarly named decisions and routes have different responsibilities:
 | `BANNED` / `BUDGET_EXCEEDED` / `CLASSIFIER_UNAVAILABLE` | Plugin block types, not classifier decisions | Stop before quiz processing because an operational guard rejected the invocation. |
 | `blocked` | Edge from `security_checkpoint_node` | A block envelope exists, so the graph goes directly to `security_block_node`. |
 | `generate_quiz` / `ask_more` | Edges from `gather_and_route` | The curriculum check either starts quiz preparation or requests clarification. |
-| `valid` / `retry` / `quality_failure` | Edges from `deterministic_quiz_validation` | Continue to semantic review, regenerate within the shared budget, or fail closed on objective defects. |
+| `valid` / `retry` / `quality_failure` | Edges from `deterministic_quiz_validation` | Continue to semantic review, return to `quiz_generation` for targeted duplicate repair or full regeneration within the shared budget, or fail closed on objective defects. |
+| Duplicate-option repair | Internal retry branch of `quiz_generation` | Replace only affected option lists and indices, preserve all other quiz content, then return the candidate to deterministic validation. |
 | `retry` / `success` / `quality_failure` | Edges from `llm_as_a_judge` | Regenerate within the shared budget, publish the validated quiz, or fail closed without exposing an unvalidated quiz. |
 
 > **Why the extra security node?** The plugin performs cross-cutting checks before
@@ -380,4 +434,3 @@ To keep this platform freely accessible to students and schools everywhere, we r
 *   **Sponsor us on GitHub:** Click the **Sponsor** heart button at the top of our repository!
 
 *Every token counts. Thank you for empowering the next generation of students!* 🎓🦊✨
-

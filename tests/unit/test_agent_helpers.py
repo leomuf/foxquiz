@@ -32,6 +32,7 @@ from app.agent import (
     _build_difficulty_design_guidance,
     _build_judge_prompt,
     _candidate_ready_event,
+    _duplicate_option_question_indices,
     _expected_quiz_difficulty,
     _is_wikipedia_title_relevant,
     _quality_failure_event,
@@ -319,6 +320,96 @@ async def test_quiz_generation_prompt_requires_normalized_unique_options() -> No
     assert "unique after Unicode normalization" in prompt
     assert "compare every pair of options" in prompt
     assert "replace repeated or equivalent choices" in prompt
+
+
+@pytest.mark.asyncio
+async def test_quiz_generation_repairs_only_questions_with_duplicate_options() -> None:
+    """A duplicate-only retry preserves every unaffected part of the quiz."""
+    quiz = {
+        "title": "Herança mendeliana",
+        "questions": [
+            {
+                "question": f"Question {number}?",
+                "options": (
+                    ["Same option", "same option", "Other option"]
+                    if number == 0
+                    else ["Option A", "Option B", "Option C"]
+                ),
+                "correct_option_index": 0,
+                "explanation": f"Explanation {number}.",
+            }
+            for number in range(10)
+        ],
+        "difficulty": "⭐ Medium",
+    }
+    repaired_response = MagicMock(
+        text=json.dumps(
+            {
+                "repairs": [
+                    {
+                        "question_index": 0,
+                        "options": ["First option", "Second option", "Third option"],
+                        "correct_option_index": 0,
+                    }
+                ]
+            }
+        )
+    )
+    context = MagicMock()
+    context.state = {
+        "grade": "Klasse 10",
+        "subject": "Biologia",
+        "topic": "Herança mendeliana",
+        "preferred_language": "pt",
+        "generation_attempts": 1,
+        "temp_quiz": quiz,
+        "deterministic_validation_issues": [
+            {
+                "code": "duplicate_option",
+                "question_index": 0,
+                "option_index": 1,
+            }
+        ],
+    }
+
+    with (
+        patch("app.agent.Client") as client_class,
+        patch("app.agent.record_token_usage"),
+    ):
+        generate_content = AsyncMock(return_value=repaired_response)
+        client_class.return_value.aio.models.generate_content = generate_content
+
+        events = [
+            event
+            async for event in quiz_generation._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
+
+    repaired_quiz = context.state["temp_quiz"]
+    assert events[0].output == {"status": "candidate_ready"}
+    assert repaired_quiz["questions"][0]["question"] == "Question 0?"
+    assert repaired_quiz["questions"][0]["explanation"] == "Explanation 0."
+    assert repaired_quiz["questions"][0]["options"] == [
+        "First option",
+        "Second option",
+        "Third option",
+    ]
+    assert repaired_quiz["questions"][1:] == quiz["questions"][1:]
+    config = generate_content.await_args.kwargs["config"]
+    assert config.response_schema.__name__ == "QuizOptionRepairResponse"
+    assert config.temperature == 0.2
+
+
+def test_duplicate_option_repair_rejects_mixed_validation_issues() -> None:
+    """Specialized repair must not handle unrelated structural defects."""
+    issues = [
+        {"code": "duplicate_option", "question_index": 0, "option_index": 1},
+        {"code": "empty_explanation", "question_index": 4},
+    ]
+
+    assert _duplicate_option_question_indices(issues) == ()
 
 
 @pytest.mark.asyncio

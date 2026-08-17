@@ -326,6 +326,19 @@ judge:
   on_second_rejection: "fail_closed"
   on_exception: "fail_closed"
 
+duplicate_option_repair:
+  enabled: true
+  trigger: "retry_when_all_deterministic_issues_are_duplicate_option"
+  scope: "affected_option_lists_and_correct_indices_only"
+  temperature: 0.2
+  preserve:
+    - "quiz title and difficulty"
+    - "question text and explanations"
+    - "all unaffected questions"
+  after_repair: "repeat_deterministic_validation_then_run_judge"
+  on_mixed_or_other_issues: "regenerate_complete_quiz"
+  on_exhausted_retry: "fail_closed"
+
 knowledge_sources:
   default:
     - "llm_internal"
@@ -343,17 +356,31 @@ knowledge_sources:
 3. **Knowledge grounding.** Search localized Wikipedia and retain content only
    when the article title is relevant to every meaningful topic term.
 4. **Quiz generation.** Generate exactly ten multiple-choice questions under
-   the preflight's authoritative `difficulty_guidance`.
+   the preflight's authoritative `difficulty_guidance`. The initial generation
+   produces the complete quiz candidate.
 5. **Deterministic validation.** Before any LLM judge call, a pure validation
    component checks objective structure, option counts, duplicate options,
    correct-index bounds, and empty fields. Answer options must be neutral text
    and contain neither Unicode emojis nor visual correctness cues. A first
-   failure routes to regeneration using privacy-safe issue codes and positions.
+   failure returns to `quiz_generation` using privacy-safe issue codes and
+   positions. When every issue is `duplicate_option`, the generation node uses
+   an internal targeted-repair branch that returns only complete replacement
+   option lists and corrected indices for the affected questions. It must
+   preserve the title, question text, explanations, and every unaffected
+   question. Mixed or non-duplicate issues use complete quiz regeneration
+   because option replacement alone cannot safely correct them. Every repaired
+   or regenerated candidate passes deterministic validation again; the repair
+   is never accepted on trust.
 6. **Semantic quality check.** A separate judge verifies factual correctness,
    exact topic fit, grade-level scope, and whether an emoji in a question names,
    depicts, or otherwise reveals the correct answer. Decorative question emojis
-   remain allowed. Judge rejection shares the same single-retry generation
-   budget with deterministic validation.
+   remain allowed. A candidate recovered through targeted option repair still
+   requires this semantic and academic review, including confirmation that each
+   repaired `correct_option_index` points to the genuinely correct answer.
+   Judge rejection shares the same single-retry generation budget with
+   deterministic validation. The existing reinforcement-mode exception remains:
+   when `previous_score <= 3`, previously validated questions are shuffled and
+   reused, so the academic Judge is skipped.
 7. **Terminal routing.** Only a passed quiz reaches the presentation layer.
    Exhausted retries or a judge exception route to a localized fail-closed
    response and diagnostic persistence. The generation node may keep a
@@ -391,6 +418,29 @@ Feature: Quiz solving and result
     When the chat asks for the next difficulty
     And the user chooses "harder"
     Then a new quiz starts at higher difficulty from step 1
+
+  Scenario: Duplicate-only failure repairs affected options
+    Given an unreleased quiz candidate fails deterministic validation
+    And every reported issue is "duplicate_option"
+    And the shared retry budget is not exhausted
+    When the retry returns to quiz generation
+    Then only the affected option lists and their correct indices are regenerated
+    And the title, questions, explanations, and unaffected questions are preserved
+    And the repaired candidate passes through deterministic validation again
+    And the repaired candidate must pass the academic Judge before release
+
+  Scenario: Mixed validation failure regenerates the complete quiz
+    Given an unreleased quiz candidate has a duplicate option and another structural defect
+    And the shared retry budget is not exhausted
+    When the retry returns to quiz generation
+    Then the system regenerates the complete quiz instead of using targeted option repair
+    And the regenerated candidate passes through deterministic validation again
+
+  Scenario: Invalid duplicate repair fails closed
+    Given a duplicate-only candidate used the remaining retry for targeted repair
+    When the repaired candidate still fails deterministic validation
+    Then no quiz JSON is released to the browser
+    And the request routes to the localized quality-failure response
 ```
 
 ### 6.1 Asymptotic Progress Loader Overlay
