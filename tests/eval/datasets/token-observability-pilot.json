@@ -1,0 +1,59 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "pilot_de_grade5_water_cycle",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 5\",\"subject\":\"Naturwissenschaften\",\"topic\":\"Wasserkreislauf\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "pilot_en_grade8_linear_equations",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 8\",\"subject\":\"Mathematics\",\"topic\":\"Linear equations with one variable\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "pilot_pt_grade10_mendelian_inheritance",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 10\",\"subject\":\"Biologia\",\"topic\":\"Herança mendeliana\",\"preferred_language\":\"pt\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "pilot_en_easy_grade6_states_of_matter",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 6\",\"subject\":\"Science\",\"topic\":\"States of matter\",\"preferred_language\":\"en\",\"previous_score\":2,\"previous_questions\":[\"Previous question 1 about States of matter?\",\"Previous question 2 about States of matter?\",\"Previous question 3 about States of matter?\",\"Previous question 4 about States of matter?\",\"Previous question 5 about States of matter?\",\"Previous question 6 about States of matter?\",\"Previous question 7 about States of matter?\",\"Previous question 8 about States of matter?\",\"Previous question 9 about States of matter?\",\"Previous question 10 about States of matter?\"],\"previous_quiz_json\":{\"title\":\"Previous quiz about States of matter\",\"difficulty\":\"⭐ Medium\",\"questions\":[{\"question\":\"Previous question 1 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 1 about States of matter.\"},{\"question\":\"Previous question 2 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 2 about States of matter.\"},{\"question\":\"Previous question 3 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 3 about States of matter.\"},{\"question\":\"Previous question 4 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 4 about States of matter.\"},{\"question\":\"Previous question 5 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 5 about States of matter.\"},{\"question\":\"Previous question 6 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 6 about States of matter.\"},{\"question\":\"Previous question 7 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 7 about States of matter.\"},{\"question\":\"Previous question 8 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 8 about States of matter.\"},{\"question\":\"Previous question 9 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 9 about States of matter.\"},{\"question\":\"Previous question 10 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 10 about States of matter.\"}]}}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "pilot_pt_hard_grade5_fractions",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 5\",\"subject\":\"Matemática\",\"topic\":\"Frações\",\"preferred_language\":\"pt\",\"previous_score\":9,\"previous_questions\":[\"Previous question 1 about Frações?\",\"Previous question 2 about Frações?\",\"Previous question 3 about Frações?\",\"Previous question 4 about Frações?\",\"Previous question 5 about Frações?\",\"Previous question 6 about Frações?\",\"Previous question 7 about Frações?\",\"Previous question 8 about Frações?\",\"Previous question 9 about Frações?\",\"Previous question 10 about Frações?\"],\"selected_difficulty\":\"hard\"}"
+          }
+        ]
+      }
+    }
+  ]
+}

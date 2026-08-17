@@ -1,0 +1,22 @@
+metrics_to_run:
+  - quiz_request_fulfillment
+
+custom_metrics:
+  - name: quiz_request_fulfillment
+    prompt_template: |
+      Evaluate whether FoxQuiz fulfilled the requested school-quiz task.
+
+      A top score requires a released, coherent multiple-choice quiz with exactly
+      ten questions, three to five neutral options per question, one valid correct
+      option index, useful explanations, the requested language, and content aligned
+      with the requested grade, subject, and topic. For adaptive prompts, the quiz
+      difficulty must match the requested easy, medium, or hard progression while
+      remaining within the requested grade. A clarification, block, quality failure,
+      unrelated topic, wrong language, or malformed quiz does not fulfill the task.
+
+      User Prompt: {prompt}
+      Final Response: {response}
+      Full Agent Trace: {agent_data}
+
+      Return valid JSON:
+      {"score": <integer from 1 to 5>, "explanation": "<reason>"}

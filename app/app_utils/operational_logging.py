@@ -17,6 +17,13 @@ import sys
 from typing import Any, Literal
 
 from app.app_utils.build_info import get_build_info
+from app.app_utils.token_usage import (
+    TOKEN_USAGE_SCHEMA_VERSION,
+    CallStage,
+    InvocationTokenUsage,
+    TerminalOutcome,
+    TokenUsage,
+)
 from app.domain.quiz_validation import QuizValidationResult
 
 QuizValidationEvent = Literal[
@@ -26,6 +33,58 @@ QuizValidationEvent = Literal[
     "quiz_validation_retry_exhausted",
     "quiz_final_invariant_failed",
 ]
+
+
+def _build_metadata() -> dict[str, str | int | None]:
+    """Return trusted build metadata shared by token-usage events."""
+    build_info = get_build_info()
+    return {
+        "schema_version": TOKEN_USAGE_SCHEMA_VERSION,
+        "service_version": build_info["version"],
+        "deployment_revision": build_info["short_commit_sha"],
+    }
+
+
+def emit_llm_token_usage_event(
+    *,
+    call_stage: CallStage,
+    model: str,
+    usage: TokenUsage,
+    generation_attempt: int | None = None,
+    judge_attempt: int | None = None,
+) -> None:
+    """Emit one allowlisted numeric event for a successful Gemini response."""
+    payload: dict[str, Any] = {
+        "severity": "INFO",
+        "event": "llm_token_usage",
+        "phase": "model_usage",
+        "call_stage": call_stage.value,
+        "model": model,
+        **usage.as_log_fields(),
+        **_build_metadata(),
+    }
+    if generation_attempt is not None:
+        payload["generation_attempt"] = generation_attempt
+    if judge_attempt is not None:
+        payload["judge_attempt"] = judge_attempt
+    print(json.dumps(payload, sort_keys=True), file=sys.stderr, flush=True)
+
+
+def emit_llm_invocation_token_summary(
+    *,
+    usage: InvocationTokenUsage,
+    terminal_outcome: TerminalOutcome,
+) -> None:
+    """Emit one privacy-minimized aggregate event for an invocation."""
+    payload = {
+        "severity": "INFO",
+        "event": "llm_invocation_token_summary",
+        "phase": "invocation_usage",
+        "terminal_outcome": terminal_outcome.value,
+        **usage.as_summary_fields(),
+        **_build_metadata(),
+    }
+    print(json.dumps(payload, sort_keys=True), file=sys.stderr, flush=True)
 
 
 def _error_code(error: Exception) -> str | None:
