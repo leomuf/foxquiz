@@ -274,7 +274,7 @@ async def _run_security_checkpoint(
             )
         # Call Google GenAI fast model for safe, cost-efficient security classification
         client = Client()
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
                 genai_types.Content(
