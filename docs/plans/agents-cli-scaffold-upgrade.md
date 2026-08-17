@@ -68,9 +68,9 @@ Verification results:
   `tests/integration`;
 - `agents-cli lint`: Ruff, Ruff formatting, Codespell, and `ty` passed;
 - `git diff --check`: passed;
-- production deployment dry-run rendered project `quiz-buddy-501017`, region
+- production deployment dry-run rendered project `GCLOUD_PROJECT_ID`, region
   `us-east1`, and service `foxquiz`;
-- DEV deployment dry-run rendered project `quiz-buddy-501017`, region
+- DEV deployment dry-run rendered project `GCLOUD_PROJECT_ID`, region
   `us-east1`, service `foxquiz-dev`, zero minimum instances, and two maximum
   instances;
 - focused `agents-cli eval generate`: two of two adaptive-hard cases succeeded;
@@ -301,14 +301,14 @@ Verify both deployment targets without deploying:
 
 ```bash
 agents-cli deploy \
-  --project quiz-buddy-501017 \
+  --project GCLOUD_PROJECT_ID \
   --region us-east1 \
   --service-name foxquiz \
   --no-confirm-project \
   --dry-run
 
 agents-cli deploy \
-  --project quiz-buddy-501017 \
+  --project GCLOUD_PROJECT_ID \
   --region us-east1 \
   --service-name foxquiz-dev \
   --min-instances 0 \

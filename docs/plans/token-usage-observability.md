@@ -2,9 +2,11 @@
 
 ## Status
 
-Implemented and verified in source; deployment and the controlled DEV baseline
-remain pending. The implementation does not change the current token budget,
-model configuration, quiz workflow, or release behavior.
+Implemented, deployed to DEV, and verified with a controlled deployed-only
+baseline. See
+the [version 1.0.0 baseline report](../reports/token-usage-observability-baseline-v1.0.0.md)
+for the versioned results. The implementation does not change the current token
+budget, model configuration, quiz workflow, or release behavior.
 
 ## 1. Problem
 

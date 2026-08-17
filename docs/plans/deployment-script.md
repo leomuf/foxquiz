@@ -44,7 +44,7 @@ automatically.
 The first script is project-specific and should use:
 
 ```text
-Google Cloud project: quiz-buddy-501017
+Google Cloud project: GCLOUD_PROJECT_ID
 Cloud Run service: foxquiz
 Cloud Run region: us-east1
 ```
@@ -77,7 +77,7 @@ The script should calculate and display the exact deployment identity:
 ```bash
 set -euo pipefail
 
-PROJECT_ID="quiz-buddy-501017"
+PROJECT_ID="GCLOUD_PROJECT_ID"
 SERVICE_NAME="foxquiz"
 REGION="us-east1"
 
