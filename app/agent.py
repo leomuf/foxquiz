@@ -474,7 +474,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 "the exam topic (topic), and the preferred language ('de', 'pt', 'en').\n"
                 f'User input to review: "{prompt}"'
             )
-            response = client.models.generate_content(
+            response = await client.aio.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=extraction_prompt,
                 config=types.GenerateContentConfig(
@@ -558,7 +558,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 f"Write explanation, clarification_question, suggested_topics, and difficulty_guidance in language '{lang}' ('de', 'pt', or 'en').\n"
                 "Return structured JSON matching CurriculumCompatibility."
             )
-            response = client.models.generate_content(
+            response = await client.aio.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=validation_prompt,
                 config=types.GenerateContentConfig(
@@ -618,7 +618,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     f"In a playful, extremely encouraging, and kind tone, explain in language '{lang}' that this topic is usually learned by older students, and suggest these age-appropriate alternatives: {', '.join(compatibility.suggested_topics)}.\n"
                     f"Ask them which of these cool topics they would like to do instead, or if they want to choose a different grade/topic. Keep the response short, clear, and full of positive energy!"
                 )
-                mascot_resp = client.models.generate_content(
+                mascot_resp = await client.aio.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=f"Playful mascot explanation to child why '{topic}' is not suitable for grade '{grade}' and suggest: {', '.join(compatibility.suggested_topics)}",
                     config=types.GenerateContentConfig(
@@ -693,7 +693,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
 
     client = Client()
     try:
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model="gemini-2.5-flash",
             contents=f'Ask for: {missing_str}. Conversation context: "{prompt}"',
             config=types.GenerateContentConfig(
@@ -1009,7 +1009,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
 
     client = Client()
     try:
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
@@ -1131,7 +1131,7 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
 
     client = Client()
     try:
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model="gemini-2.5-flash",
             contents=judge_prompt,
             config=types.GenerateContentConfig(
