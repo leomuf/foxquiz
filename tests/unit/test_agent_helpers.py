@@ -21,7 +21,7 @@ Boundary:
 """
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -42,6 +42,7 @@ from app.agent import (
     _workflow_event,
     ask_more_node,
     deterministic_quiz_validation,
+    quiz_generation,
     quiz_output_node,
     search_wikipedia,
     security_block_node,
@@ -271,6 +272,53 @@ def test_judge_prompt_treats_hard_as_relative_to_grade() -> None:
     assert "at most two pure long-form exact calculations" in prompt
     assert "calculator-like busywork" in prompt
     assert "within the authoritative curriculum scope" in prompt
+
+
+@pytest.mark.asyncio
+async def test_quiz_generation_prompt_requires_normalized_unique_options() -> None:
+    """Every generation attempt must receive the option-uniqueness contract."""
+    context = MagicMock()
+    context.state = {
+        "grade": "Klasse 10",
+        "subject": "Biologia",
+        "topic": "Herança mendeliana",
+        "preferred_language": "pt",
+    }
+    quiz = {
+        "title": "Herança mendeliana",
+        "questions": [
+            {
+                "question": f"Question {number}?",
+                "options": ["Option A", "Option B", "Option C"],
+                "correct_option_index": 0,
+                "explanation": "An explanation.",
+            }
+            for number in range(10)
+        ],
+        "difficulty": "⭐ Medium",
+    }
+    response = MagicMock(text=json.dumps(quiz))
+
+    with (
+        patch("app.agent.Client") as client_class,
+        patch("app.agent.record_token_usage"),
+    ):
+        generate_content = AsyncMock(return_value=response)
+        client_class.return_value.aio.models.generate_content = generate_content
+
+        _ = [
+            event
+            async for event in quiz_generation._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
+
+    prompt = generate_content.await_args.kwargs["contents"]
+    assert "Every option within one question must be meaningfully distinct" in prompt
+    assert "unique after Unicode normalization" in prompt
+    assert "compare every pair of options" in prompt
+    assert "replace repeated or equivalent choices" in prompt
 
 
 @pytest.mark.asyncio

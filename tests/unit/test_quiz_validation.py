@@ -92,3 +92,16 @@ def test_retry_guidance_contains_locations_but_not_candidate_text() -> None:
     assert "Question 3, option 2" in guidance
     assert "answer cue in option" in guidance
     assert secret_option not in guidance
+
+
+def test_retry_guidance_explains_normalized_duplicate_correction() -> None:
+    """Duplicate retries must explain how equivalent option text is detected."""
+    quiz = _valid_quiz()
+    quiz["questions"][4]["options"] = [" Recessive ", "recessive", "Dominant"]
+
+    guidance = build_retry_guidance(validate_quiz_candidate(quiz))
+
+    assert "Question 5, option 2: duplicate option" in guidance
+    assert "compare every pair of options after Unicode normalization" in guidance
+    assert "ignoring capitalization" in guidance
+    assert "meaningfully distinct distractor" in guidance
