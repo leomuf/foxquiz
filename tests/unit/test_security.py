@@ -620,7 +620,11 @@ async def test_semantic_classifier_safe_response_uses_bounded_thinking():
         )
         classifier_input = classifier_contents[0].parts[0].text
         assert classifier_input.count("Additional mandatory privacy category:") == 1
-        assert context.state[callbacks._TOKEN_USAGE_STATE_KEY] == 7
+        usage = callbacks.InvocationTokenUsage.from_state(
+            context.state[callbacks._TOKEN_USAGE_STATE_KEY]
+        )
+        assert usage.totals.total_token_count == 7
+        assert usage.stage_call_counts[callbacks.CallStage.SECURITY_CLASSIFIER] == 1
 
     client_ip_ctx.reset(t1)
     anonymous_id_ctx.reset(t2)

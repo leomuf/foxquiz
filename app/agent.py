@@ -44,9 +44,11 @@ from app.app_utils.callbacks import (
     FoxQuizSecurityPlugin,
     SECURITY_BLOCK_STATE_KEY,
     record_token_usage,
+    set_invocation_outcome,
 )
 from app.app_utils.operational_logging import emit_quiz_validation_event
 from app.app_utils.request_context import get_client_locale
+from app.app_utils.token_usage import CallStage, TerminalOutcome
 from app.app_utils.typing import QuizContext, QuizQualityFailure
 from app.database.firestore_repo import FirestorePersistenceError, FirestoreRepository
 from app.domain.quiz_validation import (
@@ -481,7 +483,11 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     temperature=0.0,
                 ),
             )
-            record_token_usage(ctx, response)
+            record_token_usage(
+                ctx,
+                response,
+                call_stage=CallStage.PARAMETER_EXTRACTOR,
+            )
             extracted = ExtractedQuizInfo.model_validate_json(response.text.strip())
             logger.info("Structured quiz parameters extracted.")
 
@@ -561,7 +567,11 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                     temperature=0.0,
                 ),
             )
-            record_token_usage(ctx, response)
+            record_token_usage(
+                ctx,
+                response,
+                call_stage=CallStage.CURRICULUM_EVALUATOR,
+            )
             compatibility = CurriculumCompatibility.model_validate_json(
                 response.text.strip()
             )
@@ -616,7 +626,11 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                         temperature=0.7,
                     ),
                 )
-                record_token_usage(ctx, mascot_resp)
+                record_token_usage(
+                    ctx,
+                    mascot_resp,
+                    call_stage=CallStage.MASCOT_PROMPT,
+                )
                 msg_text = mascot_resp.text.strip()
                 return Event(
                     content=types.Content(
@@ -686,7 +700,11 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 system_instruction=system_conv_prompt, temperature=0.7
             ),
         )
-        record_token_usage(ctx, response)
+        record_token_usage(
+            ctx,
+            response,
+            call_stage=CallStage.MASCOT_PROMPT,
+        )
         msg_text = response.text.strip()
     except Exception as e:
         logger.error(
@@ -1000,7 +1018,12 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
                 temperature=0.7 if attempt == 1 else 0.8,
             ),
         )
-        record_token_usage(ctx, response)
+        record_token_usage(
+            ctx,
+            response,
+            call_stage=CallStage.QUIZ_GENERATOR,
+            generation_attempt=attempt,
+        )
         quiz_dict = json.loads(response.text.strip())
         # Keep user-visible metadata deterministic and consistent with the
         # adaptive mode reviewed by the academic judge.
@@ -1117,7 +1140,12 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
                 temperature=0.1,
             ),
         )
-        record_token_usage(ctx, response)
+        record_token_usage(
+            ctx,
+            response,
+            call_stage=CallStage.ACADEMIC_JUDGE,
+            judge_attempt=attempts,
+        )
         assessment = JudgeAssessment.model_validate_json(response.text.strip())
         logger.info(
             "LLM Judge quality review attempt %s completed: passed=%s.",
@@ -1179,6 +1207,7 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     ctx.state["deterministic_validation_issues"] = []
 
     logger.info("Finalizing validated quiz.")
+    set_invocation_outcome(ctx, TerminalOutcome.SUCCESS)
 
     if lang == "de":
         msg = "🎉 **Dein personalisiertes Quiz ist fertig!**\n\nKlicke unten auf den Knopf, um loszulegen! Ich drücke dir ganz fest die Pfoten! ✨"
@@ -1200,6 +1229,7 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
 async def ask_more_node(ctx: Context, node_input: Any) -> Event:
     """Terminal node for the 'ask_more' route. Gracefully ends the branch."""
     logger.info("Mascot prompt asking for more information.")
+    set_invocation_outcome(ctx, TerminalOutcome.NEEDS_INPUT)
     return _workflow_event()
 
 
@@ -1214,6 +1244,7 @@ def _save_quality_failure_best_effort(failure: QuizQualityFailure) -> None:
 
 def _quality_failure_event(ctx: Context) -> Event:
     """Persist diagnostics and build the localized fail-closed response."""
+    set_invocation_outcome(ctx, TerminalOutcome.QUALITY_FAILURE)
     lang = ctx.state.get("preferred_language") or "en"
     failure = QuizQualityFailure(
         quiz_context=QuizContext.from_state(ctx.state),
@@ -1264,6 +1295,7 @@ async def security_checkpoint_node(ctx: Context, node_input: Any) -> Event:
 @node
 async def security_block_node(ctx: Context, node_input: Any) -> Event:
     """Return the structured block envelope produced by the security plugin."""
+    set_invocation_outcome(ctx, TerminalOutcome.BLOCKED)
     block_event = ctx.state.get(SECURITY_BLOCK_STATE_KEY)
     if not isinstance(block_event, dict):
         logger.error("Security block route reached without a block response.")

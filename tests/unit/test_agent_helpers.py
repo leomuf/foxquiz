@@ -34,15 +34,20 @@ from app.agent import (
     _candidate_ready_event,
     _expected_quiz_difficulty,
     _is_wikipedia_title_relevant,
+    _quality_failure_event,
     _resolve_mascot,
     _route_after_failed_judge,
     _save_quality_failure_best_effort,
     _validated_quiz_event,
     _workflow_event,
+    ask_more_node,
     deterministic_quiz_validation,
+    quiz_output_node,
     search_wikipedia,
+    security_block_node,
     security_checkpoint_node,
 )
+from app.app_utils.token_usage import TerminalOutcome
 from app.app_utils.typing import QuizContext, QuizQualityFailure
 from app.database.firestore_repo import FirestorePersistenceError
 
@@ -370,6 +375,70 @@ def test_quality_failure_persistence_is_best_effort() -> None:
             )
         )
         _save_quality_failure_best_effort(failure)
+
+
+@pytest.mark.asyncio
+async def test_terminal_nodes_record_precise_invocation_outcomes() -> None:
+    valid_quiz = {
+        "title": "Valid",
+        "questions": [
+            {
+                "question": f"Question {number}?",
+                "options": ["Option A", "Option B", "Option C"],
+                "correct_option_index": 0,
+                "explanation": "An explanation.",
+            }
+            for number in range(10)
+        ],
+    }
+    context = MagicMock()
+    context.state = {
+        "preferred_language": "en",
+        "temp_quiz": valid_quiz,
+        "generation_attempts": 1,
+        "judge_attempts": 1,
+    }
+
+    with patch("app.agent.set_invocation_outcome") as set_outcome:
+        quiz_events = [
+            event
+            async for event in quiz_output_node._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
+
+    assert quiz_events[-1].output == valid_quiz
+    set_outcome.assert_called_once_with(context, TerminalOutcome.SUCCESS)
+
+    with patch("app.agent.set_invocation_outcome") as set_outcome:
+        _ = [
+            event
+            async for event in ask_more_node._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
+    set_outcome.assert_called_once_with(context, TerminalOutcome.NEEDS_INPUT)
+
+    context.state = {"temp:foxquiz_security_block": {"message": "Blocked"}}
+    with patch("app.agent.set_invocation_outcome") as set_outcome:
+        _ = [
+            event
+            async for event in security_block_node._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
+    set_outcome.assert_called_once_with(context, TerminalOutcome.BLOCKED)
+
+    context.state = {"preferred_language": "en"}
+    with (
+        patch("app.agent.set_invocation_outcome") as set_outcome,
+        patch("app.agent._save_quality_failure_best_effort"),
+    ):
+        _quality_failure_event(context)
+    set_outcome.assert_called_once_with(context, TerminalOutcome.QUALITY_FAILURE)
 
 
 @pytest.mark.asyncio

@@ -40,6 +40,80 @@ agents-cli eval grade \
 The run uses live Vertex AI and must remain local because Google credentials
 are not stored in GitHub.
 
+### Token-observability rollout
+
+The token-observability baseline uses two versioned input datasets:
+
+- `token-observability-pilot.json`: five representative cases;
+- `token-observability-rollout.json`: the remaining 45 cases.
+
+Regenerate both files and the ten-case behavioral subset after deliberately
+editing the matrix:
+
+```bash
+uv run python tests/eval/generate_token_observability_datasets.py
+```
+
+After deploying the telemetry revision to `foxquiz-dev`, create an artifact
+directory named for its short commit SHA. Run the pilot with two workers:
+
+```bash
+agents-cli eval generate \
+  --url https://foxquiz-dev-zeuzcpbnba-ue.a.run.app \
+  --app-name app \
+  --dataset tests/eval/datasets/token-observability-pilot.json \
+  --output artifacts/traces/token-observability/<REVISION>/pilot-c2.json \
+  --concurrency 2
+```
+
+Check successful summaries, HTTP 429 and 5xx responses, timeouts, retries,
+latency, and projected global token usage before running the remaining cases:
+
+```bash
+agents-cli eval generate \
+  --url https://foxquiz-dev-zeuzcpbnba-ue.a.run.app \
+  --app-name app \
+  --dataset tests/eval/datasets/token-observability-rollout.json \
+  --output artifacts/traces/token-observability/<REVISION>/rollout-c4.json \
+  --concurrency 4
+```
+
+Do not add a fixed `X-Anonymous-ID` header. With agents-cli 1.3.1, each remote
+case uses independent HTTP requests without retaining FoxQuiz's anonymous
+cookie, so FoxQuiz assigns a transient budget identity. A fixed header would
+place the complete run under one 150,000-token user budget. Global budget
+enforcement remains enabled throughout the rollout.
+
+An optional concurrency experiment must repeat the same five pilot cases so
+case mix cannot be mistaken for a concurrency effect:
+
+```bash
+agents-cli eval generate \
+  --url https://foxquiz-dev-zeuzcpbnba-ue.a.run.app \
+  --app-name app \
+  --dataset tests/eval/datasets/token-observability-pilot.json \
+  --output artifacts/traces/token-observability/<REVISION>/pilot-c8.json \
+  --concurrency 8
+```
+
+The 50-case run measures a telemetry distribution; it is not the routine
+regression suite. A ten-case subset provides focused behavioral coverage:
+
+```bash
+agents-cli eval generate \
+  --dataset tests/eval/datasets/token-observability-regression.json \
+  --output artifacts/traces/token-observability-regression
+agents-cli eval grade \
+  --traces artifacts/traces/token-observability-regression \
+  --config tests/eval/token_observability_eval_config.yaml \
+  --output artifacts/grade_results/token-observability-regression
+```
+
+Generated traces and grades can contain prompts and quiz content. They remain
+under the ignored `artifacts/` directory and must not be committed. Cloud
+Logging's privacy-minimized invocation summaries are the authoritative count
+of successful rollout quizzes.
+
 ## Dataset Format
 
 Each dataset file follows the Gemini Enterprise Agent Platform Evaluation

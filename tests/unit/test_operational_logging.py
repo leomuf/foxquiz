@@ -19,8 +19,16 @@ import json
 from unittest.mock import patch
 
 from app.app_utils.operational_logging import (
+    emit_llm_invocation_token_summary,
+    emit_llm_token_usage_event,
     emit_operational_event,
     emit_quiz_validation_event,
+)
+from app.app_utils.token_usage import (
+    CallStage,
+    InvocationTokenUsage,
+    TerminalOutcome,
+    TokenUsage,
 )
 from app.domain.quiz_validation import validate_quiz_candidate
 
@@ -112,4 +120,114 @@ def test_quiz_validation_event_never_logs_generated_quiz_text(capsys) -> None:
         private_explanation,
     ):
         assert private_value not in output.err
+    assert output.out == ""
+
+
+def test_llm_token_usage_event_has_only_allowlisted_metadata(capsys) -> None:
+    usage = TokenUsage(
+        prompt_token_count=100,
+        cached_content_token_count=40,
+        candidates_token_count=20,
+        thoughts_token_count=30,
+        tool_use_prompt_token_count=5,
+        total_token_count=155,
+    )
+    private_values = (
+        "PRIVATE-PROMPT-83e1",
+        "PRIVATE-QUIZ-f932",
+        "203.0.113.9",
+        "session-private-71a2",
+    )
+
+    with patch(
+        "app.app_utils.operational_logging.get_build_info",
+        return_value={
+            "version": "1.1.0-dev",
+            "short_commit_sha": "abc1234",
+        },
+    ):
+        emit_llm_token_usage_event(
+            call_stage=CallStage.QUIZ_GENERATOR,
+            model="gemini-2.5-flash",
+            usage=usage,
+            generation_attempt=2,
+        )
+
+    output = capsys.readouterr()
+    payload = json.loads(output.err)
+    assert payload == {
+        "schema_version": 1,
+        "severity": "INFO",
+        "event": "llm_token_usage",
+        "phase": "model_usage",
+        "call_stage": "quiz_generator",
+        "model": "gemini-2.5-flash",
+        "generation_attempt": 2,
+        "prompt_token_count": 100,
+        "uncached_prompt_token_count": 60,
+        "cached_content_token_count": 40,
+        "candidates_token_count": 20,
+        "thoughts_token_count": 30,
+        "tool_use_prompt_token_count": 5,
+        "total_token_count": 155,
+        "service_version": "1.1.0-dev",
+        "deployment_revision": "abc1234",
+    }
+    for private_value in private_values:
+        assert private_value not in output.err
+    assert output.out == ""
+
+
+def test_invocation_summary_contains_only_aggregate_usage(capsys) -> None:
+    accumulator = InvocationTokenUsage()
+    accumulator.add_direct(
+        CallStage.SECURITY_CLASSIFIER,
+        TokenUsage(prompt_token_count=20, total_token_count=25),
+    )
+    accumulator.add_direct(
+        CallStage.QUIZ_GENERATOR,
+        TokenUsage(
+            prompt_token_count=100,
+            cached_content_token_count=40,
+            candidates_token_count=20,
+            thoughts_token_count=30,
+            total_token_count=150,
+        ),
+    )
+
+    with patch(
+        "app.app_utils.operational_logging.get_build_info",
+        return_value={
+            "version": "1.1.0-dev",
+            "short_commit_sha": "abc1234",
+        },
+    ):
+        emit_llm_invocation_token_summary(
+            usage=accumulator,
+            terminal_outcome=TerminalOutcome.SUCCESS,
+        )
+
+    output = capsys.readouterr()
+    payload = json.loads(output.err)
+    assert payload["event"] == "llm_invocation_token_summary"
+    assert payload["phase"] == "invocation_usage"
+    assert payload["terminal_outcome"] == "success"
+    assert payload["model_call_count"] == 2
+    assert payload["total_token_count"] == 175
+    assert payload["cached_content_token_count"] == 40
+    assert payload["uncached_prompt_token_count"] == 80
+    assert payload["stage_total_token_counts"]["security_classifier"] == 25
+    assert payload["stage_total_token_counts"]["quiz_generator"] == 150
+    forbidden_fields = {
+        "prompt",
+        "response",
+        "quiz",
+        "ip",
+        "anonymous_id",
+        "browser_id",
+        "user_id",
+        "session_id",
+        "invocation_id",
+    }
+    assert forbidden_fields.isdisjoint(payload)
     assert output.out == ""

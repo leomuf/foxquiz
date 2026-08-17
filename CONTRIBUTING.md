@@ -405,6 +405,126 @@ The logs-based counter is available as
 `logging.googleapis.com/user/foxquiz_firestore_operation_failures` in Cloud
 Monitoring.
 
+#### Analyzing token usage
+
+FoxQuiz emits privacy-minimized `llm_token_usage` events for direct Gemini
+responses and at most one `llm_invocation_token_summary` per invocation with
+model usage. These events contain only allowlisted stage names, numeric token
+counters, bounded attempt numbers, terminal outcomes, and trusted build
+metadata. They do not contain prompts, responses, quiz content, learner data,
+IP addresses, or persistent client identifiers.
+
+Inspect the numeric call breakdown for one deployed revision:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_token_usage" AND jsonPayload.deployment_revision="<REVISION>"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=10000 \
+  --order=asc \
+  --format='table(timestamp,jsonPayload.call_stage,jsonPayload.generation_attempt,jsonPayload.judge_attempt,jsonPayload.prompt_token_count,jsonPayload.cached_content_token_count,jsonPayload.candidates_token_count,jsonPayload.thoughts_token_count,jsonPayload.total_token_count)'
+```
+
+Count successful quiz summaries. This is the authoritative rollout count;
+completed HTTP requests can also represent clarification or quality-failure
+responses:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_invocation_token_summary" AND jsonPayload.terminal_outcome="success" AND jsonPayload.deployment_revision="<REVISION>"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=10000 \
+  --format='value(timestamp)' \
+  | wc -l
+```
+
+Aggregate prompt, cached, candidate, thinking, and total tokens by workflow
+stage without printing any unrelated log payloads:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_token_usage" AND jsonPayload.deployment_revision="<REVISION>"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=10000 \
+  --format='csv[no-heading](jsonPayload.call_stage,jsonPayload.prompt_token_count,jsonPayload.cached_content_token_count,jsonPayload.candidates_token_count,jsonPayload.thoughts_token_count,jsonPayload.total_token_count)' \
+  | awk -F, '{calls[$1]++; prompt[$1]+=$2; cached[$1]+=$3; candidate[$1]+=$4; thoughts[$1]+=$5; total[$1]+=$6} END {for (stage in calls) printf "%s calls=%d prompt=%d cached=%d candidate=%d thoughts=%d thinking_share=%.2f%% total=%d\n", stage,calls[stage],prompt[stage],cached[stage],candidate[stage],thoughts[stage],(total[stage] ? 100*thoughts[stage]/total[stage] : 0),total[stage]}' \
+  | sort
+```
+
+Calculate call-level cache-hit rate:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_token_usage" AND jsonPayload.deployment_revision="<REVISION>"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=10000 \
+  --format='value(jsonPayload.cached_content_token_count)' \
+  | awk '{calls++; if ($1>0) hits++} END {if (calls) printf "calls=%d cache_hits=%d hit_rate=%.2f%%\n", calls,hits,100*hits/calls}'
+```
+
+Measure provider-reported token overhead from second generator or Judge calls:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_token_usage" AND jsonPayload.deployment_revision="<REVISION>" AND (jsonPayload.generation_attempt>1 OR jsonPayload.judge_attempt>1)' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=10000 \
+  --format='csv[no-heading](jsonPayload.call_stage,jsonPayload.total_token_count)' \
+  | awk -F, '{calls[$1]++; total[$1]+=$2} END {for (stage in calls) printf "%s retry_calls=%d retry_tokens=%d\n", stage,calls[stage],total[stage]}' \
+  | sort
+```
+
+Calculate average, median, and p95 total tokens for successful quizzes:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_invocation_token_summary" AND jsonPayload.terminal_outcome="success" AND jsonPayload.deployment_revision="<REVISION>"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=10000 \
+  --format='value(jsonPayload.total_token_count)' \
+  | sort -n \
+  | awk '{values[NR]=$1; sum+=$1} END {if (NR) {p50=int((NR-1)*0.50)+1; p95=int((NR-1)*0.95)+1; printf "count=%d average=%.2f median=%d p95=%d\n", NR,sum/NR,values[p50],values[p95]}}'
+```
+
+Summaries expose generator and Judge retry booleans and call counts. Cache-hit
+rate comes from calls whose `cached_content_token_count` is greater than zero.
+Group successful totals by revision before and after an optimization so traffic
+from different builds is never combined:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_invocation_token_summary" AND jsonPayload.terminal_outcome="success"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=30d \
+  --limit=100000 \
+  --format='csv[no-heading](jsonPayload.deployment_revision,jsonPayload.total_token_count,jsonPayload.generator_retry_occurred,jsonPayload.judge_retry_occurred)' \
+  | awk -F, '{count[$1]++; total[$1]+=$2; generator_retry[$1]+=(tolower($3)=="true"); judge_retry[$1]+=(tolower($4)=="true")} END {for (revision in count) printf "%s calls=%d average=%.2f generator_retries=%d judge_retries=%d\n", revision,count[revision],total[revision]/count[revision],generator_retry[revision],judge_retry[revision]}' \
+  | sort
+```
+
+For a controlled concurrency rollout, inspect request failures and latency in
+the same time window separately from application token events:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND httpRequest.requestUrl:"/run_sse"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=1h \
+  --limit=10000 \
+  --order=asc \
+  --format='table(timestamp,httpRequest.status,httpRequest.latency,resource.labels.revision_name)'
+```
+
+No log-based token metric, BigQuery dataset, prompt-response upload, or other
+managed observability infrastructure is provisioned by this feature. Add those
+only after a separate privacy, retention, and cost review.
+
 #### Analyzing deterministic quiz validation
 
 Each generated candidate produces one privacy-minimized structured event. The
