@@ -99,14 +99,14 @@ gcloud firestore databases create \
   --project=quiz-buddy-501017
 ```
 
-Required implementation work:
+Required implementation and provisioning work:
 
-1. Add a `FIRESTORE_DATABASE_ID` runtime setting with `(default)` as the
-   production-safe default.
-2. Initialize the repository client with the selected database ID, for example
-   `firestore.Client(database=database_id)`.
-3. Add unit tests proving that an unset value selects `(default)` and the DEV
-   value selects `foxquiz-dev`.
+1. The application supports a `FIRESTORE_DATABASE_ID` runtime setting with
+   `(default)` as the production-safe default.
+2. The repository initializes `firestore.Client(database=database_id)` with
+   the selected database ID.
+3. Unit tests prove that an unset value selects `(default)` and the DEV value
+   selects `foxquiz-dev`.
 4. Pass `FIRESTORE_DATABASE_ID=foxquiz-dev` only to the DEV service.
 5. Populate the DEV database with the required private security configuration
    through the existing private configuration procedure. Do not commit private
@@ -171,7 +171,7 @@ agents-cli deploy \
   --min-instances 0 \
   --max-instances 2 \
   --no-confirm-project \
-  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME}"
+  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME},ENABLE_A2A=FALSE"
 ```
 
 ### Path B: Named `foxquiz-dev` Firestore Database
@@ -187,7 +187,7 @@ agents-cli deploy \
   --min-instances 0 \
   --max-instances 2 \
   --no-confirm-project \
-  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME},FIRESTORE_DATABASE_ID=foxquiz-dev"
+  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME},FIRESTORE_DATABASE_ID=foxquiz-dev,ENABLE_A2A=FALSE"
 ```
 
 The installed `agents-cli` derives `APP_URL` from the explicit service name,

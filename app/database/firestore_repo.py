@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 SHARED_QUIZ_TTL_DAYS = 30
 TRANSIENT_BUDGET_TTL_DAYS = 7
+DEFAULT_FIRESTORE_DATABASE_ID = "(default)"
 
 REQUIRED_SECURITY_RESPONSE_KEYS = frozenset(
     f"{response}_{locale}"
@@ -145,9 +146,15 @@ class FirestoreRepository:
 
         if not self.use_mock:
             try:
-                # Attempt to initialize real Firestore client
-                self.client = firestore.Client()
-                logger.info("Firestore client initialized successfully.")
+                database_id = (
+                    os.getenv("FIRESTORE_DATABASE_ID", "").strip()
+                    or DEFAULT_FIRESTORE_DATABASE_ID
+                )
+                self.client = firestore.Client(database=database_id)
+                logger.info(
+                    "Firestore client initialized successfully for database %s.",
+                    database_id,
+                )
             except Exception as e:
                 self._raise_persistence_error(
                     "initialize_client", "client_initialization", e
