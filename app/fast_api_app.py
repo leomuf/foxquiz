@@ -19,18 +19,24 @@
 # are licensed under CC BY 4.0. See global LICENSE file for details.
 # ==============================================================================
 
+import contextlib
 import html
 import logging as python_logging
 import os
 import uuid
+from collections.abc import AsyncIterator
 from typing import Any
 
+from a2a.server.tasks import InMemoryTaskStore
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk.cli.fast_api import get_fast_api_app
+from google.adk.runners import Runner
 from google.cloud import logging as google_cloud_logging
 
+from app.app_utils import services
+from app.app_utils.a2a import attach_a2a_routes
 from app.app_utils.build_info import get_build_info
 from app.app_utils.callbacks import SecurityBlockException
 from app.app_utils.request_context import (
@@ -114,22 +120,50 @@ allow_origins = (
     os.getenv("ALLOW_ORIGINS", "").split(",") if os.getenv("ALLOW_ORIGINS") else None
 )
 
-# Artifact bucket for ADK (created by Terraform, passed via env var)
-logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
-
 AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# In-memory session configuration - no persistent storage
-session_service_uri = None
 
-artifact_service_uri = f"gs://{logs_bucket_name}" if logs_bucket_name else None
+
+def _a2a_enabled() -> bool:
+    """Return whether the optional public A2A serving surface is enabled."""
+    return os.getenv("ENABLE_A2A", "").strip().upper() == "TRUE"
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Attach every ADK serving surface to the same process-wide services."""
+    if _a2a_enabled():
+        from app.agent import app as adk_app
+        from app.agent import root_agent
+
+        runner = Runner(
+            app=adk_app,
+            session_service=services.get_session_service(),
+            artifact_service=services.get_artifact_service(),
+            auto_create_session=True,
+        )
+        app.state.runner = runner
+        app.state.agent_app_name = adk_app.name
+        await attach_a2a_routes(
+            app,
+            agent=root_agent,
+            runner=runner,
+            task_store=InMemoryTaskStore(),
+            rpc_path=f"/a2a/{adk_app.name}",
+        )
+        logger.info("A2A access enabled by ENABLE_A2A=TRUE.")
+    else:
+        logger.info("A2A access disabled; set ENABLE_A2A=TRUE to enable it.")
+    yield
+
 
 app: FastAPI = get_fast_api_app(
     agents_dir=AGENT_DIR,
     web=True,
-    artifact_service_uri=artifact_service_uri,
+    artifact_service_uri=services.ARTIFACT_SERVICE_URI,
     allow_origins=allow_origins,
-    session_service_uri=session_service_uri,
+    session_service_uri=services.SESSION_SERVICE_URI,
     otel_to_cloud=os.getenv("INTEGRATION_TEST") != "TRUE",
+    lifespan=lifespan,
 )
 app.title = "foxquiz"
 app.description = "API for interacting with the Agent foxquiz"

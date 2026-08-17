@@ -85,6 +85,29 @@ MASCOT_NAMES = {
 }
 
 
+def _workflow_event(*, route: str | None = None, output: Any = None) -> Event:
+    """Build an eval-compatible internal event without user-visible text."""
+    kwargs = {
+        "content": types.Content(role="model", parts=[types.Part.from_text(text="")])
+    }
+    if route is not None:
+        kwargs["actions"] = EventActions(route=route)
+    if output is not None:
+        kwargs["output"] = output
+    return Event(**kwargs)
+
+
+def _validated_quiz_event(quiz: dict[str, Any]) -> Event:
+    """Publish a validated quiz through both workflow and content contracts."""
+    return Event(
+        content=types.Content(
+            role="model",
+            parts=[types.Part.from_text(text=json.dumps(quiz, ensure_ascii=False))],
+        ),
+        output=quiz,
+    )
+
+
 def _resolve_mascot(mascot_id: Any, language: str) -> tuple[str, str]:
     """Return an allowlisted mascot ID and its localized display name."""
     normalized_id = (
@@ -552,7 +575,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
             if compatibility.status == "compatible":
                 ctx.state["pending_topic"] = None
                 ctx.state["clarification_response"] = None
-                return Event(actions=EventActions(route="generate_quiz"))
+                return _workflow_event(route="generate_quiz")
             elif compatibility.status == "needs_clarification":
                 ctx.state["pending_topic"] = topic
                 msg_text = (
@@ -697,7 +720,7 @@ async def decision_and_search(ctx: Context, node_input: Any) -> Event:
         logger.info(
             "Search context already present in session state, skipping Wikipedia query."
         )
-        return Event()
+        return _workflow_event()
 
     logger.info("Curriculum Search Skill invoked.")
     search_query = f"{subject} {topic}"
@@ -709,7 +732,7 @@ async def decision_and_search(ctx: Context, node_input: Any) -> Event:
     ctx.state["search_context"] = wikipedia_data
     ctx.state["grounding_title"] = title_match.group(1) if title_match else None
     ctx.state["grounding_discarded"] = not bool(wikipedia_data)
-    return Event()
+    return _workflow_event()
 
 
 MAX_QUIZ_GENERATION_ATTEMPTS = 2
@@ -993,7 +1016,7 @@ def _candidate_ready_event() -> Event:
     """Signal the judge without exposing unvalidated quiz JSON to clients."""
     # A non-empty output traverses the unconditional workflow edge
     # Edge(from_node=quiz_generation, to_node=llm_as_a_judge).
-    return Event(output={"status": "candidate_ready"})
+    return _workflow_event(output={"status": "candidate_ready"})
 
 
 def _route_after_failed_judge(generation_attempts: int) -> str:
@@ -1024,7 +1047,7 @@ async def deterministic_quiz_validation(ctx: Context, node_input: Any) -> Event:
             result=result,
         )
         ctx.state["deterministic_retry_guidance"] = ""
-        return Event(actions=EventActions(route="valid"))
+        return _workflow_event(route="valid")
 
     guidance = build_retry_guidance(result)
     ctx.state["deterministic_retry_guidance"] = guidance
@@ -1044,7 +1067,7 @@ async def deterministic_quiz_validation(ctx: Context, node_input: Any) -> Event:
         len(result.issues),
         route,
     )
-    return Event(actions=EventActions(route=route))
+    return _workflow_event(route=route)
 
 
 @node
@@ -1057,7 +1080,7 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
     ctx.state["judge_attempts"] = attempts
 
     if not quiz_dict:
-        return Event(actions=EventActions(route="retry"))
+        return _workflow_event(route="retry")
 
     # Optimization: In Reinforcement Mode (score <= 3), we shuffle the previously validated questions.
     # We can skip the LLM Judge review call completely to save token usage and cut latency by 1.5 - 2.5 seconds!
@@ -1066,7 +1089,7 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         logger.info(
             "Reinforcement mode: skipping LLM-as-a-judge review on shuffled questions."
         )
-        return Event(actions=EventActions(route="success"))
+        return _workflow_event(route="success")
 
     grade = ctx.state.get("grade")
     subject = ctx.state.get("subject")
@@ -1103,7 +1126,7 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         )
 
         if assessment.passed:
-            return Event(actions=EventActions(route="success"))
+            return _workflow_event(route="success")
         else:
             failure_route = _route_after_failed_judge(
                 int(ctx.state.get("generation_attempts") or 0)
@@ -1116,7 +1139,7 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
                 "Judge failed validation. Routing to %s.",
                 failure_route,
             )
-            return Event(actions=EventActions(route=failure_route))
+            return _workflow_event(route=failure_route)
     except Exception as e:
         judge_reasons = list(ctx.state.get("judge_reasons") or [])
         judge_reasons.append(f"Judge unavailable: {type(e).__name__}")
@@ -1126,7 +1149,7 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
             "LLM Judge failed (%s). Blocking release of unvalidated quiz.",
             type(e).__name__,
         )
-        return Event(actions=EventActions(route="quality_failure"))
+        return _workflow_event(route="quality_failure")
 
 
 @node
@@ -1170,14 +1193,14 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     )
 
     # Return structured Quiz object as the workflow's terminal output
-    yield Event(output=quiz_dict)
+    yield _validated_quiz_event(quiz_dict)
 
 
 @node
 async def ask_more_node(ctx: Context, node_input: Any) -> Event:
     """Terminal node for the 'ask_more' route. Gracefully ends the branch."""
     logger.info("Mascot prompt asking for more information.")
-    return Event()
+    return _workflow_event()
 
 
 def _save_quality_failure_best_effort(failure: QuizQualityFailure) -> None:
@@ -1235,7 +1258,7 @@ async def security_checkpoint_node(ctx: Context, node_input: Any) -> Event:
     ctx.state[_ALLOWED_INPUT_STATE_KEY] = (
         _text_from_node_input(node_input) if route == "allowed" else ""
     )
-    return Event(actions=EventActions(route=route))
+    return _workflow_event(route=route)
 
 
 @node

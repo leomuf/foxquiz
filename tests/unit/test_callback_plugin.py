@@ -229,7 +229,13 @@ async def test_foxquiz_workflow_routes_security_block_to_terminal_response():
             )
         ]
 
-    content_events = [event for event in events if event.content is not None]
+    content_events = [
+        event
+        for event in events
+        if event.content is not None
+        and event.content.parts
+        and any(part.text for part in event.content.parts)
+    ]
     assert len(content_events) == 1
     block_event = json.loads(content_events[0].content.parts[0].text)
     assert block_event == {

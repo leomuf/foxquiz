@@ -20,6 +20,7 @@ Boundary:
     curriculum judgment belong in agents-cli eval or local integration tests.
 """
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -36,6 +37,8 @@ from app.agent import (
     _resolve_mascot,
     _route_after_failed_judge,
     _save_quality_failure_best_effort,
+    _validated_quiz_event,
+    _workflow_event,
     deterministic_quiz_validation,
     search_wikipedia,
     security_checkpoint_node,
@@ -171,6 +174,27 @@ def test_generation_ready_event_does_not_expose_unvalidated_quiz() -> None:
 
     assert event.output == {"status": "candidate_ready"}
     assert "questions" not in event.output
+
+
+def test_internal_workflow_event_satisfies_eval_without_visible_text() -> None:
+    """Routing metadata must survive SSE without becoming learner-facing text."""
+    event = _workflow_event(route="valid", output={"status": "ready"})
+
+    assert event.content is not None
+    assert event.content.parts
+    assert all(not part.text for part in event.content.parts)
+    assert event.actions.route == "valid"
+    assert event.output == {"status": "ready"}
+
+
+def test_validated_quiz_event_is_available_to_frontend_and_eval() -> None:
+    """The final safe quiz must survive both output and content-only clients."""
+    quiz = {"title": "Ready", "questions": [{"question": "Safe?"}]}
+
+    event = _validated_quiz_event(quiz)
+
+    assert event.output == quiz
+    assert json.loads(event.content.parts[0].text) == quiz
 
 
 def test_judge_retries_once_then_fails_closed() -> None:

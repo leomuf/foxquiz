@@ -298,6 +298,34 @@ gcloud config set project <your-project-id>
 agents-cli deploy
 ```
 
+### A2A access
+
+The agents-cli 1.3.1 A2A implementation is installed but disabled by default.
+The agent card and JSON-RPC endpoint under `/a2a/app` return HTTP 404 unless
+`ENABLE_A2A` is set exactly to `TRUE` when the service starts.
+
+The `create_params.is_a2a` field in `agents-cli-manifest.yaml` is primarily a
+metadata switch for agents-cli. It tells CLI operations such as `publish`
+whether the project should be treated as exposing an A2A interface and whether
+the A2A Agent Card registration path should be used for the Google Enterprise
+ecosystem. It does not mount or unmount the HTTP routes by itself.
+
+To operate FoxQuiz over A2A again, first set the manifest field to
+`is_a2a: true`, then set the runtime environment variable `ENABLE_A2A=TRUE` and
+restart or redeploy the service. Both settings should agree so agents-cli
+metadata and the actual serving surface describe the same operating state.
+
+To enable A2A locally:
+
+```bash
+ENABLE_A2A=TRUE uv run uvicorn app.fast_api_app:app --host 127.0.0.1 --port 8000
+```
+
+Remove the variable or set it to `FALSE`, then restart the service, to disable
+A2A again. A deployed Cloud Run service requires a new revision or environment
+variable update before this setting changes; changing the repository alone does
+not modify the running service.
+
 To add CI/CD and Terraform, run `agents-cli scaffold enhance`.
 To set up your production infrastructure, run `agents-cli infra cicd`.
 
@@ -352,6 +380,4 @@ To keep this platform freely accessible to students and schools everywhere, we r
 *   **Sponsor us on GitHub:** Click the **Sponsor** heart button at the top of our repository!
 
 *Every token counts. Thank you for empowering the next generation of students!* 🎓🦊✨
-
-
 

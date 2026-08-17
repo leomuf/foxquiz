@@ -52,6 +52,7 @@ with socket.socket() as port_socket:
 
 BASE_URL = f"http://127.0.0.1:{TEST_PORT}"
 STREAM_URL = BASE_URL + "/run_sse"
+A2A_AGENT_CARD_URL = BASE_URL + "/a2a/app/.well-known/agent-card.json"
 FEEDBACK_URL = BASE_URL + "/feedback"
 
 HEADERS = {"Content-Type": "application/json"}
@@ -63,7 +64,9 @@ def log_output(pipe: Any, log_func: Any) -> None:
         log_func(line.strip())
 
 
-def start_server() -> subprocess.Popen[str]:
+def start_server(
+    *, port: int = TEST_PORT, enable_a2a: bool = False
+) -> subprocess.Popen[str]:
     """Start the FastAPI server using subprocess and log its output."""
     command = [
         sys.executable,
@@ -73,13 +76,18 @@ def start_server() -> subprocess.Popen[str]:
         "--host",
         "0.0.0.0",
         "--port",
-        str(TEST_PORT),
+        str(port),
     ]
     env = os.environ.copy()
     env["INTEGRATION_TEST"] = "TRUE"
     env["AGENT_VERSION"] = "integration-test"
     env["COMMIT_SHA"] = "0123456789abcdef0123456789abcdef01234567"
     env["BUILD_TIME"] = "2026-08-10T12:00:00Z"
+    env["APP_URL"] = f"http://127.0.0.1:{port}"
+    if enable_a2a:
+        env["ENABLE_A2A"] = "TRUE"
+    else:
+        env.pop("ENABLE_A2A", None)
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -100,12 +108,14 @@ def start_server() -> subprocess.Popen[str]:
     return process
 
 
-def wait_for_server(timeout: int = 90, interval: int = 1) -> bool:
+def wait_for_server(
+    timeout: int = 90, interval: int = 1, *, base_url: str = BASE_URL
+) -> bool:
     """Wait for the server to be ready."""
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            response = requests.get(BASE_URL + "/docs", timeout=10)
+            response = requests.get(base_url + "/docs", timeout=10)
             if response.status_code == 200:
                 logger.info("Server is ready")
                 return True
@@ -238,6 +248,52 @@ def test_public_static_assets(server_fixture: subprocess.Popen[str]) -> None:
         )
         assert mascot_response.status_code == 200
         assert mascot_response.headers["content-type"].startswith("image/png")
+
+
+def test_a2a_access_is_disabled_by_default(
+    server_fixture: subprocess.Popen[str],
+) -> None:
+    """The public FoxQuiz server must not expose A2A unless explicitly enabled."""
+    response = requests.get(A2A_AGENT_CARD_URL, timeout=10)
+    rpc_response = requests.post(
+        BASE_URL + "/a2a/app",
+        headers=HEADERS,
+        json={"jsonrpc": "2.0", "id": "disabled-check", "method": "GetTask"},
+        timeout=10,
+    )
+
+    assert response.status_code == 404
+    assert rpc_response.status_code == 404
+
+
+def test_a2a_access_can_be_explicitly_enabled() -> None:
+    """ENABLE_A2A=TRUE must restore the scaffolded A2A agent-card surface."""
+    with socket.socket() as port_socket:
+        port_socket.bind(("127.0.0.1", 0))
+        enabled_port = port_socket.getsockname()[1]
+
+    enabled_base_url = f"http://127.0.0.1:{enabled_port}"
+    process = start_server(port=enabled_port, enable_a2a=True)
+    try:
+        assert wait_for_server(base_url=enabled_base_url)
+        response = requests.get(
+            enabled_base_url + "/a2a/app/.well-known/agent-card.json", timeout=10
+        )
+
+        assert response.status_code == 200
+        card = response.json()
+        for field in (
+            "name",
+            "description",
+            "skills",
+            "capabilities",
+            "version",
+            "supportedInterfaces",
+        ):
+            assert field in card, f"Missing field in agent card: {field}"
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
 
 
 def test_deployed_version_metadata(server_fixture: subprocess.Popen[str]) -> None:
