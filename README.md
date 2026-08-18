@@ -10,7 +10,7 @@
 ---
 
 ## 🎯 Project Overview
-FoxQuiz is an intelligent, highly engaging, and child-safe exam preparation application designed to help kids in Grades 5–12 master academic topics in a playful and localized environment. Powered by **Google ADK 2.0** and **Gemini 2.5 Flash**, FoxQuiz features dynamic mascot pedagogy (Felix the Fox, Olivia the Owl, Dino the Dragon), smart curriculum checks, academic peer-review nodes, and state-of-the-art security guardrails to keep students safe.
+FoxQuiz is an intelligent, highly engaging, and child-safe exam preparation application designed to help kids in Grades 5–12 master academic topics in a playful and localized environment. Powered by **Google ADK 2.0** and `gemini-2.5-flash`, FoxQuiz features dynamic mascot pedagogy (Felix the Fox, Olivia the Owl, Dino the Dragon), smart curriculum checks, academic peer-review nodes, and state-of-the-art security guardrails to keep students safe.
 
 ## 🎥 Project Walkthrough & Demo
 
@@ -193,7 +193,7 @@ flowchart TD
         Budget -- "No" --> LocalScan["Stage 1: local keyword<br/>and injection-regex scan"]
         LocalScan -- "Malicious match" --> Violation["Log security event<br/>and run Sheriff 3-strike check"]
         Violation --> BlockState
-        LocalScan -- "No match" --> Classifier["Stage 2: Gemini semantic classifier"]
+        LocalScan -- "No match" --> Classifier["◆ LLM<br/>Stage 2: semantic security classifier"]
         Classifier --> ValidDecision{"Valid classifier decision?"}
         ValidDecision -- "No or classifier error" --> Closed["Fail closed:<br/>CLASSIFIER_UNAVAILABLE"]
         Closed --> BlockState
@@ -212,15 +212,25 @@ flowchart TD
         Gate -- "blocked edge" --> BlockNode["security_block_node"]
         BlockNode --> BlockSSE["Structured blocked response"]
 
-        Gate -- "allowed edge" --> Gather["gather_and_route<br/>parse request and check curriculum"]
+        Gate -- "allowed edge" --> Gather["◆ LLM<br/>gather_and_route<br/>parse request and check curriculum"]
         Gather -- "ask_more edge" --> AskMore["ask_more_node<br/>terminal clarification branch"]
         Gather -- "generate_quiz edge" --> Search["decision_and_search<br/>relevant curriculum grounding"]
-        Search --> Generate["quiz_generation"]
-        Generate --> Validate["deterministic_quiz_validation<br/>structure and answer-cue checks"]
-        Validate -- "valid edge" --> Judge["llm_as_a_judge<br/>semantic and factual review"]
-        Validate -- "retry edge: once" --> Generate
+
+        subgraph QuizGeneration["quiz_generation — single Workflow node with internal flow"]
+            direction TB
+            GenerationEntry["Invocation entry"] --> RepairDecision{"Retry with only<br/>duplicate-option issues?"}
+            RepairDecision -- "Yes" --> TargetedRepair["◆ LLM<br/>Targeted repair<br/>replace affected option lists and indices"]
+            RepairDecision -- "No" --> FullGeneration["◆ LLM<br/>Generate complete quiz<br/>initial generation or full retry"]
+            TargetedRepair --> CandidateReady["Return candidate_ready event"]
+            FullGeneration --> CandidateReady
+        end
+
+        Search --> GenerationEntry
+        CandidateReady --> Validate["deterministic_quiz_validation<br/>structure and answer-cue checks"]
+        Validate -- "valid edge" --> Judge["◆ LLM<br/>llm_as_a_judge<br/>semantic and factual review"]
+        Validate -- "retry edge: shared budget" --> GenerationEntry
         Validate -- "quality_failure edge" --> QualityFailure["quality_failure_node<br/>safe retry message and diagnostic"]
-        Judge -- "retry edge: shared budget" --> Generate
+        Judge -- "retry edge: shared budget" --> GenerationEntry
         Judge -- "success edge" --> QuizOutput["quiz_output_node<br/>final invariant and validated quiz"]
         Judge -- "quality_failure edge" --> QualityFailure
     end
@@ -241,7 +251,105 @@ flowchart TD
 
     Runner -. "unexpected exception" .-> RunError["on_run_error_callback"]
     RunError --> Tokens
+
+    classDef bestCase fill:#E6F4EA,stroke:#137333,color:#0D3B1E,stroke-width:3px
+    classDef llmCall stroke:#ffb03a,stroke-width:4px
+    class User,SSE,Middleware,Context,Runner bestCase
+    class Before,Config,Ban,Budget,LocalScan,Classifier,ValidDecision,SafeDecision,NoBlock bestCase
+    class Start,Gate,Gather,Search bestCase
+    class GenerationEntry,RepairDecision,FullGeneration,CandidateReady bestCase
+    class Validate,Judge,QuizOutput,FrontendQuiz bestCase
+    class Classifier,Gather,TargetedRepair,FullGeneration,Judge llmCall
 ```
+
+**Diagram legend**
+
+- **Green blocks** mark the best-case quiz path: the request passes every
+  security and budget check, the initial candidate has no duplicate or other
+  deterministic defect, the academic Judge accepts it, and the browser opens
+  the frontend quiz wizard without a retry.
+- **Default-colored blocks** are used only by alternative clarification,
+  blocking, targeted-repair, quality-failure, or error paths. Retry paths can
+  re-enter green generation blocks; green means the block is traversed in the
+  best case, not that it is exclusive to that path.
+- **Gold-orange border and `◆ LLM` stamp** mark a block that performs one or
+  more LLM calls. These calls currently use `gemini-2.5-flash`. A green block
+  with a gold-orange border is both part of the best-case path and an
+  LLM-calling block.
+
+#### Runtime LLM call overview
+
+| Purpose | Diagram location | Model | Temperature | When it runs |
+| --- | --- | --- | --- | --- |
+| Semantic security classification | Semantic security classifier | `gemini-2.5-flash` | `0.0` | Requests that pass the local scan |
+| Natural-language parameter extraction | gather_and_route | `gemini-2.5-flash` | `0.0` | Only when the agent receives a free-form request through a direct API client or the ADK playground; normal browser requests provide separate fields and skip this call |
+| Curriculum compatibility preflight | gather_and_route | `gemini-2.5-flash` | `0.0` | After grade, subject, and topic are known, it checks whether their combination is suitable and sufficiently clear before any quiz is generated |
+| Mascot missing-information or incompatibility response | gather_and_route | `gemini-2.5-flash` | `0.7` | When required values are missing, the mascot generates a short message asking for them; after an incompatible curriculum decision, it explains the issue and suggests suitable alternatives |
+| Complete quiz generation | Generate complete quiz | `gemini-2.5-flash` | `0.7` | Initial generation or a non-repair retry |
+| Targeted duplicate-option repair | Targeted repair | `gemini-2.5-flash` | `0.2` | When the first candidate fails deterministic validation only because of duplicate options and the shared retry remains; it replaces only the affected option lists and answer indices |
+| Academic quality review | llm_as_a_judge | `gemini-2.5-flash` | `0.1` | After deterministic validation passes, it reviews factual correctness and grade, curriculum, and difficulty alignment; it is skipped when reinforcement mode repeats a previously validated quiz |
+
+This table is an inventory of possible LLM calls, not a sequence executed for
+every request. On the highlighted best-case path, a normal browser request
+makes **four LLM calls**: security classification, curriculum compatibility
+preflight, complete quiz generation, and academic quality review. A free-form
+request sent directly through an API client or the ADK playground adds
+parameter extraction, increasing that path to **five LLM calls**. The mascot
+response, targeted repair, and full-generation retry are not used on this path.
+
+#### Duplicate-option repair and academic review
+
+The duplicate-option repair is an internal branch of `quiz_generation`, not a
+separate ADK workflow node. Initial generation must create the complete quiz:
+ten questions, 30–50 answer options, explanations, correct indices, curriculum
+alignment, difficulty, language, and tone. Even with an explicit uniqueness
+instruction, that larger generative task can occasionally produce equivalent
+options. An unvalidated candidate is never sent to the learner.
+
+`deterministic_quiz_validation` first checks objective invariants, including
+question and option counts, normalized duplicate options, valid index ranges,
+empty content, emojis, and visual correctness cues. When every reported issue
+is a duplicate option and the shared retry budget remains, the retry edge
+returns to `quiz_generation`, which selects its targeted repair branch. That
+repair is performed by `gemini-2.5-flash` in a separate LLM call. The call
+receives only the affected questions and returns a small structured response
+containing replacement option lists and their corrected
+`correct_option_index` values. It cannot rewrite the title, question text,
+explanations, or unaffected questions because those fields are absent from the
+repair response schema. The repair also uses a lower generation temperature
+than full quiz generation to reduce unnecessary variation.
+
+The repaired candidate is not trusted automatically. It passes through
+`deterministic_quiz_validation` again. A malformed or incomplete repair is
+blocked when the retry budget is exhausted. If the first candidate contains
+mixed or non-duplicate defects, FoxQuiz uses the existing full-regeneration
+branch instead because changing options alone cannot safely correct those
+problems.
+
+The shared retry budget is currently **two total quiz-generation attempts**:
+one initial attempt plus at most one retry. A retry triggered by deterministic
+validation or by the academic Judge consumes that same remaining attempt; the
+two gates do not receive separate retry allowances.
+
+After deterministic validation succeeds, `llm_as_a_judge` still performs the
+semantic and academic review. The Judge checks factual correctness, curriculum
+and grade alignment, requested difficulty, and whether each
+`correct_option_index` points to the genuinely correct answer described by the
+explanation. A successful repair therefore follows this sequence:
+
+```text
+full quiz generation
+  -> deterministic validation
+  -> targeted duplicate-option repair
+  -> deterministic validation again
+  -> LLM-as-a-Judge
+  -> final invariant check and learner output, or fail closed
+```
+
+The existing reinforcement-mode exception is unchanged: when
+`previous_score <= 3`, FoxQuiz reuses previously validated questions and skips
+the academic Judge. All other repaired candidates must pass the Judge before
+release.
 
 The similarly named decisions and routes have different responsibilities:
 
@@ -255,7 +363,8 @@ The similarly named decisions and routes have different responsibilities:
 | `BANNED` / `BUDGET_EXCEEDED` / `CLASSIFIER_UNAVAILABLE` | Plugin block types, not classifier decisions | Stop before quiz processing because an operational guard rejected the invocation. |
 | `blocked` | Edge from `security_checkpoint_node` | A block envelope exists, so the graph goes directly to `security_block_node`. |
 | `generate_quiz` / `ask_more` | Edges from `gather_and_route` | The curriculum check either starts quiz preparation or requests clarification. |
-| `valid` / `retry` / `quality_failure` | Edges from `deterministic_quiz_validation` | Continue to semantic review, regenerate within the shared budget, or fail closed on objective defects. |
+| `valid` / `retry` / `quality_failure` | Edges from `deterministic_quiz_validation` | Continue to semantic review, return to `quiz_generation` for targeted duplicate repair or full regeneration within the shared budget, or fail closed on objective defects. |
+| Duplicate-option repair | Internal retry branch of `quiz_generation` | Replace only affected option lists and indices, preserve all other quiz content, then return the candidate to deterministic validation. |
 | `retry` / `success` / `quality_failure` | Edges from `llm_as_a_judge` | Regenerate within the shared budget, publish the validated quiz, or fail closed without exposing an unvalidated quiz. |
 
 > **Why the extra security node?** The plugin performs cross-cutting checks before
@@ -380,4 +489,3 @@ To keep this platform freely accessible to students and schools everywhere, we r
 *   **Sponsor us on GitHub:** Click the **Sponsor** heart button at the top of our repository!
 
 *Every token counts. Thank you for empowering the next generation of students!* 🎓🦊✨
-

@@ -189,6 +189,26 @@ class Quiz(BaseModel):
     )
 
 
+class QuizQuestionOptionRepair(BaseModel):
+    """Replacement options for one question rejected as containing duplicates."""
+
+    question_index: int = Field(description="0-based question index to repair.")
+    options: List[str] = Field(
+        description="Complete list of 3 to 5 unique, neutral replacement options."
+    )
+    correct_option_index: int = Field(
+        description="0-based index of the factually correct replacement option."
+    )
+
+
+class QuizOptionRepairResponse(BaseModel):
+    """Minimal structured response for targeted duplicate-option repair."""
+
+    repairs: List[QuizQuestionOptionRepair] = Field(
+        description="One repair for every requested question index and no others."
+    )
+
+
 class JudgeAssessment(BaseModel):
     passed: bool = Field(
         description="True if the quiz meets all criteria: 10 questions, appropriate grade difficulty, exactly one correct option per question, and factually accurate."
@@ -862,6 +882,89 @@ def _build_judge_prompt(
     )
 
 
+def _duplicate_option_question_indices(issues: Any) -> tuple[int, ...]:
+    """Return affected questions only when every issue is a duplicate option."""
+    if not isinstance(issues, list) or not issues:
+        return ()
+
+    question_indices: set[int] = set()
+    for issue in issues:
+        if not isinstance(issue, dict) or issue.get("code") != "duplicate_option":
+            return ()
+        question_index = issue.get("question_index")
+        if isinstance(question_index, bool) or not isinstance(question_index, int):
+            return ()
+        question_indices.add(question_index)
+    return tuple(sorted(question_indices))
+
+
+async def _repair_duplicate_options(
+    *,
+    ctx: Context,
+    quiz_dict: dict[str, Any],
+    question_indices: tuple[int, ...],
+    generation_attempt: int,
+) -> dict[str, Any]:
+    """Regenerate only duplicated option lists while preserving quiz content."""
+    questions = quiz_dict.get("questions")
+    if not isinstance(questions, list) or any(
+        index < 0 or index >= len(questions) for index in question_indices
+    ):
+        return quiz_dict
+
+    repair_input = [
+        {"question_index": index, "question": questions[index]}
+        for index in question_indices
+    ]
+    prompt = (
+        "Repair duplicate answer options in the supplied quiz questions. Return "
+        "one repair for every supplied 0-based question_index and no other indices. "
+        "For each repair, provide the complete list of 3 to 5 answer options. Every "
+        "option must be meaningfully distinct after Unicode normalization, trimming "
+        "or collapsing whitespace, and ignoring capitalization. Keep options neutral "
+        "and free of emojis or correctness cues. Preserve the question's language, "
+        "grade level, factual meaning, and the correct answer described by its "
+        "explanation. Set correct_option_index to the exact 0-based position of that "
+        "correct answer. Do not rewrite questions or explanations.\n\n"
+        f"Questions to repair:\n{json.dumps(repair_input)}"
+    )
+
+    response = await Client().aio.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=QuizOptionRepairResponse,
+            temperature=0.2,
+        ),
+    )
+    record_token_usage(
+        ctx,
+        response,
+        call_stage=CallStage.QUIZ_GENERATOR,
+        generation_attempt=generation_attempt,
+    )
+    repairs = QuizOptionRepairResponse.model_validate_json(response.text.strip())
+    repaired_quiz = json.loads(json.dumps(quiz_dict))
+    requested_indices = set(question_indices)
+    applied_indices: set[int] = set()
+    for repair in repairs.repairs:
+        index = repair.question_index
+        if index not in requested_indices or index in applied_indices:
+            continue
+        repaired_quiz["questions"][index]["options"] = repair.options
+        repaired_quiz["questions"][index]["correct_option_index"] = (
+            repair.correct_option_index
+        )
+        applied_indices.add(index)
+    logger.info(
+        "Applied targeted duplicate-option repairs to %s of %s question(s).",
+        len(applied_indices),
+        len(question_indices),
+    )
+    return repaired_quiz
+
+
 @node
 async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     """Uses LLM structured generation to build a highly tailored, fun multiple-choice quiz of 10 questions."""
@@ -884,6 +987,29 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     deterministic_retry_guidance = ctx.state.get("deterministic_retry_guidance", "")
 
     logger.info("Generating quiz attempt %s.", attempt)
+
+    duplicate_question_indices = _duplicate_option_question_indices(
+        ctx.state.get("deterministic_validation_issues")
+    )
+    previous_candidate = ctx.state.get("temp_quiz")
+    if (
+        attempt > 1
+        and duplicate_question_indices
+        and isinstance(previous_candidate, dict)
+    ):
+        try:
+            repaired_quiz = await _repair_duplicate_options(
+                ctx=ctx,
+                quiz_dict=previous_candidate,
+                question_indices=duplicate_question_indices,
+                generation_attempt=attempt,
+            )
+            repaired_quiz["difficulty"] = expected_difficulty
+            ctx.state["temp_quiz"] = repaired_quiz
+            return _candidate_ready_event()
+        except Exception as e:
+            logger.error("Quiz option repair failed (%s).", type(e).__name__)
+            raise
 
     prompt = (
         f"Create an interactive multiple-choice quiz with exactly 10 questions.\n"
@@ -1016,7 +1142,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=Quiz,
-                temperature=0.7 if attempt == 1 else 0.8,
+                temperature=0.7,
             ),
         )
         record_token_usage(
