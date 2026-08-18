@@ -359,6 +359,119 @@ gcloud beta run domain-mappings create \
 Configure a CNAME record at the domain registrar that points `www` to
 `ghs.googlehosted.com.`.
 
+#### Temporary Public DEV Campaigns
+
+Maintainer-led DEV campaigns normally remain available for two to five days so
+the application can be tested from multiple unauthenticated smartphones. Each
+campaign must use a new, cryptographically random Cloud Run service name. Do
+not reuse predictable names containing the project, application, environment,
+date, version, or previous service name.
+
+Generate 80 bits of randomness locally and keep the resulting value out of
+Git, pull requests, issues, screenshots, and shared logs:
+
+```bash
+export GCLOUD_PROJECT_ID="<GCLOUD_PROJECT_ID>"
+export GCLOUD_REGION="us-east1"
+export GCLOUD_RUN_DEV_SERVICE_NAME="svc-$(openssl rand -hex 10)"
+```
+
+Before deploying, confirm that the working tree is clean and that the generated
+name is not already present in the selected project and region:
+
+```bash
+test -z "$(git status --porcelain)"
+
+gcloud run services describe "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}"
+```
+
+The describe command should report that the service does not exist. Do not
+continue if it returns an existing service or if the project, region, or
+commit is ambiguous.
+
+Prepare build metadata and deploy with the bounded DEV resource profile. Fill
+in the runtime service account and Firestore database locally; never commit
+their real values:
+
+```bash
+COMMIT_SHA="$(git rev-parse HEAD)"
+AGENT_VERSION="$(uv version --short)-dev"
+BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+agents-cli deploy \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}" \
+  --service-name "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --service-account "<RUNTIME_SERVICE_ACCOUNT>" \
+  --cpu 1 \
+  --memory 4Gi \
+  --concurrency 8 \
+  --min-instances 0 \
+  --max-instances 2 \
+  --no-confirm-project \
+  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME},FIRESTORE_DATABASE_ID=<FIRESTORE_DATABASE_ID>,ENABLE_A2A=FALSE,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=FALSE"
+
+gcloud run services update "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}" \
+  --min-instances 0 \
+  --cpu-boost \
+  --execution-environment gen1
+
+gcloud run services add-iam-policy-binding \
+  "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}" \
+  --member='allUsers' \
+  --role='roles/run.invoker'
+```
+
+Retrieve the stable campaign address without copying it into repository files:
+
+```bash
+export GCLOUD_RUN_DEV_URL="$(gcloud run services describe \
+  "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}" \
+  --format='value(status.url)')"
+```
+
+For work spanning multiple shells, store `GCLOUD_RUN_DEV_SERVICE_NAME` and
+`GCLOUD_RUN_DEV_URL` only in the ignored local `.env` file. The address is not
+a credential: public invocation means anyone who obtains it can access the
+service. Its random name makes guessing impractical, while token budgets,
+Sheriff blocking, and the two-instance ceiling remain the abuse and cost
+controls during the campaign.
+
+Verify the root page, `/version`, ADK session creation, A2A-disabled response,
+runtime identity, resource limits, and security behavior before beginning the
+evaluation pilot. Monitor request errors, token budgets, and security events
+throughout the campaign.
+
+At campaign end, the maintainer manually deletes the exact service recorded in
+`GCLOUD_RUN_DEV_SERVICE_NAME`:
+
+```bash
+test -n "${GCLOUD_PROJECT_ID:-}"
+test -n "${GCLOUD_REGION:-}"
+test -n "${GCLOUD_RUN_DEV_SERVICE_NAME:-}"
+
+gcloud run services describe "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}"
+
+gcloud run services delete "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}"
+```
+
+Read the confirmation prompt carefully before deleting. Afterwards, remove the
+two local campaign variables. `min-instances=0` only scales idle containers to
+zero; it does not deactivate the public endpoint. The next campaign must
+generate a completely new random service name and URL.
+
 ### Inspecting Production Logs Programmatically
 
 Use `gcloud logging read` to search Cloud Run logs without manually scrolling

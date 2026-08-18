@@ -12,6 +12,22 @@ custom_metrics:
       Markdown, code fences, headings, or prose before or after the JSON.
     judge_model_generation_config:
       temperature: 0
+      max_output_tokens: 512
+      response_mime_type: application/json
+      response_json_schema:
+        type: object
+        additionalProperties: false
+        required:
+          - score
+          - explanation
+        properties:
+          score:
+            type: integer
+            minimum: 1
+            maximum: 5
+          explanation:
+            type: string
+            minLength: 1
     prompt_template: |
       Evaluate whether FoxQuiz fulfilled the requested school-quiz task.
 
@@ -25,7 +41,6 @@ custom_metrics:
 
       User Prompt: {prompt}
       Final Response: {response}
-      Full Agent Trace: {agent_data}
 
       Return ONLY the following valid JSON object. The first character of your
       response must be "{" and the last character must be "}". Do not include

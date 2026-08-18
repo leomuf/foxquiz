@@ -9,6 +9,17 @@
             "text": "{\"grade\":\"Klasse 5\",\"subject\":\"Naturwissenschaften\",\"topic\":\"Wasserkreislauf\",\"preferred_language\":\"de\"}"
           }
         ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
       }
     },
     {
@@ -20,6 +31,17 @@
             "text": "{\"grade\":\"Klasse 8\",\"subject\":\"Mathematics\",\"topic\":\"Linear equations with one variable\",\"preferred_language\":\"en\"}"
           }
         ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
       }
     },
     {
@@ -31,6 +53,17 @@
             "text": "{\"grade\":\"Klasse 10\",\"subject\":\"Biologia\",\"topic\":\"Herança mendeliana\",\"preferred_language\":\"pt\"}"
           }
         ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
       }
     },
     {
@@ -42,6 +75,17 @@
             "text": "{\"grade\":\"Klasse 6\",\"subject\":\"Science\",\"topic\":\"States of matter\",\"preferred_language\":\"en\",\"previous_score\":2,\"previous_questions\":[\"Previous question 1 about States of matter?\",\"Previous question 2 about States of matter?\",\"Previous question 3 about States of matter?\",\"Previous question 4 about States of matter?\",\"Previous question 5 about States of matter?\",\"Previous question 6 about States of matter?\",\"Previous question 7 about States of matter?\",\"Previous question 8 about States of matter?\",\"Previous question 9 about States of matter?\",\"Previous question 10 about States of matter?\"],\"previous_quiz_json\":{\"title\":\"Previous quiz about States of matter\",\"difficulty\":\"⭐ Medium\",\"questions\":[{\"question\":\"Previous question 1 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 1 about States of matter.\"},{\"question\":\"Previous question 2 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 2 about States of matter.\"},{\"question\":\"Previous question 3 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 3 about States of matter.\"},{\"question\":\"Previous question 4 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 4 about States of matter.\"},{\"question\":\"Previous question 5 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 5 about States of matter.\"},{\"question\":\"Previous question 6 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 6 about States of matter.\"},{\"question\":\"Previous question 7 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 7 about States of matter.\"},{\"question\":\"Previous question 8 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 8 about States of matter.\"},{\"question\":\"Previous question 9 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 9 about States of matter.\"},{\"question\":\"Previous question 10 about States of matter?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 10 about States of matter.\"}]}}"
           }
         ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
       }
     },
     {
@@ -53,6 +97,17 @@
             "text": "{\"grade\":\"Klasse 5\",\"subject\":\"Matemática\",\"topic\":\"Frações\",\"preferred_language\":\"pt\",\"previous_score\":9,\"previous_questions\":[\"Previous question 1 about Frações?\",\"Previous question 2 about Frações?\",\"Previous question 3 about Frações?\",\"Previous question 4 about Frações?\",\"Previous question 5 about Frações?\",\"Previous question 6 about Frações?\",\"Previous question 7 about Frações?\",\"Previous question 8 about Frações?\",\"Previous question 9 about Frações?\",\"Previous question 10 about Frações?\"],\"selected_difficulty\":\"hard\"}"
           }
         ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
       }
     },
     {
@@ -64,6 +119,17 @@
             "text": "{\"grade\":\"Klasse 9\",\"subject\":\"Chemie\",\"topic\":\"Säuren und Basen\",\"preferred_language\":\"de\"}"
           }
         ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
       }
     },
     {
@@ -75,6 +141,17 @@
             "text": "{\"grade\":\"Klasse 11\",\"subject\":\"Economics\",\"topic\":\"Supply and demand\",\"preferred_language\":\"en\"}"
           }
         ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
       }
     },
     {
@@ -86,6 +163,17 @@
             "text": "{\"grade\":\"Klasse 8\",\"subject\":\"Geografia\",\"topic\":\"Biomas brasileiros\",\"preferred_language\":\"pt\"}"
           }
         ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
       }
     },
     {
@@ -97,6 +185,17 @@
             "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Geschichte\",\"topic\":\"Das Mittelalter\",\"preferred_language\":\"de\"}"
           }
         ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
       }
     },
     {
@@ -108,6 +207,17 @@
             "text": "{\"grade\":\"8º ano\",\"subject\":\"Ciências\",\"topic\":\"O sistema solar\",\"preferred_language\":\"pt\"}"
           }
         ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
       }
     }
   ]
