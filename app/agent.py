@@ -1142,7 +1142,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=Quiz,
-                temperature=0.7 if attempt == 1 else 0.8,
+                temperature=0.7,
             ),
         )
         record_token_usage(
