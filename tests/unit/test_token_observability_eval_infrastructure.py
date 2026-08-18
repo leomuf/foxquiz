@@ -21,6 +21,8 @@ def test_token_observability_datasets_seed_workflow_metadata() -> None:
         "token-observability-pilot.json",
         "token-observability-rollout.json",
         "token-observability-regression.json",
+        "structured-request-contract-safe.json",
+        "structured-request-contract-malicious.json",
     )
 
     for dataset_name in dataset_names:

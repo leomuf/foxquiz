@@ -157,12 +157,34 @@ async def test_security_checkpoint_forwards_original_input_on_allowed_route() ->
 
 
 @pytest.mark.asyncio
-async def test_gather_rejects_free_form_without_model_call() -> None:
-    """The workflow fallback must reject unsupported input deterministically."""
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "Create a biology quiz.",
+        "{not-valid-json}",
+        json.dumps({"grade": "Grade 8", "subject": "Biology"}),
+        json.dumps(
+            {
+                "grade": "Grade 8",
+                "subject": "Biology",
+                "topic": "Cells",
+                "unsupported": "value",
+            }
+        ),
+    ],
+    ids=["free-form", "malformed", "incomplete", "extra-field"],
+)
+async def test_gather_rejects_unsupported_request_without_model_or_usage(
+    payload: str,
+) -> None:
+    """Unsupported requests must not reach extractor or mascot model calls."""
     context = MagicMock()
-    context.state = {_ALLOWED_INPUT_STATE_KEY: "Create a biology quiz."}
+    context.state = {_ALLOWED_INPUT_STATE_KEY: payload}
 
-    with patch("app.agent.Client") as client_class:
+    with (
+        patch("app.agent.Client") as client_class,
+        patch("app.agent.record_token_usage") as record_usage,
+    ):
         events = [
             event
             async for event in gather_and_route._run_impl(
@@ -175,6 +197,7 @@ async def test_gather_rejects_free_form_without_model_call() -> None:
     assert events[0].actions.route == "ask_more"
     assert "expected quiz format" in events[0].content.parts[0].text
     client_class.assert_not_called()
+    record_usage.assert_not_called()
 
 
 @pytest.mark.asyncio
