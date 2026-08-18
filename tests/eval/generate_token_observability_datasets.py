@@ -10,11 +10,24 @@ from typing import Any
 
 DATASET_DIR = Path(__file__).parent / "datasets"
 
+ROOT_AGENT_METADATA = {
+    "agent_id": "root_agent",
+    "agent_type": "Workflow",
+    "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+    "sub_agents": [],
+}
+
 
 def _case(case_id: str, prompt: str) -> dict[str, Any]:
     return {
         "eval_case_id": case_id,
         "prompt": {"role": "user", "parts": [{"text": prompt}]},
+        # ADK's /app-info endpoint rejects non-LlmAgent roots. Seed the truthful
+        # workflow metadata so agents-cli can preserve it when discovery fails.
+        "agent_data": {
+            "agents": {"root_agent": ROOT_AGENT_METADATA.copy()},
+            "turns": [],
+        },
     }
 
 

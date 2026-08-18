@@ -80,6 +80,13 @@ JSON files directly, and then regenerate all three files:
 uv run python tests/eval/generate_token_observability_datasets.py
 ```
 
+Each generated case also seeds `agent_data.agents.root_agent` as the actual
+`Workflow` root and leaves `agent_data.turns` empty. ADK's `/app-info` route
+only describes `LlmAgent` roots and returns HTTP 400 for this application, so
+agents-cli cannot discover the metadata automatically. Empty turns keep the
+top-level prompt unambiguous, and agents-cli preserves the seeded metadata
+when it appends the generated trace events.
+
 The apparent JSON-inside-JSON structure is intentional. Agents CLI requires
 the outer `prompt.parts[].text` message envelope, while FoxQuiz's frontend
 normally sends structured quiz parameters as JSON text. For example:
