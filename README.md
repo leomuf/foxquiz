@@ -215,17 +215,12 @@ flowchart TD
         Gate -- "allowed edge" --> Gather["gather_and_route<br/>parse request and check curriculum"]
         Gather -- "ask_more edge" --> AskMore["ask_more_node<br/>terminal clarification branch"]
         Gather -- "generate_quiz edge" --> Search["decision_and_search<br/>relevant curriculum grounding"]
-        Search --> Generate["quiz_generation"]
+        Search --> Generate["quiz_generation<br/>initial: generate complete quiz<br/>retry: repair duplicates or regenerate"]
         Generate --> Validate["deterministic_quiz_validation<br/>structure and answer-cue checks"]
         Validate -- "valid edge" --> Judge["llm_as_a_judge<br/>semantic and factual review"]
-        Validate -- "retry edge: shared budget" --> RetryEntry["quiz_generation retry entry"]
-        RetryEntry --> RepairDecision{"Internal branch:<br/>duplicate-option issues only?"}
-        RepairDecision -- "Yes" --> Repair["Repair affected option lists only"]
-        RepairDecision -- "No" --> Regenerate["Regenerate the complete quiz"]
-        Repair --> Validate
-        Regenerate --> Validate
+        Validate -- "retry edge: shared budget" --> Generate
         Validate -- "quality_failure edge" --> QualityFailure["quality_failure_node<br/>safe retry message and diagnostic"]
-        Judge -- "retry edge: shared budget" --> RetryEntry
+        Judge -- "retry edge: shared budget" --> Generate
         Judge -- "success edge" --> QuizOutput["quiz_output_node<br/>final invariant and validated quiz"]
         Judge -- "quality_failure edge" --> QualityFailure
     end
