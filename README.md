@@ -66,6 +66,11 @@ Test the agent with a local web server:
 agents-cli playground
 ```
 
+FoxQuiz accepts the same structured JSON request in the ADK playground and
+from direct API clients that its browser sends automatically. See
+[Structured quiz request contract](#structured-quiz-request-contract) for an
+example. Free-form chat prompts are intentionally unsupported.
+
 You can also use features from the [ADK](https://adk.dev/) CLI with `uv run adk`.
 
 ## 🖥️ Running and Restarting the Application
@@ -161,7 +166,7 @@ To allow FoxQuiz to be safely published as a **public GitHub repository** withou
 
 * **Dynamic Configurations:** Prompt injection keywords, administrative command regexes, defensive classification prompts, and localized block responses are stored privately in Google Cloud Firestore under the `system_config/security` document.
 * **No Code Exposure:** Defensive regexes and system-level instructions are never committed to git, preventing attackers from reverse-engineering guardrail vulnerabilities.
-* **Multi-Stage Interception:** The `FoxQuizSecurityPlugin.before_run_callback` intercepts every invocation before the workflow starts. It conducts rapid keyword and regex matching, intercepts administrative command overrides (such as requests to delete logs or modify system configurations), and runs an LLM classifier using the private prompt configuration. The classifier also recognizes disclosed personal data semantically across languages, countries, and document types instead of relying on an incomplete fixed identifier list.
+* **Multi-Stage Interception:** The `FoxQuizSecurityPlugin.before_run_callback` intercepts every invocation before the workflow starts. It conducts rapid keyword and regex matching, intercepts administrative command overrides (such as requests to delete logs or modify system configurations), validates the structured quiz request, and runs an LLM classifier using the private prompt configuration. The classifier also recognizes disclosed personal data semantically across languages, countries, and document types instead of relying on an incomplete fixed identifier list.
 * **Clean Workflow Blocks:** Expected security, privacy, off-topic, and budget blocks are routed to a terminal workflow response. The frontend receives a structured block envelope and shows the localized message instead of a generic application error.
 * **Logged Security Events:** Malicious injection attempts or administrative bypass commands are blocked immediately and logged securely to a private `security_events` Firestore collection for auditing.
 
@@ -193,7 +198,10 @@ flowchart TD
         Budget -- "No" --> LocalScan["Stage 1: local keyword<br/>and injection-regex scan"]
         LocalScan -- "Malicious match" --> Violation["Log security event<br/>and run Sheriff 3-strike check"]
         Violation --> BlockState
-        LocalScan -- "No match" --> Classifier["◆ LLM<br/>Stage 2: semantic security classifier"]
+        LocalScan -- "No match" --> Payload{"Valid structured<br/>quiz payload?"}
+        Payload -- "No" --> InvalidRequest["Fixed localized INVALID_REQUEST response<br/>no LLM call"]
+        InvalidRequest --> BlockState
+        Payload -- "Yes" --> Classifier["◆ LLM<br/>Stage 2: semantic security classifier"]
         Classifier --> ValidDecision{"Valid classifier decision?"}
         ValidDecision -- "No or classifier error" --> Closed["Fail closed:<br/>CLASSIFIER_UNAVAILABLE"]
         Closed --> BlockState
@@ -212,7 +220,7 @@ flowchart TD
         Gate -- "blocked edge" --> BlockNode["security_block_node"]
         BlockNode --> BlockSSE["Structured blocked response"]
 
-        Gate -- "allowed edge" --> Gather["◆ LLM<br/>gather_and_route<br/>parse request and check curriculum"]
+        Gate -- "allowed edge" --> Gather["◆ LLM<br/>gather_and_route<br/>load validated request and check curriculum"]
         Gather -- "ask_more edge" --> AskMore["ask_more_node<br/>terminal clarification branch"]
         Gather -- "generate_quiz edge" --> Search["decision_and_search<br/>relevant curriculum grounding"]
 
@@ -255,7 +263,7 @@ flowchart TD
     classDef bestCase fill:#E6F4EA,stroke:#137333,color:#0D3B1E,stroke-width:3px
     classDef llmCall stroke:#ffb03a,stroke-width:4px
     class User,SSE,Middleware,Context,Runner bestCase
-    class Before,Config,Ban,Budget,LocalScan,Classifier,ValidDecision,SafeDecision,NoBlock bestCase
+    class Before,Config,Ban,Budget,LocalScan,Payload,Classifier,ValidDecision,SafeDecision,NoBlock bestCase
     class Start,Gate,Gather,Search bestCase
     class GenerationEntry,RepairDecision,FullGeneration,CandidateReady bestCase
     class Validate,Judge,QuizOutput,FrontendQuiz bestCase
@@ -281,10 +289,9 @@ flowchart TD
 
 | Purpose | Diagram location | Model | Temperature | When it runs |
 | --- | --- | --- | --- | --- |
-| Semantic security classification | Semantic security classifier | `gemini-2.5-flash` | `0.0` | Requests that pass the local scan |
-| Natural-language parameter extraction | gather_and_route | `gemini-2.5-flash` | `0.0` | Only when the agent receives a free-form request through a direct API client or the ADK playground; normal browser requests provide separate fields and skip this call |
+| Semantic security classification | Semantic security classifier | `gemini-2.5-flash` | `0.0` | Requests that pass the local scan and structured-payload validation |
 | Curriculum compatibility preflight | gather_and_route | `gemini-2.5-flash` | `0.0` | After grade, subject, and topic are known, it checks whether their combination is suitable and sufficiently clear before any quiz is generated |
-| Mascot missing-information or incompatibility response | gather_and_route | `gemini-2.5-flash` | `0.7` | When required values are missing, the mascot generates a short message asking for them; after an incompatible curriculum decision, it explains the issue and suggests suitable alternatives |
+| Mascot incompatibility response | gather_and_route | `gemini-2.5-flash` | `0.7` | After the curriculum preflight finds an incompatible grade, subject, and topic combination, the mascot explains the issue and suggests suitable alternatives |
 | Complete quiz generation | Generate complete quiz | `gemini-2.5-flash` | `0.7` | Initial generation or a non-repair retry |
 | Targeted duplicate-option repair | Targeted repair | `gemini-2.5-flash` | `0.2` | When the first candidate fails deterministic validation only because of duplicate options and the shared retry remains; it replaces only the affected option lists and answer indices |
 | Academic quality review | llm_as_a_judge | `gemini-2.5-flash` | `0.1` | After deterministic validation passes, it reviews factual correctness and grade, curriculum, and difficulty alignment; it is skipped when reinforcement mode repeats a previously validated quiz |
@@ -292,10 +299,33 @@ flowchart TD
 This table is an inventory of possible LLM calls, not a sequence executed for
 every request. On the highlighted best-case path, a normal browser request
 makes **four LLM calls**: security classification, curriculum compatibility
-preflight, complete quiz generation, and academic quality review. A free-form
-request sent directly through an API client or the ADK playground adds
-parameter extraction, increasing that path to **five LLM calls**. The mascot
-response, targeted repair, and full-generation retry are not used on this path.
+preflight, complete quiz generation, and academic quality review. Unsupported
+free-form or malformed requests are rejected before any LLM call. The mascot
+response, targeted repair, and full-generation retry are not used on the
+best-case path.
+
+#### Structured quiz request contract
+
+The browser creates this payload automatically. The ADK playground and direct
+API clients must submit equivalent JSON text:
+
+```json
+{
+  "grade": "Grade 8",
+  "subject": "Biology",
+  "topic": "Cells",
+  "preferred_language": "en",
+  "mascot_id": "fox"
+}
+```
+
+`grade`, `subject`, and `topic` are required. `preferred_language` accepts
+`de`, `pt`, or `en`; `mascot_id` accepts `fox`, `owl`, or `dragon`. Structured
+clarification and adaptive follow-ups may additionally provide
+`clarification_response`, `previous_score`, `previous_questions`,
+`previous_quiz_json`, and `selected_difficulty`. Unknown fields, missing
+required fields, malformed JSON, and free-form text receive a fixed localized
+`INVALID_REQUEST` response without parameter-extraction or mascot LLM calls.
 
 #### Duplicate-option repair and academic review
 

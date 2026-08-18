@@ -12,7 +12,7 @@ import pytest
 @pytest.mark.parametrize(
     ("relative_path", "expected_async_calls"),
     [
-        ("app/agent.py", 6),
+        ("app/agent.py", 4),
         ("app/app_utils/callbacks.py", 1),
     ],
 )

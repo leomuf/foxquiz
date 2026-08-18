@@ -51,6 +51,11 @@ from app.app_utils.request_context import get_client_locale
 from app.app_utils.token_usage import CallStage, TerminalOutcome
 from app.app_utils.typing import QuizContext, QuizQualityFailure
 from app.database.firestore_repo import FirestorePersistenceError, FirestoreRepository
+from app.domain.quiz_request import (
+    QuizRequestValidationError,
+    invalid_request_message,
+    parse_quiz_request,
+)
 from app.domain.quiz_validation import (
     build_retry_guidance,
     validate_quiz_candidate,
@@ -122,47 +127,6 @@ def _resolve_mascot(mascot_id: Any, language: str) -> tuple[str, str]:
 
 
 # --- Pydantic Models for Quiz and Safety Structures ---
-
-
-class ExtractedQuizInfo(BaseModel):
-    grade: Optional[str] = Field(
-        None,
-        description="The school grade/year (e.g., 'Grade 5', '5. Klasse') if mentioned in the prompt.",
-    )
-    subject: Optional[str] = Field(
-        None,
-        description="The school subject (e.g., 'Math', 'Geschichte', 'Geographie') if mentioned.",
-    )
-    topic: Optional[str] = Field(
-        None,
-        description="The specific topic/theme (e.g., 'Fractions', 'Weimar Republic', 'Sambaquis') if mentioned.",
-    )
-    preferred_language: Optional[str] = Field(
-        None, description="The detected preferred language ('de', 'pt', 'en') if clear."
-    )
-    mascot_id: Optional[str] = Field(
-        None,
-        description="The selected FoxQuiz mascot ID ('fox', 'owl', or 'dragon').",
-    )
-    previous_score: Optional[int] = Field(
-        None, description="The previous quiz score out of 10 if provided (e.g., 3, 10)."
-    )
-    previous_questions: Optional[List[str]] = Field(
-        None,
-        description="A list of question texts from the previous quiz to avoid duplication if provided.",
-    )
-    previous_quiz_json: Optional[str] = Field(
-        None,
-        description="The full JSON string of the previous quiz to adapt if provided.",
-    )
-    selected_difficulty: Optional[str] = Field(
-        None,
-        description="The user selected progression difficulty ('medium' or 'hard') if chosen via the modal.",
-    )
-    clarification_response: Optional[str] = Field(
-        None,
-        description="Additional scope supplied after a clarification question while retaining the original topic.",
-    )
 
 
 class QuizQuestion(BaseModel):
@@ -394,7 +358,7 @@ def _text_from_node_input(node_input: Any) -> str:
 
 @node
 async def gather_and_route(ctx: Context, node_input: Any) -> Event:
-    """Extracts school grade, subject, and topic from user prompts and handles follow-up chat interactions."""
+    """Load a validated structured request and perform curriculum routing."""
     prompt = _text_from_node_input(node_input)
     if not prompt:
         prompt = ctx.state.get(_ALLOWED_INPUT_STATE_KEY, "") or ""
@@ -402,34 +366,24 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
 
     logger.info("Gather and Route started.")
 
-    # Handle user requests to reset or start over
-    prompt_lower = prompt.lower()
-    reset_keywords = [
-        "neu",
-        "new",
-        "reset",
-        "starten",
-        "start over",
-        "outro",
-        "outra",
-        "novo",
-        "nova",
-    ]
-    if any(kw in prompt_lower for kw in reset_keywords) and len(prompt_lower) < 25:
-        ctx.state.clear()
-        logger.info("Mascot resetting conversation state.")
+    try:
+        request = parse_quiz_request(prompt)
+    except QuizRequestValidationError:
+        logger.warning("Rejected a request that did not match the quiz contract.")
+        lang = get_client_locale()
+        return Event(
+            content=types.Content(
+                role="model",
+                parts=[types.Part.from_text(text=invalid_request_message(lang))],
+            ),
+            actions=EventActions(route="ask_more"),
+        )
 
-    # Lazy state initialization
-    if "grade" not in ctx.state:
-        ctx.state["grade"] = None
-    if "subject" not in ctx.state:
-        ctx.state["subject"] = None
-    if "topic" not in ctx.state:
-        ctx.state["topic"] = None
-    if "preferred_language" not in ctx.state:
-        ctx.state["preferred_language"] = get_client_locale() or "en"
-    if "mascot_id" not in ctx.state:
-        ctx.state["mascot_id"] = DEFAULT_MASCOT_ID
+    request_state = request.model_dump()
+    for field_name, field_value in request_state.items():
+        ctx.state[field_name] = field_value
+    logger.info("Loaded validated structured quiz parameters.")
+
     # Reset quality diagnostics on any fresh start or new turn.
     ctx.state["judge_attempts"] = 0
     ctx.state["judge_reasons"] = []
@@ -442,98 +396,6 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     ctx.state["grounding_title"] = None
     ctx.state["grounding_discarded"] = False
 
-    lang = ctx.state["preferred_language"]
-
-    # Try parsing the prompt as JSON directly (e.g. for deterministic buttons / Let's go for more questions)
-    is_json_payload = False
-    if prompt and prompt.strip().startswith("{") and prompt.strip().endswith("}"):
-        try:
-            parsed = json.loads(prompt)
-            if isinstance(parsed, dict) and (
-                "grade" in parsed
-                or "subject" in parsed
-                or "topic" in parsed
-                or "previous_score" in parsed
-            ):
-                logger.info("Successfully parsed prompt as structured JSON parameters.")
-                if parsed.get("grade"):
-                    ctx.state["grade"] = parsed["grade"]
-                if parsed.get("subject"):
-                    ctx.state["subject"] = parsed["subject"]
-                if parsed.get("topic"):
-                    ctx.state["topic"] = parsed["topic"]
-                if parsed.get("preferred_language"):
-                    ctx.state["preferred_language"] = parsed["preferred_language"]
-                if "mascot_id" in parsed:
-                    ctx.state["mascot_id"] = parsed["mascot_id"]
-                if "previous_score" in parsed:
-                    ctx.state["previous_score"] = parsed["previous_score"]
-                if "previous_questions" in parsed:
-                    ctx.state["previous_questions"] = parsed["previous_questions"]
-                if "previous_quiz_json" in parsed:
-                    ctx.state["previous_quiz_json"] = parsed["previous_quiz_json"]
-                if "selected_difficulty" in parsed:
-                    ctx.state["selected_difficulty"] = parsed["selected_difficulty"]
-                ctx.state["clarification_response"] = parsed.get(
-                    "clarification_response"
-                )
-                is_json_payload = True
-        except Exception as e:
-            logger.info(
-                "Prompt is not a structured JSON payload (%s). Proceeding with natural language extraction.",
-                type(e).__name__,
-            )
-
-    # If a prompt is present and was not a parsed JSON payload, run lightweight structured LLM to extract info
-    if prompt and not is_json_payload:
-        client = Client()
-        try:
-            extraction_prompt = (
-                "You are an assistant for a school exam preparation quiz generator.\n"
-                "Analyze the user's input and extract: school grade/year (grade), school subject (subject), "
-                "the exam topic (topic), and the preferred language ('de', 'pt', 'en').\n"
-                f'User input to review: "{prompt}"'
-            )
-            response = await client.aio.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=extraction_prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=ExtractedQuizInfo,
-                    temperature=0.0,
-                ),
-            )
-            record_token_usage(
-                ctx,
-                response,
-                call_stage=CallStage.PARAMETER_EXTRACTOR,
-            )
-            extracted = ExtractedQuizInfo.model_validate_json(response.text.strip())
-            logger.info("Structured quiz parameters extracted.")
-
-            if extracted.grade:
-                ctx.state["grade"] = extracted.grade
-            if extracted.subject:
-                ctx.state["subject"] = extracted.subject
-            if extracted.topic:
-                ctx.state["topic"] = extracted.topic
-            if extracted.preferred_language:
-                ctx.state["preferred_language"] = extracted.preferred_language
-            if extracted.previous_score is not None:
-                ctx.state["previous_score"] = extracted.previous_score
-            if extracted.mascot_id:
-                ctx.state["mascot_id"] = extracted.mascot_id
-            if extracted.previous_questions:
-                ctx.state["previous_questions"] = extracted.previous_questions
-            if extracted.previous_quiz_json:
-                ctx.state["previous_quiz_json"] = extracted.previous_quiz_json
-            if extracted.selected_difficulty:
-                ctx.state["selected_difficulty"] = extracted.selected_difficulty
-            ctx.state["clarification_response"] = extracted.clarification_response
-        except Exception as e:
-            logger.error("Information extraction failed (%s).", type(e).__name__)
-
-    # Check if we have gathered all 3 pieces of information
     grade = ctx.state.get("grade")
     subject = ctx.state.get("subject")
     topic = ctx.state.get("topic")
@@ -681,69 +543,6 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 ),
                 actions=EventActions(route="ask_more"),
             )
-
-    # Otherwise, ask conversationally for what is missing in their language
-    missing_fields = []
-    if not grade:
-        missing_fields.append(
-            "Grade/School Year"
-            if lang == "en"
-            else "Schuljahr/Klasse"
-            if lang == "de"
-            else "Ano escolar"
-        )
-    if not subject:
-        missing_fields.append(
-            "Subject" if lang == "en" else "Fach" if lang == "de" else "Matéria"
-        )
-    if not topic:
-        missing_fields.append(
-            "Topic" if lang == "en" else "Thema" if lang == "de" else "Tema"
-        )
-
-    missing_str = ", ".join(missing_fields)
-
-    system_conv_prompt = (
-        f"You are {mascot_name}, a playful, friendly learning companion for kids.\n"
-        f"If you introduce yourself, use exactly the name '{mascot_name}' and never claim to be another mascot.\n"
-        f"The user wants a quiz but some info is missing: ({missing_str}).\n"
-        f"Ask them conversationally to fill in these missing values. Speak directly to them in '{lang}'.\n"
-        f"Keep your message encouraging, short, and clear. Do not use animal emoji because the frontend renders the selected mascot artwork separately."
-    )
-
-    client = Client()
-    try:
-        response = await client.aio.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=f'Ask for: {missing_str}. Conversation context: "{prompt}"',
-            config=types.GenerateContentConfig(
-                system_instruction=system_conv_prompt, temperature=0.7
-            ),
-        )
-        record_token_usage(
-            ctx,
-            response,
-            call_stage=CallStage.MASCOT_PROMPT,
-        )
-        msg_text = response.text.strip()
-    except Exception as e:
-        logger.error(
-            "Mascot prompt generation failed (%s). Using fallback.",
-            type(e).__name__,
-        )
-        if lang == "de":
-            msg_text = f"Hallo! Ich bin {mascot_name}. Um dein cooles Quiz vorzubereiten, brauche ich noch folgende Infos: {missing_str}! Lass es mich wissen!"
-        elif lang == "pt":
-            msg_text = f"Olá! Eu sou o {mascot_name}. Para montar seu super quiz, ainda preciso saber: {missing_str}! Me conta!"
-        else:
-            msg_text = f"Hello! I'm {mascot_name}. To build your awesome quiz, I still need: {missing_str}! Tell me about it!"
-
-    return Event(
-        content=types.Content(
-            role="model", parts=[types.Part.from_text(text=msg_text)]
-        ),
-        actions=EventActions(route="ask_more"),
-    )
 
 
 @node

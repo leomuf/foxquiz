@@ -23,6 +23,7 @@ Privacy boundary:
 """
 
 import datetime
+import json
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
@@ -73,10 +74,18 @@ def test_language_defaults_to_english() -> None:
     assert state_context.preferred_language == "en"
 
 
-def _semantic_classifier_context() -> MagicMock:
+def _semantic_classifier_context(*, topic: str = "Cells") -> MagicMock:
     context = MagicMock()
     part = MagicMock()
-    part.text = "Create a biology quiz."
+    part.text = json.dumps(
+        {
+            "grade": "Grade 8",
+            "subject": "Biology",
+            "topic": topic,
+            "preferred_language": "en",
+        },
+        ensure_ascii=False,
+    )
     context.user_content.parts = [part]
     context.state = {}
     return context
@@ -665,8 +674,7 @@ async def test_semantic_classifier_blocks_pii_without_security_event(prompt):
             return_value=response
         )
 
-        context = _semantic_classifier_context()
-        context.user_content.parts[0].text = prompt
+        context = _semantic_classifier_context(topic=prompt)
         with pytest.raises(SecurityBlockException) as exc_info:
             await before_agent_callback(context)
 
@@ -687,6 +695,43 @@ async def test_semantic_classifier_blocks_pii_without_security_event(prompt):
     client_ip_ctx.reset(t1)
     anonymous_id_ctx.reset(t2)
     client_locale_ctx.reset(t3)
+
+
+@pytest.mark.asyncio
+async def test_invalid_request_is_blocked_before_semantic_classification() -> None:
+    """Unsupported input must consume no classifier or workflow LLM tokens."""
+    t1 = client_ip_ctx.set("127.0.0.1")
+    t2 = anonymous_id_ctx.set("test_anon_id")
+    t3 = client_locale_ctx.set("en")
+
+    try:
+        with (
+            patch("app.app_utils.callbacks.FirestoreRepository") as repo_class,
+            patch("app.app_utils.callbacks.Client") as client_class,
+        ):
+            _configure_semantic_classifier_repo(repo_class.return_value)
+            context = _semantic_classifier_context()
+            context.user_content.parts[0].text = "Create a biology quiz."
+            context.state[callbacks._TOKEN_USAGE_STATE_KEY] = (
+                callbacks.InvocationTokenUsage().as_state()
+            )
+
+            with pytest.raises(SecurityBlockException) as exc_info:
+                await before_agent_callback(context)
+
+            assert exc_info.value.block_type == "INVALID_REQUEST"
+            assert "expected quiz format" in exc_info.value.message
+            client_class.return_value.aio.models.generate_content.assert_not_called()
+            repo_class.return_value.log_security_event.assert_not_called()
+            usage = callbacks.InvocationTokenUsage.from_state(
+                context.state[callbacks._TOKEN_USAGE_STATE_KEY]
+            )
+            assert usage.model_call_count == 0
+            assert usage.stage_call_counts == {}
+    finally:
+        client_ip_ctx.reset(t1)
+        anonymous_id_ctx.reset(t2)
+        client_locale_ctx.reset(t3)
 
 
 @pytest.mark.asyncio

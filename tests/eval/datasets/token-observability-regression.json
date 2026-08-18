@@ -89,23 +89,23 @@
       }
     },
     {
-      "eval_case_id": "natural_de_grade7_middle_ages",
+      "eval_case_id": "structured_de_grade7_middle_ages",
       "prompt": {
         "role": "user",
         "parts": [
           {
-            "text": "Erstelle ein deutsches Geschichtsquiz für Klasse 7 über das Mittelalter."
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Geschichte\",\"topic\":\"Das Mittelalter\",\"preferred_language\":\"de\"}"
           }
         ]
       }
     },
     {
-      "eval_case_id": "natural_pt_grade8_solar_system",
+      "eval_case_id": "structured_pt_grade8_solar_system",
       "prompt": {
         "role": "user",
         "parts": [
           {
-            "text": "Crie um quiz de Ciências em português para o 8º ano sobre o sistema solar."
+            "text": "{\"grade\":\"8º ano\",\"subject\":\"Ciências\",\"topic\":\"O sistema solar\",\"preferred_language\":\"pt\"}"
           }
         ]
       }

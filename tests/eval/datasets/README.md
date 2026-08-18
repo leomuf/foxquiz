@@ -65,10 +65,10 @@ rollout cases; it is not an additional ten-case measurement cohort:
 └── 5 selected rollout cases
 ```
 
-Across the 50 unique cases, the matrix covers 30 initial structured quiz
-requests, 15 adaptive follow-ups (five each for easy, medium, and hard), and
-five natural-language requests. It varies languages, grades, subjects, and
-topics so the baseline is not dominated by one request shape. The five-case
+Across the 50 unique cases, the matrix covers 35 initial structured quiz
+requests and 15 structured adaptive follow-ups (five each for easy, medium,
+and hard). It varies languages, grades, subjects, and topics so the baseline is
+not dominated by one request shape. The five-case
 pilot is a compact cross-section: three initial requests in German, English,
 and Portuguese, one adaptive easy request, and one adaptive hard request.
 
@@ -103,12 +103,13 @@ by the browser. Adaptive cases are longer because they also carry realistic
 `selected_difficulty` context. That extra context is required to measure the
 different token profile of adaptive quiz generation.
 
-After deploying the telemetry revision to `foxquiz-dev`, create an artifact
-directory named for its short commit SHA. Run the pilot with two workers:
+After deploying the telemetry revision to DEV, set `GCLOUD_RUN_DEV_URL` in the
+local shell without committing its real value. Create an artifact directory
+named for the revision's short commit SHA, then run the pilot with two workers:
 
 ```bash
 agents-cli eval generate \
-  --url https://foxquiz-dev-zeuzcpbnba-ue.a.run.app \
+  --url "${GCLOUD_RUN_DEV_URL}" \
   --app-name app \
   --dataset tests/eval/datasets/token-observability-pilot.json \
   --output artifacts/traces/token-observability/<REVISION>/pilot-c2.json \
@@ -120,7 +121,7 @@ latency, and projected global token usage before running the remaining cases:
 
 ```bash
 agents-cli eval generate \
-  --url https://foxquiz-dev-zeuzcpbnba-ue.a.run.app \
+  --url "${GCLOUD_RUN_DEV_URL}" \
   --app-name app \
   --dataset tests/eval/datasets/token-observability-rollout.json \
   --output artifacts/traces/token-observability/<REVISION>/rollout-c4.json \
@@ -138,7 +139,7 @@ case mix cannot be mistaken for a concurrency effect:
 
 ```bash
 agents-cli eval generate \
-  --url https://foxquiz-dev-zeuzcpbnba-ue.a.run.app \
+  --url "${GCLOUD_RUN_DEV_URL}" \
   --app-name app \
   --dataset tests/eval/datasets/token-observability-pilot.json \
   --output artifacts/traces/token-observability/<REVISION>/pilot-c8.json \

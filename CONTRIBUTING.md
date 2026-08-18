@@ -74,6 +74,16 @@ agents-cli update
    uv run uvicorn app.fast_api_app:app --reload
    ```
 
+   The FoxQuiz browser creates the required structured request automatically.
+   When using the ADK playground directly, enter JSON text such as:
+
+   ```json
+   {"grade":"Grade 8","subject":"Biology","topic":"Cells","preferred_language":"en"}
+   ```
+
+   Free-form chat prompts and incomplete payloads are intentionally rejected
+   without an LLM call.
+
 #### Inspecting Local Quiz Logs
 
 For troubleshooting a complete quiz request, run the application in the
@@ -103,16 +113,16 @@ Filter the saved log for the most relevant agent stages and failures:
 
 ```bash
 grep -Ei \
-  "Raw prompt|Extracted parameters|curriculum|compatib|Generating Quiz|Judge|ERROR|WARNING" \
+  "Gather and Route|validated structured|quiz contract|curriculum|compatib|Generating Quiz|Judge|ERROR|WARNING" \
   /tmp/foxquiz-local.log
 ```
 
 For curriculum-routing problems, inspect these messages in order:
 
-- `Gather and Route. Raw prompt`
-- `Extracted parameters`
+- `Gather and Route started.`
+- `Loaded validated structured quiz parameters.`
 - `Performing upfront curriculum validation check`
-- `Upfront curriculum check results`
+- `Upfront curriculum check completed with status=...`
 - `Curriculum Search Skill invoked`
 - `Generating Quiz`
 

@@ -43,6 +43,7 @@ from app.agent import (
     _workflow_event,
     ask_more_node,
     deterministic_quiz_validation,
+    gather_and_route,
     quiz_generation,
     quiz_output_node,
     search_wikipedia,
@@ -135,8 +136,9 @@ def test_wikipedia_search_skips_irrelevant_first_result() -> None:
 @pytest.mark.asyncio
 async def test_security_checkpoint_forwards_original_input_on_allowed_route() -> None:
     """The security router must carry safe input without emitting it to clients."""
+    payload = json.dumps({"grade": "Grade 8", "subject": "Biology", "topic": "Cells"})
     original_input = MagicMock()
-    original_input.parts = [MagicMock(text="Create a biology quiz.")]
+    original_input.parts = [MagicMock(text=payload)]
     context = MagicMock()
     context.state = {}
 
@@ -151,7 +153,28 @@ async def test_security_checkpoint_forwards_original_input_on_allowed_route() ->
     assert len(events) == 1
     assert events[0].actions.route == "allowed"
     assert events[0].output is None
-    assert context.state[_ALLOWED_INPUT_STATE_KEY] == "Create a biology quiz."
+    assert context.state[_ALLOWED_INPUT_STATE_KEY] == payload
+
+
+@pytest.mark.asyncio
+async def test_gather_rejects_free_form_without_model_call() -> None:
+    """The workflow fallback must reject unsupported input deterministically."""
+    context = MagicMock()
+    context.state = {_ALLOWED_INPUT_STATE_KEY: "Create a biology quiz."}
+
+    with patch("app.agent.Client") as client_class:
+        events = [
+            event
+            async for event in gather_and_route._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
+
+    assert len(events) == 1
+    assert events[0].actions.route == "ask_more"
+    assert "expected quiz format" in events[0].content.parts[0].text
+    client_class.assert_not_called()
 
 
 @pytest.mark.asyncio
