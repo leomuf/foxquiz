@@ -16,6 +16,7 @@ DATASET_DIR = EVAL_DIR / "datasets"
 
 
 def test_token_observability_datasets_seed_workflow_metadata() -> None:
+    """Verify every generated dataset case carries valid Workflow metadata."""
     dataset_names = (
         "token-observability-pilot.json",
         "token-observability-rollout.json",
@@ -43,6 +44,7 @@ def test_token_observability_datasets_seed_workflow_metadata() -> None:
 
 
 def test_token_observability_judge_requires_structured_json() -> None:
+    """Verify the fulfillment judge requires bounded schema-valid JSON output."""
     config = yaml.safe_load(
         (EVAL_DIR / "token_observability_eval_config.yaml").read_text(encoding="utf-8")
     )
