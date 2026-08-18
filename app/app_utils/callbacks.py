@@ -39,6 +39,11 @@ from app.database.firestore_repo import (
     SecurityConfigurationError,
     validate_security_config,
 )
+from app.domain.quiz_request import (
+    QuizRequestValidationError,
+    invalid_request_message,
+    parse_quiz_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -262,6 +267,18 @@ async def _run_security_checkpoint(
                 "RegexMatch",
                 locale_suffix,
             )
+
+    # Reject unsupported input before it can consume semantic-classifier or
+    # workflow tokens. The local malicious-pattern scan remains first so known
+    # attacks retain Sheriff logging and strike behavior.
+    try:
+        parse_quiz_request(prompt)
+    except QuizRequestValidationError:
+        logger.info("Blocked a request that did not match the quiz contract.")
+        raise SecurityBlockException(
+            invalid_request_message(locale_suffix),
+            "INVALID_REQUEST",
+        ) from None
 
     # --- Stage 2: LLM Classification (Semantic Filter) ---
     try:

@@ -1,17 +1,25 @@
 {
   "eval_cases": [
     {
-      "eval_case_id": "greeting",
+      "eval_case_id": "grade_5_water_cycle",
       "prompt": {
         "role": "user",
-        "parts": [{"text": "Hello, what can you help me with?"}]
+        "parts": [
+          {
+            "text": "{\"grade\":\"Grade 5\",\"subject\":\"Science\",\"topic\":\"The water cycle\",\"preferred_language\":\"en\"}"
+          }
+        ]
       }
     },
     {
-      "eval_case_id": "weather_query",
+      "eval_case_id": "structured_off_topic_weather_query",
       "prompt": {
         "role": "user",
-        "parts": [{"text": "What's the weather like in San Francisco?"}]
+        "parts": [
+          {
+            "text": "{\"grade\":\"Grade 7\",\"subject\":\"Mathematics\",\"topic\":\"What is today's weather forecast in Florianópolis?\",\"preferred_language\":\"en\"}"
+          }
+        ]
       }
     }
   ]

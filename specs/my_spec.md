@@ -270,25 +270,31 @@ terminology:
 
 The browser submits its predefined form values as structured JSON containing
 `grade`, `subject`, `topic`, and `preferred_language`. The agent parses this
-deterministically and skips the additional LLM extraction call. Natural
-language chat remains supported and uses structured LLM extraction only when
-the prompt is not a valid frontend payload. Missing language values always
-fall back to English.
+deterministically. The ADK playground and direct API clients must use the same
+contract. Free-form text, malformed JSON, missing required fields, and unknown
+fields receive a fixed localized `INVALID_REQUEST` response before the
+semantic security classifier or workflow can consume LLM tokens. Missing
+optional language values fall back to English.
 
 ```gherkin
 Feature: Information gathering before quiz creation
 
-  Scenario: Complete information in one message
-    Given the assistant has greeted the user
-    When the user enters grade, subject, and topic
-    Then the assistant recognizes all three values
+  Scenario: Complete structured request
+    Given the user has opened the quiz form
+    When the browser submits grade, subject, and topic as structured JSON
+    Then the assistant validates all three values deterministically
     And the assistant starts quiz creation
 
-  Scenario: Incomplete information requires a follow-up
-    Given the assistant has greeted the user
-    When the user provides only the subject
-    Then the assistant politely asks for the missing grade and topic
-    And the assistant starts the quiz only once all three values are present
+  Scenario: Structured clarification response
+    Given the curriculum preflight requested a narrower scope
+    When the browser resubmits the original quiz fields with a clarification response
+    Then the assistant evaluates the original topic together with the added scope
+
+  Scenario: Unsupported request shape
+    Given a direct client sends free-form text, malformed JSON, or missing fields
+    When the request reaches the security checkpoint
+    Then the request receives a localized INVALID_REQUEST response
+    And neither parameter extraction nor a mascot LLM call runs
 ```
 
 ---
@@ -311,6 +317,21 @@ quiz:
     max: 5
   correct_answers_per_question: 1
   selection: "single_click"
+
+request_contract:
+  format: "structured_json"
+  required: ["grade", "subject", "topic"]
+  optional:
+    - "preferred_language"
+    - "mascot_id"
+    - "clarification_response"
+    - "previous_score"
+    - "previous_questions"
+    - "previous_quiz_json"
+    - "selected_difficulty"
+  unknown_fields: "reject"
+  free_form_input: "unsupported"
+  invalid_response: "localized_INVALID_REQUEST_before_LLM"
 
 judge:
   enabled: true
@@ -348,8 +369,9 @@ knowledge_sources:
 
 **The principal stages:**
 
-1. **Information collection.** Parse deterministic frontend JSON directly, or
-   extract missing values from natural language.
+1. **Request validation.** Parse initial, clarification, and adaptive requests
+   against the deterministic structured JSON contract. Reject unsupported
+   request shapes without an LLM call.
 2. **Curriculum preflight.** Classify the exact grade/subject/topic combination
    as `compatible`, `needs_clarification`, or `incompatible` before grounding
    and generation (Section 6.3).
@@ -924,8 +946,15 @@ application plugin's `before_run_callback`:
    - Perform case-insensitive checks of the user's prompt against `blocklist_keywords`.
    - Evaluate the prompt against `injection_regexes`.
    - If a match is found, immediately classify as `MALICIOUS` and short-circuit.
-3. **Stage 2: LLM Classification (Semantic Filter)**:
-   - If Stage 1 passes, use `gemini-2.5-flash` with temperature 0.0,
+3. **Structured Request Validation (Zero-Token Contract Gate)**:
+   - After the local malicious-pattern scan, validate initial, clarification,
+     and adaptive requests against the public structured JSON contract.
+   - Reject malformed JSON, missing required fields, unknown fields, and
+     free-form text with a fixed localized `INVALID_REQUEST` response.
+   - Keep the local scan first so known malicious input retains Sheriff event
+     logging and strike behavior even when its request shape is unsupported.
+4. **Stage 2: LLM Classification (Semantic Filter)**:
+   - If the local scan and contract validation pass, use `gemini-2.5-flash` with temperature 0.0,
      `max_output_tokens=512`, and a small `thinking_budget=256`. Limited
      thinking improves semantic verification while keeping latency and cost
      bounded.
@@ -939,7 +968,7 @@ application plugin's `before_run_callback`:
      fail closed with a localized temporary-unavailability message.
    - If the classifier returns `MALICIOUS`, `OFF_TOPIC`, or `PII`, block and
      short-circuit.
-4. **Action on Violation**:
+5. **Action on Violation**:
    - **Block Prompt**: The prompt is not sent to the main Quiz Generator.
    - **Log Security Event**: If classified as `MALICIOUS`, write a log entry to the `security_events` Firestore collection (storing timestamp, blocked input, violation type, e.g. `RegexMatch`, `KeywordMatch`, `ClassifierBlock`, and anonymous ID).
    - **Protect PII**: Inputs classified as `PII` are not written to
@@ -1014,10 +1043,16 @@ The Sheriff operates inside the plugin's pre-run security check and uses secure,
 ```gherkin
 Feature: Security checkpoint & Malicious prompt detection
 
+  Scenario: Unsupported request is rejected without LLM use
+    Given a direct client submits free-form text or malformed quiz JSON
+    When the request passes the local malicious-pattern scan
+    Then the request receives a localized INVALID_REQUEST response
+    And the semantic classifier and quiz workflow do not run
+
   Scenario: Off-topic question (weather)
-    Given the user has opened the chat
-    When the user asks about the weather
-    Then the prompt is not forwarded to the LLM
+    Given the user has opened the quiz form
+    When the user submits weather as the topic in a valid structured request
+    Then the prompt is not forwarded to the quiz-generation LLM
     And the user receives the friendly off-topic response
 
   Scenario: Personal data is protected

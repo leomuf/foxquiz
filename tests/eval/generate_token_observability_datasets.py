@@ -271,26 +271,41 @@ ADAPTIVE_ROLLOUT_CASES = [
 ]
 
 
-NATURAL_LANGUAGE_ROLLOUT_CASES = [
+ADDITIONAL_INITIAL_ROLLOUT_CASES = [
     (
-        "natural_en_grade5_water_cycle",
-        "Create a Grade 5 science quiz in English about the water cycle.",
+        "structured_en_grade5_water_cycle",
+        "Grade 5",
+        "Science",
+        "The water cycle",
+        "en",
     ),
     (
-        "natural_de_grade7_middle_ages",
-        "Erstelle ein deutsches Geschichtsquiz für Klasse 7 über das Mittelalter.",
+        "structured_de_grade7_middle_ages",
+        "Klasse 7",
+        "Geschichte",
+        "Das Mittelalter",
+        "de",
     ),
     (
-        "natural_pt_grade8_solar_system",
-        "Crie um quiz de Ciências em português para o 8º ano sobre o sistema solar.",
+        "structured_pt_grade8_solar_system",
+        "8º ano",
+        "Ciências",
+        "O sistema solar",
+        "pt",
     ),
     (
-        "natural_en_grade11_functional_groups",
-        "I need an English Grade 11 chemistry quiz about organic functional groups.",
+        "structured_en_grade11_functional_groups",
+        "Grade 11",
+        "Chemistry",
+        "Organic functional groups",
+        "en",
     ),
     (
-        "natural_de_grade10_climate_change",
-        "Ich möchte ein Geografiequiz für Klasse 10 zum Klimawandel auf Deutsch.",
+        "structured_de_grade10_climate_change",
+        "Klasse 10",
+        "Geografie",
+        "Klimawandel",
+        "de",
     ),
 ]
 
@@ -326,10 +341,17 @@ def _build_rollout_cases() -> list[dict[str, Any]]:
             selected_difficulty,
         ) in ADAPTIVE_ROLLOUT_CASES
     ]
-    natural = [
-        _case(case_id, prompt) for case_id, prompt in NATURAL_LANGUAGE_ROLLOUT_CASES
+    additional_initial = [
+        _structured_case(
+            case_id,
+            grade=grade,
+            subject=subject,
+            topic=topic,
+            language=language,
+        )
+        for case_id, grade, subject, topic, language in ADDITIONAL_INITIAL_ROLLOUT_CASES
     ]
-    return [*initial, *adaptive, *natural]
+    return [*initial, *adaptive, *additional_initial]
 
 
 def _write_dataset(filename: str, cases: list[dict[str, Any]]) -> None:
@@ -356,8 +378,8 @@ def main() -> None:
         "de_grade9_acids_bases",
         "en_grade11_supply_demand",
         "pt_grade8_brazilian_biomes",
-        "natural_de_grade7_middle_ages",
-        "natural_pt_grade8_solar_system",
+        "structured_de_grade7_middle_ages",
+        "structured_pt_grade8_solar_system",
     }
     regression_cases = [
         case

@@ -16,6 +16,8 @@ class CallStage(StrEnum):
     """Allowlisted direct Gemini call stages."""
 
     SECURITY_CLASSIFIER = "security_classifier"
+    # Kept so historical telemetry documents remain decodable after the
+    # natural-language request path was retired.
     PARAMETER_EXTRACTOR = "parameter_extractor"
     CURRICULUM_EVALUATOR = "curriculum_evaluator"
     MASCOT_PROMPT = "mascot_prompt"

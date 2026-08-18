@@ -441,56 +441,56 @@
       }
     },
     {
-      "eval_case_id": "natural_en_grade5_water_cycle",
+      "eval_case_id": "structured_en_grade5_water_cycle",
       "prompt": {
         "role": "user",
         "parts": [
           {
-            "text": "Create a Grade 5 science quiz in English about the water cycle."
+            "text": "{\"grade\":\"Grade 5\",\"subject\":\"Science\",\"topic\":\"The water cycle\",\"preferred_language\":\"en\"}"
           }
         ]
       }
     },
     {
-      "eval_case_id": "natural_de_grade7_middle_ages",
+      "eval_case_id": "structured_de_grade7_middle_ages",
       "prompt": {
         "role": "user",
         "parts": [
           {
-            "text": "Erstelle ein deutsches Geschichtsquiz für Klasse 7 über das Mittelalter."
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Geschichte\",\"topic\":\"Das Mittelalter\",\"preferred_language\":\"de\"}"
           }
         ]
       }
     },
     {
-      "eval_case_id": "natural_pt_grade8_solar_system",
+      "eval_case_id": "structured_pt_grade8_solar_system",
       "prompt": {
         "role": "user",
         "parts": [
           {
-            "text": "Crie um quiz de Ciências em português para o 8º ano sobre o sistema solar."
+            "text": "{\"grade\":\"8º ano\",\"subject\":\"Ciências\",\"topic\":\"O sistema solar\",\"preferred_language\":\"pt\"}"
           }
         ]
       }
     },
     {
-      "eval_case_id": "natural_en_grade11_functional_groups",
+      "eval_case_id": "structured_en_grade11_functional_groups",
       "prompt": {
         "role": "user",
         "parts": [
           {
-            "text": "I need an English Grade 11 chemistry quiz about organic functional groups."
+            "text": "{\"grade\":\"Grade 11\",\"subject\":\"Chemistry\",\"topic\":\"Organic functional groups\",\"preferred_language\":\"en\"}"
           }
         ]
       }
     },
     {
-      "eval_case_id": "natural_de_grade10_climate_change",
+      "eval_case_id": "structured_de_grade10_climate_change",
       "prompt": {
         "role": "user",
         "parts": [
           {
-            "text": "Ich möchte ein Geografiequiz für Klasse 10 zum Klimawandel auf Deutsch."
+            "text": "{\"grade\":\"Klasse 10\",\"subject\":\"Geografie\",\"topic\":\"Klimawandel\",\"preferred_language\":\"de\"}"
           }
         ]
       }
