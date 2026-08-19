@@ -72,8 +72,8 @@ class QuizValidationResult:
 
 
 def normalize_option(value: str) -> str:
-    """Normalize visually equivalent option text for duplicate detection."""
-    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+    """Normalize Unicode and whitespace while preserving meaningful case."""
+    return " ".join(unicodedata.normalize("NFKC", value).split())
 
 
 def find_emojis(value: str) -> tuple[str, ...]:
@@ -171,8 +171,9 @@ def validate_quiz_candidate(candidate: Any) -> QuizValidationResult:
                 )
                 continue
 
-            # Compare canonicalized text so differences in case, whitespace, or
-            # Unicode representation cannot disguise duplicate answer options.
+            # Compare canonicalized text so whitespace or Unicode representation
+            # cannot disguise duplicates. Preserve case because it can change the
+            # meaning of scientific notation such as PP, Pp, and pp genotypes.
             normalized = normalize_option(option)
             if normalized in normalized_options:
                 issues.append(
@@ -224,7 +225,7 @@ def build_retry_guidance(result: QuizValidationResult) -> str:
         lines.append(
             "- Duplicate-option correction: within each affected question, "
             "compare every pair of options after Unicode normalization, trimming or "
-            "collapsing whitespace, and ignoring capitalization; replace every "
+            "collapsing whitespace while preserving meaningful capitalization; replace every "
             "repeated or equivalent choice with a meaningfully distinct distractor."
         )
     lines.append("Regenerate the complete quiz and correct every listed issue.")
