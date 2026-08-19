@@ -52,12 +52,23 @@ def test_quiz_structure_metric_accepts_valid_quiz() -> None:
 def test_quiz_structure_metric_rejects_normalized_duplicate() -> None:
     """The eval metric must reuse normalized duplicate detection."""
     quiz = _quiz()
-    quiz["questions"][0]["options"] = [" Recessive ", "recessive", "Dominant"]
+    quiz["questions"][0]["options"] = [" Recessive ", "Recessive", "Dominant"]
 
     result = _evaluate()(_instance(json.dumps(quiz)))
 
     assert result["score"] == 0.0
     assert result["explanation"] == "Deterministic validation failed: duplicate_option"
+
+
+def test_quiz_structure_metric_accepts_case_sensitive_genotypes() -> None:
+    """Evaluation must not collapse scientifically distinct genotype notation."""
+    quiz = _quiz()
+    quiz["questions"][0]["options"] = ["PP", "Pp", "pp"]
+    quiz["questions"][1]["options"] = ["Todos BB", "Todos Bb", "Todos bb"]
+
+    result = _evaluate()(_instance(json.dumps(quiz)))
+
+    assert result["score"] == 1.0
 
 
 def test_quiz_structure_metric_rejects_non_json_response() -> None:

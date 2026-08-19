@@ -30,8 +30,8 @@ def _final_response_text(instance: dict[str, Any]) -> str | None:
 
 
 def _normalize_option(value: str) -> str:
-    """Match FoxQuiz's case, whitespace, and Unicode duplicate semantics."""
-    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+    """Match FoxQuiz's case-sensitive Unicode and whitespace semantics."""
+    return " ".join(unicodedata.normalize("NFKC", value).split())
 
 
 def _structural_issue_codes(candidate: Any) -> set[str]:
