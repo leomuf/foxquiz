@@ -434,10 +434,13 @@ async def test_foxquiz_workflow_routes_security_block_to_terminal_response():
         user_id="test-user",
     )
 
-    with patch(
-        "app.app_utils.callbacks.before_agent_callback",
-        new_callable=AsyncMock,
-        side_effect=SecurityBlockException("Do not share personal data.", "PII"),
+    with (
+        patch(
+            "app.app_utils.callbacks.before_agent_callback",
+            new_callable=AsyncMock,
+            side_effect=SecurityBlockException("Do not share personal data.", "PII"),
+        ),
+        patch("app.agent.Client") as client_class,
     ):
         events = [
             event
@@ -467,3 +470,4 @@ async def test_foxquiz_workflow_routes_security_block_to_terminal_response():
     }
     assert SECURITY_BLOCK_STATE_KEY not in session.state
     assert not any(event.output for event in events)
+    client_class.assert_not_called()

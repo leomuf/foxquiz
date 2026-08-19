@@ -1,0 +1,7 @@
+metrics_to_run:
+  - structured_request_outcome
+
+custom_metrics:
+  - name: structured_request_outcome
+    custom_function_file: structured_request_metric.py
+    execution: local

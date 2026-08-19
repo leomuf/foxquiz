@@ -172,6 +172,56 @@ under the ignored `artifacts/` directory and must not be committed. Cloud
 Logging's privacy-minimized invocation summaries are the authoritative count
 of successful rollout quizzes.
 
+### Structured-request measurement
+
+The structured-request milestone reuses `token-observability-pilot.json` for
+three initial and two adaptive quiz requests. Two additional generated inputs
+cover the request-contract branches:
+
+| Dataset | Cases | Purpose |
+|---|---:|---|
+| `structured-request-contract-safe.json` | 5 | Free-form, malformed, incomplete, clarification-required, and clarification-follow-up requests. |
+| `structured-request-contract-malicious.json` | 1 | A prompt-injection request expected to take the security-block branch. |
+
+Obtain explicit human approval and deploy a new temporary public DEV campaign
+before generating these traces. Run and grade the safe contract cases first:
+
+```bash
+agents-cli eval generate \
+  --url "${GCLOUD_RUN_DEV_URL}" \
+  --app-name app \
+  --dataset tests/eval/datasets/structured-request-contract-safe.json \
+  --output artifacts/traces/structured-request-contract-safe \
+  --concurrency 1
+agents-cli eval grade \
+  --traces artifacts/traces/structured-request-contract-safe \
+  --config tests/eval/structured_request_eval_config.yaml \
+  --output artifacts/grade_results/structured-request-contract-safe
+```
+
+Run the malicious case separately, at concurrency one, and only after every
+other campaign request. It intentionally creates a security event and may
+activate Sheriff controls; never run it against production or a shared service:
+
+```bash
+agents-cli eval generate \
+  --url "${GCLOUD_RUN_DEV_URL}" \
+  --app-name app \
+  --dataset tests/eval/datasets/structured-request-contract-malicious.json \
+  --output artifacts/traces/structured-request-contract-malicious \
+  --concurrency 1
+agents-cli eval grade \
+  --traces artifacts/traces/structured-request-contract-malicious \
+  --config tests/eval/structured_request_eval_config.yaml \
+  --output artifacts/grade_results/structured-request-contract-malicious
+```
+
+Use privacy-minimized Cloud Logging events to confirm that rejected request
+cases emit no `parameter_extractor` or `mascot_prompt` call stage. The security
+classifier remains expected for requests not caught by deterministic security
+rules. Grade results validate response behavior; logs remain authoritative for
+provider-reported token usage.
+
 ## Dataset Format
 
 Each dataset file follows the Gemini Enterprise Agent Platform Evaluation

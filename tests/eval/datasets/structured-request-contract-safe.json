@@ -1,0 +1,120 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "invalid_free_form_request",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Create a Grade 8 biology quiz about cells."
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      },
+      "expected_outcome": "invalid_request"
+    },
+    {
+      "eval_case_id": "invalid_malformed_json_request",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{not-valid-json}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      },
+      "expected_outcome": "invalid_request"
+    },
+    {
+      "eval_case_id": "invalid_incomplete_request",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Grade 8\",\"subject\":\"Biology\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      },
+      "expected_outcome": "invalid_request"
+    },
+    {
+      "eval_case_id": "structured_clarification_required",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Grade 12\",\"subject\":\"Mathematics\",\"topic\":\"Multiplication\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      },
+      "expected_outcome": "clarification_required"
+    },
+    {
+      "eval_case_id": "structured_clarification_follow_up",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Grade 12\",\"subject\":\"Mathematics\",\"topic\":\"Multiplication\",\"preferred_language\":\"en\",\"clarification_response\":\"Matrix multiplication\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      },
+      "expected_outcome": "quiz",
+      "expected_difficulty": "⭐ Medium"
+    }
+  ]
+}
