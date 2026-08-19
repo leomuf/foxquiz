@@ -236,9 +236,9 @@ flowchart TD
         Search --> GenerationEntry
         CandidateReady --> Validate["deterministic_quiz_validation<br/>structure and answer-cue checks"]
         Validate -- "valid edge" --> Judge["◆ LLM<br/>llm_as_a_judge<br/>semantic and factual review"]
-        Validate -- "retry edge: shared budget" --> GenerationEntry
+        Validate -- "retry edge: structural repair budget" --> GenerationEntry
         Validate -- "quality_failure edge" --> QualityFailure["quality_failure_node<br/>safe retry message and diagnostic"]
-        Judge -- "retry edge: shared budget" --> GenerationEntry
+        Judge -- "retry edge: academic repair budget" --> GenerationEntry
         Judge -- "success edge" --> QuizOutput["quiz_output_node<br/>final invariant and validated quiz"]
         Judge -- "quality_failure edge" --> QualityFailure
     end
@@ -339,9 +339,9 @@ options. An unvalidated candidate is never sent to the learner.
 `deterministic_quiz_validation` first checks objective invariants, including
 question and option counts, normalized duplicate options, valid index ranges,
 empty content, emojis, and visual correctness cues. When every reported issue
-is a duplicate option and the shared retry budget remains, the retry edge
-returns to `quiz_generation`, which selects its targeted repair branch. That
-repair is performed by `gemini-2.5-flash` in a separate LLM call. The call
+is a duplicate option and the deterministic repair allowance remains, the
+retry edge returns to `quiz_generation`, which selects its targeted repair
+branch. That repair is performed by `gemini-2.5-flash` in a separate LLM call. The call
 receives only the affected questions and returns a small structured response
 containing replacement option lists and their corrected
 `correct_option_index` values. It cannot rewrite the title, question text,
@@ -351,15 +351,18 @@ than full quiz generation to reduce unnecessary variation.
 
 The repaired candidate is not trusted automatically. It passes through
 `deterministic_quiz_validation` again. A malformed or incomplete repair is
-blocked when the retry budget is exhausted. If the first candidate contains
-mixed or non-duplicate defects, FoxQuiz uses the existing full-regeneration
-branch instead because changing options alone cannot safely correct those
-problems.
+blocked when the deterministic repair allowance is exhausted. If the first
+candidate contains mixed or non-duplicate defects, FoxQuiz uses the existing
+full-regeneration branch instead because changing options alone cannot safely
+correct those problems.
 
-The shared retry budget is currently **two total quiz-generation attempts**:
-one initial attempt plus at most one retry. A retry triggered by deterministic
-validation or by the academic Judge consumes that same remaining attempt; the
-two gates do not receive separate retry allowances.
+Deterministic validation and academic review each have an independent,
+single-use correction allowance. One initial generation can therefore be
+followed by at most one deterministic correction and at most one full
+regeneration requested by the academic Judge. This bounds an invocation to
+three generated candidates and two Judge reviews while ensuring that a
+targeted structural repair does not remove the opportunity to correct a later
+academic defect.
 
 After deterministic validation succeeds, `llm_as_a_judge` still performs the
 semantic and academic review. The Judge checks factual correctness, curriculum
@@ -373,6 +376,8 @@ full quiz generation
   -> targeted duplicate-option repair
   -> deterministic validation again
   -> LLM-as-a-Judge
+  -> optional full academic regeneration
+  -> deterministic validation and LLM-as-a-Judge again
   -> final invariant check and learner output, or fail closed
 ```
 
@@ -393,9 +398,9 @@ The similarly named decisions and routes have different responsibilities:
 | `BANNED` / `BUDGET_EXCEEDED` / `CLASSIFIER_UNAVAILABLE` | Plugin block types, not classifier decisions | Stop before quiz processing because an operational guard rejected the invocation. |
 | `blocked` | Edge from `security_checkpoint_node` | A block envelope exists, so the graph goes directly to `security_block_node`. |
 | `generate_quiz` / `ask_more` | Edges from `gather_and_route` | The curriculum check either starts quiz preparation or requests clarification. |
-| `valid` / `retry` / `quality_failure` | Edges from `deterministic_quiz_validation` | Continue to semantic review, return to `quiz_generation` for targeted duplicate repair or full regeneration within the shared budget, or fail closed on objective defects. |
+| `valid` / `retry` / `quality_failure` | Edges from `deterministic_quiz_validation` | Continue to semantic review, return to `quiz_generation` for targeted duplicate repair or full regeneration within the single-use structural repair budget, or fail closed on objective defects. |
 | Duplicate-option repair | Internal retry branch of `quiz_generation` | Replace only affected option lists and indices, preserve all other quiz content, then return the candidate to deterministic validation. |
-| `retry` / `success` / `quality_failure` | Edges from `llm_as_a_judge` | Regenerate within the shared budget, publish the validated quiz, or fail closed without exposing an unvalidated quiz. |
+| `retry` / `success` / `quality_failure` | Edges from `llm_as_a_judge` | Regenerate within the independent single-use academic repair budget, publish the validated quiz, or fail closed without exposing an unvalidated quiz. |
 
 > **Why the extra security node?** The plugin performs cross-cutting checks before
 > the graph runs and records an expected block in invocation-local state. The

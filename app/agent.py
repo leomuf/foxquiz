@@ -388,8 +388,12 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     ctx.state["judge_attempts"] = 0
     ctx.state["judge_reasons"] = []
     ctx.state["generation_attempts"] = 0
+    ctx.state["deterministic_repair_attempts"] = 0
+    ctx.state["academic_repair_attempts"] = 0
+    ctx.state["pending_quiz_repair_kind"] = None
     ctx.state["deterministic_retry_guidance"] = ""
     ctx.state["deterministic_validation_issues"] = []
+    ctx.state["quiz_repair_history"] = []
     ctx.state["curriculum_status"] = None
     ctx.state["curriculum_guidance"] = ""
     ctx.state["quality_failure_type"] = None
@@ -572,8 +576,11 @@ async def decision_and_search(ctx: Context, node_input: Any) -> Event:
     return _workflow_event()
 
 
-MAX_QUIZ_GENERATION_ATTEMPTS = 2
+MAX_DETERMINISTIC_REPAIR_ATTEMPTS = 1
+MAX_ACADEMIC_REPAIR_ATTEMPTS = 1
 _HARD_DIFFICULTY_SELECTION = "hard"
+_DETERMINISTIC_REPAIR_KIND = "deterministic"
+_ACADEMIC_REPAIR_KIND = "academic"
 
 
 def _expected_quiz_difficulty(
@@ -649,10 +656,21 @@ def _build_judge_prompt(
     curriculum_guidance: str,
     previous_score: int | None,
     selected_difficulty: str | None,
+    repair_history: list[dict[str, Any]] | None = None,
 ) -> str:
     """Build the academic-review contract shared with the LLM judge."""
     expected_difficulty = _expected_quiz_difficulty(previous_score, selected_difficulty)
     difficulty_design_guidance = _build_difficulty_design_guidance(expected_difficulty)
+    repair_history_guidance = ""
+    if repair_history:
+        repair_history_guidance = (
+            "\n--- PRIOR STRUCTURAL REPAIR HISTORY ---\n"
+            "Deterministic validation found these defects in an earlier candidate; "
+            "the current candidate has since passed deterministic validation:\n"
+            f"{json.dumps(repair_history, ensure_ascii=False, sort_keys=True)}\n"
+            "Review the complete current quiz, and pay particular attention to the "
+            "listed question indices and defect types.\n"
+        )
     return (
         "You are a strict, professional school academic reviewer (LLM-as-a-judge).\n"
         "Assess if the following generated quiz JSON satisfies all standards:\n"
@@ -677,6 +695,7 @@ def _build_judge_prompt(
         f"{difficulty_design_guidance}\n\n"
         "The upfront curriculum evaluator supplied this authoritative grade-level scope. The quiz must comply with it:\n"
         f"{curriculum_guidance or 'No additional scope guidance was available.'}\n\n"
+        f"{repair_history_guidance}"
         f"Quiz JSON:\n{json.dumps(quiz_dict)}\n"
     )
 
@@ -774,6 +793,16 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     search_context = ctx.state.get("search_context", "")
     attempt = int(ctx.state.get("generation_attempts") or 0) + 1
     ctx.state["generation_attempts"] = attempt
+    repair_kind = ctx.state.get("pending_quiz_repair_kind")
+    if repair_kind == _DETERMINISTIC_REPAIR_KIND:
+        ctx.state["deterministic_repair_attempts"] = (
+            int(ctx.state.get("deterministic_repair_attempts") or 0) + 1
+        )
+    elif repair_kind == _ACADEMIC_REPAIR_KIND:
+        ctx.state["academic_repair_attempts"] = (
+            int(ctx.state.get("academic_repair_attempts") or 0) + 1
+        )
+    ctx.state["pending_quiz_repair_kind"] = None
 
     previous_score = ctx.state.get("previous_score")
     previous_questions = ctx.state.get("previous_questions")
@@ -784,6 +813,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     curriculum_guidance = ctx.state.get("curriculum_guidance", "")
     judge_reasons = list(ctx.state.get("judge_reasons") or [])
     deterministic_retry_guidance = ctx.state.get("deterministic_retry_guidance", "")
+    repair_history = list(ctx.state.get("quiz_repair_history") or [])
 
     logger.info("Generating quiz attempt %s.", attempt)
 
@@ -792,7 +822,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     )
     previous_candidate = ctx.state.get("temp_quiz")
     if (
-        attempt > 1
+        repair_kind == _DETERMINISTIC_REPAIR_KIND
         and duplicate_question_indices
         and isinstance(previous_candidate, dict)
     ):
@@ -846,6 +876,15 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             "\n--- REQUIRED STRUCTURAL CORRECTION ---\n"
             f"{deterministic_retry_guidance}\n"
             "Correct every listed problem before returning the complete quiz.\n"
+        )
+
+    if repair_history:
+        prompt += (
+            "\n--- PRIOR STRUCTURAL REPAIR HISTORY ---\n"
+            "Earlier candidates required the following deterministic corrections:\n"
+            f"{json.dumps(repair_history, ensure_ascii=False, sort_keys=True)}\n"
+            "Do not reintroduce these defect types, especially at the listed "
+            "0-based question indices.\n"
         )
 
     if search_context:
@@ -968,11 +1007,22 @@ def _candidate_ready_event() -> Event:
     return _workflow_event(output={"status": "candidate_ready"})
 
 
-def _route_after_failed_judge(generation_attempts: int) -> str:
-    """Share the generation retry budget across deterministic and LLM review."""
+def _route_after_failed_deterministic_validation(
+    deterministic_repair_attempts: int,
+) -> str:
+    """Allow at most one correction for deterministic validation defects."""
     return (
         "quality_failure"
-        if generation_attempts >= MAX_QUIZ_GENERATION_ATTEMPTS
+        if deterministic_repair_attempts >= MAX_DETERMINISTIC_REPAIR_ATTEMPTS
+        else "retry"
+    )
+
+
+def _route_after_failed_judge(academic_repair_attempts: int) -> str:
+    """Allow at most one full regeneration after academic rejection."""
+    return (
+        "quality_failure"
+        if academic_repair_attempts >= MAX_ACADEMIC_REPAIR_ATTEMPTS
         else "retry"
     )
 
@@ -1001,7 +1051,29 @@ async def deterministic_quiz_validation(ctx: Context, node_input: Any) -> Event:
     guidance = build_retry_guidance(result)
     ctx.state["deterministic_retry_guidance"] = guidance
     ctx.state["quality_failure_type"] = "deterministic_validation_failed"
-    route = _route_after_failed_judge(generation_attempts)
+    route = _route_after_failed_deterministic_validation(
+        int(ctx.state.get("deterministic_repair_attempts") or 0)
+    )
+    ctx.state["pending_quiz_repair_kind"] = (
+        _DETERMINISTIC_REPAIR_KIND if route == "retry" else None
+    )
+    if route == "retry":
+        repair_history = list(ctx.state.get("quiz_repair_history") or [])
+        repair_history.append(
+            {
+                "repair_kind": "structural",
+                "issue_codes": sorted({issue.code.value for issue in result.issues}),
+                "question_indices": sorted(
+                    {
+                        issue.question_index
+                        for issue in result.issues
+                        if isinstance(issue.question_index, int)
+                        and not isinstance(issue.question_index, bool)
+                    }
+                ),
+            }
+        )
+        ctx.state["quiz_repair_history"] = repair_history
     emit_quiz_validation_event(
         event=(
             "quiz_validation_retry_exhausted"
@@ -1029,7 +1101,13 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
     ctx.state["judge_attempts"] = attempts
 
     if not quiz_dict:
-        return _workflow_event(route="retry")
+        failure_route = _route_after_failed_judge(
+            int(ctx.state.get("academic_repair_attempts") or 0)
+        )
+        ctx.state["pending_quiz_repair_kind"] = (
+            _ACADEMIC_REPAIR_KIND if failure_route == "retry" else None
+        )
+        return _workflow_event(route=failure_route)
 
     # Optimization: In Reinforcement Mode (score <= 3), we shuffle the previously validated questions.
     # We can skip the LLM Judge review call completely to save token usage and cut latency by 1.5 - 2.5 seconds!
@@ -1053,6 +1131,7 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         curriculum_guidance=curriculum_guidance,
         previous_score=previous_score,
         selected_difficulty=ctx.state.get("selected_difficulty"),
+        repair_history=list(ctx.state.get("quiz_repair_history") or []),
     )
 
     client = Client()
@@ -1083,12 +1162,15 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
             return _workflow_event(route="success")
         else:
             failure_route = _route_after_failed_judge(
-                int(ctx.state.get("generation_attempts") or 0)
+                int(ctx.state.get("academic_repair_attempts") or 0)
             )
             judge_reasons = list(ctx.state.get("judge_reasons") or [])
             judge_reasons.append(assessment.reason)
             ctx.state["judge_reasons"] = judge_reasons
             ctx.state["quality_failure_type"] = "judge_rejected"
+            ctx.state["pending_quiz_repair_kind"] = (
+                _ACADEMIC_REPAIR_KIND if failure_route == "retry" else None
+            )
             logger.warning(
                 "Judge failed validation. Routing to %s.",
                 failure_route,
@@ -1129,8 +1211,12 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
 
     ctx.state["judge_attempts"] = 0
     ctx.state["generation_attempts"] = 0
+    ctx.state["deterministic_repair_attempts"] = 0
+    ctx.state["academic_repair_attempts"] = 0
+    ctx.state["pending_quiz_repair_kind"] = None
     ctx.state["deterministic_retry_guidance"] = ""
     ctx.state["deterministic_validation_issues"] = []
+    ctx.state["quiz_repair_history"] = []
 
     logger.info("Finalizing validated quiz.")
     set_invocation_outcome(ctx, TerminalOutcome.SUCCESS)
@@ -1186,8 +1272,12 @@ def _quality_failure_event(ctx: Context) -> Event:
     ctx.state["temp_quiz"] = None
     ctx.state["judge_attempts"] = 0
     ctx.state["generation_attempts"] = 0
+    ctx.state["deterministic_repair_attempts"] = 0
+    ctx.state["academic_repair_attempts"] = 0
+    ctx.state["pending_quiz_repair_kind"] = None
     ctx.state["deterministic_retry_guidance"] = ""
     ctx.state["deterministic_validation_issues"] = []
+    ctx.state["quiz_repair_history"] = []
 
     messages = {
         "de": "Ich konnte dieses Quiz diesmal nicht zuverlässig prüfen. Bitte versuche es noch einmal – ich möchte dir nur ein fachlich passendes Quiz zeigen.",

@@ -444,7 +444,7 @@ Feature: Quiz solving and result
   Scenario: Duplicate-only failure repairs affected options
     Given an unreleased quiz candidate fails deterministic validation
     And every reported issue is "duplicate_option"
-    And the shared retry budget is not exhausted
+    And the deterministic repair allowance is not exhausted
     When the retry returns to quiz generation
     Then only the affected option lists and their correct indices are regenerated
     And the title, questions, explanations, and unaffected questions are preserved
@@ -453,16 +453,24 @@ Feature: Quiz solving and result
 
   Scenario: Mixed validation failure regenerates the complete quiz
     Given an unreleased quiz candidate has a duplicate option and another structural defect
-    And the shared retry budget is not exhausted
+    And the deterministic repair allowance is not exhausted
     When the retry returns to quiz generation
     Then the system regenerates the complete quiz instead of using targeted option repair
     And the regenerated candidate passes through deterministic validation again
 
   Scenario: Invalid duplicate repair fails closed
-    Given a duplicate-only candidate used the remaining retry for targeted repair
+    Given a duplicate-only candidate used its one targeted repair
     When the repaired candidate still fails deterministic validation
     Then no quiz JSON is released to the browser
     And the request routes to the localized quality-failure response
+
+  Scenario: Academic correction remains after deterministic repair
+    Given a candidate used its one deterministic repair
+    And the repaired candidate passes deterministic validation
+    When the academic Judge rejects the repaired candidate
+    Then the system regenerates the complete quiz once using the Judge feedback
+    And the new candidate passes through deterministic validation and academic review
+    And no candidate is released unless both gates pass
 ```
 
 ### 6.1 Asymptotic Progress Loader Overlay
