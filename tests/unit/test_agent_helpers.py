@@ -326,6 +326,31 @@ def test_judge_prompt_treats_hard_as_relative_to_grade() -> None:
     assert "within the authoritative curriculum scope" in prompt
 
 
+def test_judge_prompt_includes_prior_structural_repair_history() -> None:
+    """The Judge receives compact provenance for defects repaired earlier."""
+    prompt = _build_judge_prompt(
+        quiz_dict={"difficulty": "⭐ Medium", "questions": []},
+        grade="Klasse 10",
+        subject="Chemie",
+        topic="Redoxreaktionen",
+        curriculum_guidance="Stay within the supplied curriculum scope.",
+        previous_score=None,
+        selected_difficulty=None,
+        repair_history=[
+            {
+                "repair_kind": "structural",
+                "issue_codes": ["duplicate_option"],
+                "question_indices": [2],
+            }
+        ],
+    )
+
+    assert "PRIOR STRUCTURAL REPAIR HISTORY" in prompt
+    assert '"issue_codes": ["duplicate_option"]' in prompt
+    assert '"question_indices": [2]' in prompt
+    assert "Review the complete current quiz" in prompt
+
+
 @pytest.mark.asyncio
 async def test_quiz_generation_prompt_requires_normalized_unique_options() -> None:
     """Every generation attempt must receive the option-uniqueness contract."""
@@ -500,6 +525,13 @@ async def test_academic_repair_uses_full_generation_after_deterministic_repair()
         "academic_repair_attempts": 0,
         "pending_quiz_repair_kind": "academic",
         "judge_reasons": ["Two answer options are factually correct."],
+        "quiz_repair_history": [
+            {
+                "repair_kind": "structural",
+                "issue_codes": ["duplicate_option"],
+                "question_indices": [0],
+            }
+        ],
         "deterministic_validation_issues": [
             {
                 "code": "duplicate_option",
@@ -530,6 +562,10 @@ async def test_academic_repair_uses_full_generation_after_deterministic_repair()
     assert context.state["pending_quiz_repair_kind"] is None
     config = generate_content.await_args.kwargs["config"]
     assert config.response_schema.__name__ == "Quiz"
+    prompt = generate_content.await_args.kwargs["contents"]
+    assert "Two answer options are factually correct." in prompt
+    assert "PRIOR STRUCTURAL REPAIR HISTORY" in prompt
+    assert '"question_indices": [0]' in prompt
 
 
 @pytest.mark.asyncio
@@ -615,6 +651,13 @@ async def test_deterministic_validation_routes_answer_cue_to_retry() -> None:
     assert context.state["pending_quiz_repair_kind"] == "deterministic"
     assert context.state["quality_failure_type"] == "deterministic_validation_failed"
     assert "Correct" not in context.state["deterministic_retry_guidance"]
+    assert context.state["quiz_repair_history"] == [
+        {
+            "repair_kind": "structural",
+            "issue_codes": ["answer_cue_in_option"],
+            "question_indices": list(range(10)),
+        }
+    ]
     assert emit_event.call_args.kwargs["event"] == "quiz_validation_failed"
     assert emit_event.call_args.kwargs["generation_attempt"] == 1
 

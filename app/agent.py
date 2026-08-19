@@ -393,6 +393,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     ctx.state["pending_quiz_repair_kind"] = None
     ctx.state["deterministic_retry_guidance"] = ""
     ctx.state["deterministic_validation_issues"] = []
+    ctx.state["quiz_repair_history"] = []
     ctx.state["curriculum_status"] = None
     ctx.state["curriculum_guidance"] = ""
     ctx.state["quality_failure_type"] = None
@@ -655,10 +656,21 @@ def _build_judge_prompt(
     curriculum_guidance: str,
     previous_score: int | None,
     selected_difficulty: str | None,
+    repair_history: list[dict[str, Any]] | None = None,
 ) -> str:
     """Build the academic-review contract shared with the LLM judge."""
     expected_difficulty = _expected_quiz_difficulty(previous_score, selected_difficulty)
     difficulty_design_guidance = _build_difficulty_design_guidance(expected_difficulty)
+    repair_history_guidance = ""
+    if repair_history:
+        repair_history_guidance = (
+            "\n--- PRIOR STRUCTURAL REPAIR HISTORY ---\n"
+            "Deterministic validation found these defects in an earlier candidate; "
+            "the current candidate has since passed deterministic validation:\n"
+            f"{json.dumps(repair_history, ensure_ascii=False, sort_keys=True)}\n"
+            "Review the complete current quiz, and pay particular attention to the "
+            "listed question indices and defect types.\n"
+        )
     return (
         "You are a strict, professional school academic reviewer (LLM-as-a-judge).\n"
         "Assess if the following generated quiz JSON satisfies all standards:\n"
@@ -683,6 +695,7 @@ def _build_judge_prompt(
         f"{difficulty_design_guidance}\n\n"
         "The upfront curriculum evaluator supplied this authoritative grade-level scope. The quiz must comply with it:\n"
         f"{curriculum_guidance or 'No additional scope guidance was available.'}\n\n"
+        f"{repair_history_guidance}"
         f"Quiz JSON:\n{json.dumps(quiz_dict)}\n"
     )
 
@@ -800,6 +813,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     curriculum_guidance = ctx.state.get("curriculum_guidance", "")
     judge_reasons = list(ctx.state.get("judge_reasons") or [])
     deterministic_retry_guidance = ctx.state.get("deterministic_retry_guidance", "")
+    repair_history = list(ctx.state.get("quiz_repair_history") or [])
 
     logger.info("Generating quiz attempt %s.", attempt)
 
@@ -862,6 +876,15 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             "\n--- REQUIRED STRUCTURAL CORRECTION ---\n"
             f"{deterministic_retry_guidance}\n"
             "Correct every listed problem before returning the complete quiz.\n"
+        )
+
+    if repair_history:
+        prompt += (
+            "\n--- PRIOR STRUCTURAL REPAIR HISTORY ---\n"
+            "Earlier candidates required the following deterministic corrections:\n"
+            f"{json.dumps(repair_history, ensure_ascii=False, sort_keys=True)}\n"
+            "Do not reintroduce these defect types, especially at the listed "
+            "0-based question indices.\n"
         )
 
     if search_context:
@@ -1034,6 +1057,23 @@ async def deterministic_quiz_validation(ctx: Context, node_input: Any) -> Event:
     ctx.state["pending_quiz_repair_kind"] = (
         _DETERMINISTIC_REPAIR_KIND if route == "retry" else None
     )
+    if route == "retry":
+        repair_history = list(ctx.state.get("quiz_repair_history") or [])
+        repair_history.append(
+            {
+                "repair_kind": "structural",
+                "issue_codes": sorted({issue.code.value for issue in result.issues}),
+                "question_indices": sorted(
+                    {
+                        issue.question_index
+                        for issue in result.issues
+                        if isinstance(issue.question_index, int)
+                        and not isinstance(issue.question_index, bool)
+                    }
+                ),
+            }
+        )
+        ctx.state["quiz_repair_history"] = repair_history
     emit_quiz_validation_event(
         event=(
             "quiz_validation_retry_exhausted"
@@ -1091,6 +1131,7 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         curriculum_guidance=curriculum_guidance,
         previous_score=previous_score,
         selected_difficulty=ctx.state.get("selected_difficulty"),
+        repair_history=list(ctx.state.get("quiz_repair_history") or []),
     )
 
     client = Client()
@@ -1175,6 +1216,7 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     ctx.state["pending_quiz_repair_kind"] = None
     ctx.state["deterministic_retry_guidance"] = ""
     ctx.state["deterministic_validation_issues"] = []
+    ctx.state["quiz_repair_history"] = []
 
     logger.info("Finalizing validated quiz.")
     set_invocation_outcome(ctx, TerminalOutcome.SUCCESS)
@@ -1235,6 +1277,7 @@ def _quality_failure_event(ctx: Context) -> Event:
     ctx.state["pending_quiz_repair_kind"] = None
     ctx.state["deterministic_retry_guidance"] = ""
     ctx.state["deterministic_validation_issues"] = []
+    ctx.state["quiz_repair_history"] = []
 
     messages = {
         "de": "Ich konnte dieses Quiz diesmal nicht zuverlässig prüfen. Bitte versuche es noch einmal – ich möchte dir nur ein fachlich passendes Quiz zeigen.",
