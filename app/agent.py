@@ -388,6 +388,9 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     ctx.state["judge_attempts"] = 0
     ctx.state["judge_reasons"] = []
     ctx.state["generation_attempts"] = 0
+    ctx.state["deterministic_repair_attempts"] = 0
+    ctx.state["academic_repair_attempts"] = 0
+    ctx.state["pending_quiz_repair_kind"] = None
     ctx.state["deterministic_retry_guidance"] = ""
     ctx.state["deterministic_validation_issues"] = []
     ctx.state["curriculum_status"] = None
@@ -572,8 +575,11 @@ async def decision_and_search(ctx: Context, node_input: Any) -> Event:
     return _workflow_event()
 
 
-MAX_QUIZ_GENERATION_ATTEMPTS = 2
+MAX_DETERMINISTIC_REPAIR_ATTEMPTS = 1
+MAX_ACADEMIC_REPAIR_ATTEMPTS = 1
 _HARD_DIFFICULTY_SELECTION = "hard"
+_DETERMINISTIC_REPAIR_KIND = "deterministic"
+_ACADEMIC_REPAIR_KIND = "academic"
 
 
 def _expected_quiz_difficulty(
@@ -774,6 +780,16 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     search_context = ctx.state.get("search_context", "")
     attempt = int(ctx.state.get("generation_attempts") or 0) + 1
     ctx.state["generation_attempts"] = attempt
+    repair_kind = ctx.state.get("pending_quiz_repair_kind")
+    if repair_kind == _DETERMINISTIC_REPAIR_KIND:
+        ctx.state["deterministic_repair_attempts"] = (
+            int(ctx.state.get("deterministic_repair_attempts") or 0) + 1
+        )
+    elif repair_kind == _ACADEMIC_REPAIR_KIND:
+        ctx.state["academic_repair_attempts"] = (
+            int(ctx.state.get("academic_repair_attempts") or 0) + 1
+        )
+    ctx.state["pending_quiz_repair_kind"] = None
 
     previous_score = ctx.state.get("previous_score")
     previous_questions = ctx.state.get("previous_questions")
@@ -792,7 +808,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     )
     previous_candidate = ctx.state.get("temp_quiz")
     if (
-        attempt > 1
+        repair_kind == _DETERMINISTIC_REPAIR_KIND
         and duplicate_question_indices
         and isinstance(previous_candidate, dict)
     ):
@@ -968,11 +984,22 @@ def _candidate_ready_event() -> Event:
     return _workflow_event(output={"status": "candidate_ready"})
 
 
-def _route_after_failed_judge(generation_attempts: int) -> str:
-    """Share the generation retry budget across deterministic and LLM review."""
+def _route_after_failed_deterministic_validation(
+    deterministic_repair_attempts: int,
+) -> str:
+    """Allow at most one correction for deterministic validation defects."""
     return (
         "quality_failure"
-        if generation_attempts >= MAX_QUIZ_GENERATION_ATTEMPTS
+        if deterministic_repair_attempts >= MAX_DETERMINISTIC_REPAIR_ATTEMPTS
+        else "retry"
+    )
+
+
+def _route_after_failed_judge(academic_repair_attempts: int) -> str:
+    """Allow at most one full regeneration after academic rejection."""
+    return (
+        "quality_failure"
+        if academic_repair_attempts >= MAX_ACADEMIC_REPAIR_ATTEMPTS
         else "retry"
     )
 
@@ -1001,7 +1028,12 @@ async def deterministic_quiz_validation(ctx: Context, node_input: Any) -> Event:
     guidance = build_retry_guidance(result)
     ctx.state["deterministic_retry_guidance"] = guidance
     ctx.state["quality_failure_type"] = "deterministic_validation_failed"
-    route = _route_after_failed_judge(generation_attempts)
+    route = _route_after_failed_deterministic_validation(
+        int(ctx.state.get("deterministic_repair_attempts") or 0)
+    )
+    ctx.state["pending_quiz_repair_kind"] = (
+        _DETERMINISTIC_REPAIR_KIND if route == "retry" else None
+    )
     emit_quiz_validation_event(
         event=(
             "quiz_validation_retry_exhausted"
@@ -1029,7 +1061,13 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
     ctx.state["judge_attempts"] = attempts
 
     if not quiz_dict:
-        return _workflow_event(route="retry")
+        failure_route = _route_after_failed_judge(
+            int(ctx.state.get("academic_repair_attempts") or 0)
+        )
+        ctx.state["pending_quiz_repair_kind"] = (
+            _ACADEMIC_REPAIR_KIND if failure_route == "retry" else None
+        )
+        return _workflow_event(route=failure_route)
 
     # Optimization: In Reinforcement Mode (score <= 3), we shuffle the previously validated questions.
     # We can skip the LLM Judge review call completely to save token usage and cut latency by 1.5 - 2.5 seconds!
@@ -1083,12 +1121,15 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
             return _workflow_event(route="success")
         else:
             failure_route = _route_after_failed_judge(
-                int(ctx.state.get("generation_attempts") or 0)
+                int(ctx.state.get("academic_repair_attempts") or 0)
             )
             judge_reasons = list(ctx.state.get("judge_reasons") or [])
             judge_reasons.append(assessment.reason)
             ctx.state["judge_reasons"] = judge_reasons
             ctx.state["quality_failure_type"] = "judge_rejected"
+            ctx.state["pending_quiz_repair_kind"] = (
+                _ACADEMIC_REPAIR_KIND if failure_route == "retry" else None
+            )
             logger.warning(
                 "Judge failed validation. Routing to %s.",
                 failure_route,
@@ -1129,6 +1170,9 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
 
     ctx.state["judge_attempts"] = 0
     ctx.state["generation_attempts"] = 0
+    ctx.state["deterministic_repair_attempts"] = 0
+    ctx.state["academic_repair_attempts"] = 0
+    ctx.state["pending_quiz_repair_kind"] = None
     ctx.state["deterministic_retry_guidance"] = ""
     ctx.state["deterministic_validation_issues"] = []
 
@@ -1186,6 +1230,9 @@ def _quality_failure_event(ctx: Context) -> Event:
     ctx.state["temp_quiz"] = None
     ctx.state["judge_attempts"] = 0
     ctx.state["generation_attempts"] = 0
+    ctx.state["deterministic_repair_attempts"] = 0
+    ctx.state["academic_repair_attempts"] = 0
+    ctx.state["pending_quiz_repair_kind"] = None
     ctx.state["deterministic_retry_guidance"] = ""
     ctx.state["deterministic_validation_issues"] = []
 
