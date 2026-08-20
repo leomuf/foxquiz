@@ -292,7 +292,7 @@ flowchart TD
 | Semantic security classification | Semantic security classifier | `gemini-2.5-flash` | `0.0` | Requests that pass the local scan and structured-payload validation |
 | Curriculum compatibility preflight | gather_and_route | `gemini-2.5-flash` | `0.0` | After grade, subject, and topic are known, it checks whether their combination is suitable and sufficiently clear before any quiz is generated |
 | Mascot incompatibility response | gather_and_route | `gemini-2.5-flash` | `0.7` | After the curriculum preflight finds an incompatible grade, subject, and topic combination, the mascot explains the issue and suggests suitable alternatives |
-| Complete quiz generation | Generate complete quiz | `gemini-2.5-flash` | `0.7` | Initial generation or a non-repair retry |
+| Complete quiz generation | Generate complete quiz | `gemini-2.5-flash` | `0.6` | Initial generation or a non-repair retry |
 | Targeted duplicate-option repair | Targeted repair | `gemini-2.5-flash` | `0.2` | When the first candidate fails deterministic validation only because of duplicate options and the structural repair allowance remains; it replaces only the affected option lists and answer indices |
 | Academic quality review | llm_as_a_judge | `gemini-2.5-flash` | `0.1` | After deterministic validation passes, it reviews factual correctness and grade, curriculum, and difficulty alignment; it is skipped when reinforcement mode repeats a previously validated quiz |
 
@@ -437,10 +437,18 @@ test boundaries, setup, and commands.
 
 ## Deployment
 
-```bash
-gcloud config set project <your-project-id>
-agents-cli deploy
-```
+FoxQuiz uses separate, user-managed runtime identities for production and DEV.
+Provision them once, then use `scripts/deploy.sh` as the deployment entry point.
+Both scripts preview their work unless `--apply` is present. The deployment
+script also generates build metadata, configures Cloud Run scaling, startup CPU
+boost and public access, selects the dedicated identity and Firestore database,
+and verifies the resulting service.
+
+The [maintainer deployment guide](CONTRIBUTING.md#4-deploying--infrastructure-optimization-for-maintainers)
+is the canonical command reference. It contains the prerequisites, preview and
+apply commands for both scripts, existing-DEV updates, production approval
+rules, verification, and campaign cleanup. Provisioning or deploying requires
+explicit maintainer approval.
 
 ### A2A access
 
