@@ -437,10 +437,28 @@ test boundaries, setup, and commands.
 
 ## Deployment
 
+FoxQuiz uses separate, user-managed runtime identities for production and DEV.
+Provision them once (dry-run first), validate changes on an isolated DEV service,
+and pass the production identity explicitly when production deployment is
+separately approved:
+
 ```bash
-gcloud config set project <your-project-id>
-agents-cli deploy
+export GCLOUD_PROJECT_ID="<GCLOUD_PROJECT_ID>"
+scripts/provision-runtime-identities.sh --project "${GCLOUD_PROJECT_ID}"
+scripts/provision-runtime-identities.sh --project "${GCLOUD_PROJECT_ID}" --apply
+
+agents-cli deploy \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region us-east1 \
+  --service-name foxquiz \
+  --service-account "foxquiz-prod-runtime@${GCLOUD_PROJECT_ID}.iam.gserviceaccount.com"
 ```
+
+Do not deploy FoxQuiz with the default Compute Engine service account. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md#4-deploying--infrastructure-optimization-for-maintainers)
+for the clean-worktree, build-metadata, DEV-first verification, and
+post-deployment requirements. Provisioning or deploying requires explicit
+maintainer approval.
 
 ### A2A access
 

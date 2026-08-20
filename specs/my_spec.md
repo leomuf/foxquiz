@@ -1281,12 +1281,26 @@ Required post-deployment configuration:
 - Cloud Run service `foxquiz` in `us-east1` with zero minimum instances,
   startup CPU boost, and the Gen1 execution environment;
 - public invocation through `roles/run.invoker` for `allUsers`;
-- the project's default Compute service account as the runtime identity;
-- one-time runtime roles `roles/monitoring.metricWriter`,
-  `roles/telemetry.tracesWriter`, and
-  `roles/serviceusage.serviceUsageConsumer`;
+- separate user-managed `foxquiz-prod-runtime` and `foxquiz-dev-runtime`
+  service accounts; the default Compute Engine service account must not run
+  FoxQuiz;
+- explicit runtime roles `roles/aiplatform.user`, `roles/logging.logWriter`,
+  `roles/monitoring.metricWriter`, `roles/telemetry.tracesWriter`, and
+  `roles/serviceusage.serviceUsageConsumer` on both runtime identities;
+- conditional `roles/datastore.user` access limited to `(default)` for the
+  production identity and `foxquiz-dev` for the DEV identity;
+- no Artifact Registry Writer or Storage Object Viewer grant on either runtime
+  identity unless a future runtime feature demonstrates that it is required;
 - Firestore Time To Live (TTL) policies on `budgets.expires_at` and
   `quizzes.expires_at`.
+
+The identity-provisioning script is idempotent, prints a dry run by default,
+requires explicit confirmation before applying IAM changes, and never updates
+Cloud Run. Every deployment passes its intended identity through
+`agents-cli deploy --service-account`. A new identity is assigned to an
+isolated DEV service and verified for model calls, Firestore persistence,
+structured logs, metrics, and traces before the separately approved production
+migration.
 
 OpenTelemetry prompt-response export is enabled only when a logs bucket and
 capture setting are configured. Capture is forced to `NO_CONTENT` so exported
@@ -1309,6 +1323,14 @@ Feature: Deployed source identification
     When the application starts
     Then the capture mode is NO_CONTENT
     And version and commit metadata identify the emitting build
+
+  Scenario: DEV and production use isolated runtime identities
+    Given the dedicated runtime identities have been provisioned
+    When FoxQuiz is deployed to DEV or production
+    Then the deployment explicitly selects the matching user-managed identity
+    And DEV can access only the foxquiz-dev Firestore database
+    And production can access only the default Firestore database
+    And neither service runs as the default Compute Engine service account
 ```
 
 ---

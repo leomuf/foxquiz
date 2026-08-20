@@ -68,6 +68,11 @@ The future script should:
   values into versioned files.
 - Never deploy as a side effect of tests, builds, commits, tags, or releases.
 
+Before this script is used, `scripts/provision-runtime-identities.sh` must have
+created the production and DEV identities and the isolated DEV deployment must
+have passed its runtime verification. The deployment script must not provision
+IAM implicitly or fall back to the default Compute Engine service account.
+
 ## Planned Command Sequence
 
 ### Phase 1: Preflight and Confirmation
@@ -171,6 +176,13 @@ After deployment and post-configuration succeed, the script should query:
 ```bash
 echo "Verifying deployed build identity"
 
+DEPLOYED_SERVICE_ACCOUNT="$(gcloud run services describe "${SERVICE_NAME}" \
+  --project "${PROJECT_ID}" \
+  --region "${REGION}" \
+  --format='value(spec.template.spec.serviceAccountName)')"
+
+test "${DEPLOYED_SERVICE_ACCOUNT}" = "${RUNTIME_SERVICE_ACCOUNT}"
+
 curl --fail --silent --show-error https://foxquiz.app/version
 ```
 
@@ -181,6 +193,8 @@ A successful response must contain:
 - The seven-character short commit SHA.
 - A GitHub URL pointing to that commit.
 - A non-null UTC build timestamp.
+- The dedicated `foxquiz-prod-runtime` service account as the active revision's
+  runtime identity.
 
 The script should compare the returned version and commit with
 `AGENT_VERSION` and `COMMIT_SHA`, not merely check for HTTP success. It

@@ -209,6 +209,10 @@ scripts/provision-runtime-identities.sh \
   --apply
 ```
 
+If production still uses the default Compute Engine service account, stop here
+until the DEV identity has passed the verification in Step 3.2. Provisioning
+the identities does not update either Cloud Run service.
+
 ```bash
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Refusing production deployment: commit or remove all workspace changes."
@@ -393,9 +397,9 @@ The describe command should report that the service does not exist. Do not
 continue if it returns an existing service or if the project, region, or
 commit is ambiguous.
 
-Prepare build metadata and deploy with the bounded DEV resource profile. Fill
-in the runtime service account and Firestore database locally; never commit
-their real values:
+Prepare build metadata and deploy with the bounded DEV resource profile. The
+dedicated DEV identity and database are fixed architectural values; only the
+random service name and resulting URL remain local campaign values:
 
 ```bash
 COMMIT_SHA="$(git rev-parse HEAD)"
@@ -413,7 +417,7 @@ agents-cli deploy \
   --min-instances 0 \
   --max-instances 2 \
   --no-confirm-project \
-  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME},FIRESTORE_DATABASE_ID=<FIRESTORE_DATABASE_ID>,ENABLE_A2A=FALSE,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=FALSE"
+  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME},FIRESTORE_DATABASE_ID=foxquiz-dev,ENABLE_A2A=FALSE,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=FALSE"
 
 gcloud run services update "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
   --project "${GCLOUD_PROJECT_ID}" \

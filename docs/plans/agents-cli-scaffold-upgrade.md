@@ -304,13 +304,15 @@ agents-cli deploy \
   --project GCLOUD_PROJECT_ID \
   --region us-east1 \
   --service-name foxquiz \
+  --service-account foxquiz-prod-runtime@GCLOUD_PROJECT_ID.iam.gserviceaccount.com \
   --no-confirm-project \
   --dry-run
 
 agents-cli deploy \
   --project GCLOUD_PROJECT_ID \
   --region us-east1 \
-  --service-name foxquiz-dev \
+  --service-name GCLOUD_RUN_DEV_SERVICE_NAME \
+  --service-account foxquiz-dev-runtime@GCLOUD_PROJECT_ID.iam.gserviceaccount.com \
   --min-instances 0 \
   --max-instances 2 \
   --no-confirm-project \
