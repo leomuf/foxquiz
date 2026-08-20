@@ -2,8 +2,11 @@
 
 ## Status
 
-Planned. This document describes the intended workflow; it does not authorize
-or perform a deployment.
+Implemented. The application supports the isolated DEV database, and
+`scripts/provision-runtime-identities.sh` provisions separate production and
+DEV identities with database-scoped Firestore access. The DEV identity was
+verified against a temporary DEV service on 2026-08-20; production migration
+remains a separately approved operation.
 
 ## Goal
 
@@ -33,9 +36,10 @@ deployments continue to target `foxquiz`; DEV deployments must always pass
 1. Use a second Cloud Run service rather than a traffic-split revision of the
    production service. This prevents a DEV revision from receiving production
    traffic accidentally.
-2. Keep DEV in the same project and region as production. This reuses the
-   existing APIs, runtime identity, Vertex AI access, Firestore permissions,
-   and Cloud Logging destination.
+2. Keep DEV in the same project and region as production while using the
+   dedicated `foxquiz-dev-runtime` identity. This reuses the existing APIs,
+   Vertex AI quota, and Cloud Logging destination without sharing the
+   production runtime identity or Firestore authorization.
 3. Set `--min-instances 0` and a conservative `--max-instances 2` explicitly.
    The installed `agents-cli` defaults a newly created service to one minimum
    instance and ten maximum instances when these arguments are omitted.
@@ -50,8 +54,13 @@ deployments continue to target `foxquiz`; DEV deployments must always pass
 
 ## Firestore Decision
 
-Choose one of the following Firestore paths before implementing the permanent
-DEV workflow.
+DEV must use Path B and the dedicated `foxquiz-dev-runtime` identity for the
+permanent workflow. Its `roles/datastore.user` binding is conditioned on the
+`foxquiz-dev` database. Path A remains historical context only and must not be
+used for new deployments.
+
+The following sections retain the original architecture comparison. Path A is
+historical and Path B is the selected permanent workflow.
 
 ### Firestore Path A: Share the Production `(default)` Database
 
@@ -161,20 +170,7 @@ the commit SHA identifies its exact source.
 
 ## Phase 3: Deploy `foxquiz-dev`
 
-### Path A: Shared `(default)` Firestore Database
-
-```bash
-agents-cli deploy \
-  --project GCLOUD_PROJECT_ID \
-  --region us-east1 \
-  --service-name foxquiz-dev \
-  --min-instances 0 \
-  --max-instances 2 \
-  --no-confirm-project \
-  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME},ENABLE_A2A=FALSE"
-```
-
-### Path B: Named `foxquiz-dev` Firestore Database
+### Named `foxquiz-dev` Firestore Database
 
 Use this command only after the Path B implementation and database preparation
 are complete:
@@ -184,6 +180,7 @@ agents-cli deploy \
   --project GCLOUD_PROJECT_ID \
   --region us-east1 \
   --service-name foxquiz-dev \
+  --service-account foxquiz-dev-runtime@GCLOUD_PROJECT_ID.iam.gserviceaccount.com \
   --min-instances 0 \
   --max-instances 2 \
   --no-confirm-project \
@@ -210,8 +207,10 @@ gcloud run services update foxquiz-dev \
   --execution-environment gen1
 ```
 
-The existing project-level telemetry roles do not need to be granted again
-when `foxquiz-dev` uses the same runtime service account as production.
+Provision the dedicated identities with
+`scripts/provision-runtime-identities.sh` before this deployment. The DEV
+identity receives its own telemetry roles and database-scoped Firestore grant;
+it must not share the production runtime identity.
 
 Verify the runtime identity:
 

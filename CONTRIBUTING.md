@@ -197,6 +197,18 @@ Skip this command when the `(default)` database already exists.
 
 #### Step 2: Deploy the Application Container
 
+Provision the dedicated identities before the first deployment. The first
+command is a dry run; the second changes IAM and therefore requires explicit
+maintainer approval:
+
+```bash
+export GCLOUD_PROJECT_ID="<GCLOUD_PROJECT_ID>"
+scripts/provision-runtime-identities.sh --project "${GCLOUD_PROJECT_ID}"
+scripts/provision-runtime-identities.sh \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --apply
+```
+
 ```bash
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Refusing production deployment: commit or remove all workspace changes."
@@ -208,13 +220,18 @@ AGENT_VERSION="$(uv version --short)"
 BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 agents-cli deploy \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region us-east1 \
+  --service-name foxquiz \
+  --service-account "foxquiz-prod-runtime@${GCLOUD_PROJECT_ID}.iam.gserviceaccount.com" \
   --no-confirm-project \
   --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME}"
 ```
 
 The clean-worktree check ensures the commit identifies every deployed source
 change. The version, full commit SHA, and UTC build time are exposed at
-`/version`, in the page footer, and in telemetry. The deploy uses the
+`/version`, in the page footer, and in telemetry. Production must use the
+dedicated `foxquiz-prod-runtime` identity; do not deploy FoxQuiz with the
 project's default Compute service account.
 
 #### Step 3: Configure Required Infrastructure Manually
@@ -236,42 +253,26 @@ gcloud run services update foxquiz \
 - `--cpu-boost` allocates additional CPU during startup.
 - `--execution-environment gen1` selects the lightweight Gen1 environment.
 
-##### Step 3.2: OpenTelemetry Export Permissions
+##### Step 3.2: Dedicated Runtime Identities and Export Permissions
 
-Retrieve the project number instead of hard-coding it:
-```bash
-gcloud projects describe <YOUR_PROJECT_ID> \
-  --format='value(projectNumber)'
-```
+The plan creates separate `foxquiz-prod-runtime` and `foxquiz-dev-runtime`
+service accounts. Both receive Vertex AI, structured logging, metric, trace,
+and service-usage permissions. Their `roles/datastore.user` grants are
+conditioned on `(default)` and `foxquiz-dev`, respectively. Runtime identities
+do not receive Artifact Registry Writer or Storage Object Viewer.
 
-The default Compute service-account address is
-`<PROJECT_NUMBER>-compute@developer.gserviceaccount.com`. Verify that Cloud
-Run uses it:
+The script never updates Cloud Run. Migrate DEV first and verify model calls,
+database writes, structured logs, metrics, and traces before assigning the
+production identity. The deployer must have `roles/iam.serviceAccountUser` on
+the selected runtime identity.
+
+Verify production after migration:
 ```bash
 gcloud run services describe foxquiz \
-  --project=<YOUR_PROJECT_ID> \
+  --project=GCLOUD_PROJECT_ID \
   --region=us-east1 \
   --format='value(spec.template.spec.serviceAccountName)'
 ```
-
-Grant the telemetry roles once per project:
-```bash
-gcloud projects add-iam-policy-binding <YOUR_PROJECT_ID> \
-  --member='serviceAccount:<PROJECT_NUMBER>-compute@developer.gserviceaccount.com' \
-  --role=roles/monitoring.metricWriter
-
-gcloud projects add-iam-policy-binding <YOUR_PROJECT_ID> \
-  --member='serviceAccount:<PROJECT_NUMBER>-compute@developer.gserviceaccount.com' \
-  --role=roles/telemetry.tracesWriter
-
-gcloud projects add-iam-policy-binding <YOUR_PROJECT_ID> \
-  --member='serviceAccount:<PROJECT_NUMBER>-compute@developer.gserviceaccount.com' \
-  --role=roles/serviceusage.serviceUsageConsumer
-```
-
-Without these roles, OpenTelemetry exporters repeatedly log HTTP
-`403 Forbidden` errors. Repeat these grants only if the project or runtime
-service account changes.
 
 ##### Step 3.3: Firestore Security-Event Composite Index
 
@@ -374,6 +375,7 @@ Git, pull requests, issues, screenshots, and shared logs:
 export GCLOUD_PROJECT_ID="<GCLOUD_PROJECT_ID>"
 export GCLOUD_REGION="us-east1"
 export GCLOUD_RUN_DEV_SERVICE_NAME="svc-$(openssl rand -hex 10)"
+export GCLOUD_RUN_DEV_SERVICE_ACCOUNT="foxquiz-dev-runtime@${GCLOUD_PROJECT_ID}.iam.gserviceaccount.com"
 ```
 
 Before deploying, confirm that the working tree is clean and that the generated
@@ -404,7 +406,7 @@ agents-cli deploy \
   --project "${GCLOUD_PROJECT_ID}" \
   --region "${GCLOUD_REGION}" \
   --service-name "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
-  --service-account "<RUNTIME_SERVICE_ACCOUNT>" \
+  --service-account "${GCLOUD_RUN_DEV_SERVICE_ACCOUNT}" \
   --cpu 1 \
   --memory 4Gi \
   --concurrency 8 \

@@ -80,6 +80,7 @@ set -euo pipefail
 PROJECT_ID="GCLOUD_PROJECT_ID"
 SERVICE_NAME="foxquiz"
 REGION="us-east1"
+RUNTIME_SERVICE_ACCOUNT="foxquiz-prod-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Deployment refused: the worktree is not clean."
@@ -114,6 +115,10 @@ The script must announce this phase and run:
 echo "Deploying FoxQuiz to Google Cloud"
 
 agents-cli deploy \
+  --project "${PROJECT_ID}" \
+  --region "${REGION}" \
+  --service-name "${SERVICE_NAME}" \
+  --service-account "${RUNTIME_SERVICE_ACCOUNT}" \
   --no-confirm-project \
   --update-env-vars \
   "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME}"
