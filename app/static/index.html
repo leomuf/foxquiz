@@ -1986,7 +1986,7 @@
             startTicker();
             startProgressLoader();
 
-            // Send deterministic structured parameters so the agent can skip an extraction LLM call.
+            // Send the deterministic structured request required by the agent contract.
             const clarificationContext = pendingClarificationContext;
             const requestedGrade = clarificationContext?.grade || grade;
             const requestedSubject = clarificationContext?.subject || subject;

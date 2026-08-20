@@ -59,3 +59,15 @@ Ask the user: Option A (simple single-project) or Option B (full CI/CD pipeline 
 - **Run Python with `uv`**: `uv run python script.py`. Run `agents-cli install` first.
 - **Stop on repeated errors**: If the same error appears 3+ times, fix the root cause instead of retrying.
 - **Terraform conflicts** (Error 409): Use `terraform import` instead of retrying creation.
+
+### Public Documentation Safety
+
+- **Never add the real Google Cloud project ID or name, project number, or DEV
+  Cloud Run URL to repository documentation.** This applies to plans, reports,
+  READMEs, command examples, and other files intended for Git.
+- Use `GCLOUD_PROJECT_ID`, `GCLOUD_PROJECT_NUMBER`, and
+  `GCLOUD_RUN_DEV_URL` as the corresponding documentation placeholders.
+- Use `<GCLOUD_PROJECT_NUMBER>-compute@developer.gserviceaccount.com` when a
+  default Compute Engine service-account example is required.
+- Runtime commands may obtain real values from the operator's environment, but
+  those values must not be copied into versioned documentation.

@@ -72,7 +72,7 @@ def test_rejects_unicode_emoji_sequences_in_options(
 def test_reports_structure_duplicates_and_invalid_correct_index() -> None:
     """Fast validation covers the objective schema invariants used for routing."""
     quiz = _valid_quiz()
-    quiz["questions"][0]["options"] = [" Same ", "same", "Other"]
+    quiz["questions"][0]["options"] = [" same ", "same", "Other"]
     quiz["questions"][0]["correct_option_index"] = 9
 
     codes = _codes(quiz)
@@ -92,3 +92,33 @@ def test_retry_guidance_contains_locations_but_not_candidate_text() -> None:
     assert "Question 3, option 2" in guidance
     assert "answer cue in option" in guidance
     assert secret_option not in guidance
+
+
+def test_retry_guidance_explains_normalized_duplicate_correction() -> None:
+    """Duplicate retries must explain how equivalent option text is detected."""
+    quiz = _valid_quiz()
+    quiz["questions"][4]["options"] = [" Recessive ", "Recessive", "Dominant"]
+
+    guidance = build_retry_guidance(validate_quiz_candidate(quiz))
+
+    assert "Question 5, option 2: duplicate option" in guidance
+    assert "compare every pair of options after Unicode normalization" in guidance
+    assert "preserving meaningful capitalization" in guidance
+    assert "meaningfully distinct distractor" in guidance
+
+
+def test_preserves_case_sensitive_genotype_options() -> None:
+    """Capitalization distinguishes scientifically different genotypes."""
+    quiz = _valid_quiz()
+    quiz["questions"][0]["options"] = ["PP", "Pp", "pp"]
+    quiz["questions"][1]["options"] = ["Todos BB", "Todos Bb", "Todos bb"]
+
+    assert validate_quiz_candidate(quiz).is_valid
+
+
+def test_rejects_unicode_equivalent_duplicate_options() -> None:
+    """NFKC-equivalent option text remains an objective duplicate."""
+    quiz = _valid_quiz()
+    quiz["questions"][0]["options"] = ["\uff21", "A", "B"]
+
+    assert QuizValidationCode.DUPLICATE_OPTION in _codes(quiz)

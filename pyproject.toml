@@ -1,6 +1,6 @@
 [project]
 name = "foxquiz"
-version = "1.1.0"
+version = "1.2.0"
 description = ""
 authors = [
     {name = "Leonardo Muffato", email = "info@autosoft-engineering.de"},
@@ -10,7 +10,7 @@ license = "Apache-2.0"
 
 
 dependencies = [
-    "google-adk[gcp]>=2.6.3,<3.0.0",
+    "google-adk[gcp,otel-gcp]>=2.6.3,<3.0.0",
     "opentelemetry-instrumentation-google-genai>=0.1.0,<1.0.0",
     "gcsfs>=2026.7.0",
     "google-cloud-logging>=3.16.2,<4.0.0",
@@ -22,6 +22,9 @@ dependencies = [
     "sqlalchemy>=2,<3",
     "uvicorn~=0.52.1",
     "emoji>=2.15.0,<3.0.0",
+    "a2a-sdk[http-server]>=1.0,<2",
+    "aiohttp>=3.13.4",
+    "opentelemetry-resourcedetector-gcp<=1.12.0a0",
 ]
 requires-python = ">=3.11,<3.14"
 
@@ -90,7 +93,7 @@ unknown-argument = "ignore"
 
 [tool.codespell]
 ignore-words-list = "rouge,ist,oder,deine,alle,assistent,extrem,absolut,als,te,erros,erro,unter,meu,nome,nomes"
-skip = "./locust_env/*,uv.lock,.venv,./frontend,**/package-lock.json,./artifacts/*,artifacts/*,*.de.md"
+skip = "./locust_env/*,uv.lock,.venv,./frontend,**/package-lock.json,./artifacts/*,artifacts/*,./tmp_plans/*,*.de.md"
 
 
 
@@ -109,5 +112,3 @@ markers = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["app","frontend"]
-
-

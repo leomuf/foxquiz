@@ -1,0 +1,48 @@
+metrics_to_run:
+  - quiz_structure_validity
+  - quiz_request_fulfillment
+
+custom_metrics:
+  - name: quiz_structure_validity
+    custom_function_file: quiz_structure_metric.py
+    execution: local
+  - name: quiz_request_fulfillment
+    judge_model_system_instruction: |
+      Return exactly one valid JSON object and nothing else. Do not include
+      Markdown, code fences, headings, or prose before or after the JSON.
+    judge_model_generation_config:
+      temperature: 0
+      max_output_tokens: 512
+      response_mime_type: application/json
+      response_json_schema:
+        type: object
+        additionalProperties: false
+        required:
+          - score
+          - explanation
+        properties:
+          score:
+            type: integer
+            minimum: 1
+            maximum: 5
+          explanation:
+            type: string
+            minLength: 1
+    prompt_template: |
+      Evaluate whether FoxQuiz fulfilled the requested school-quiz task.
+
+      A top score requires a released, coherent multiple-choice quiz with exactly
+      ten questions, three to five neutral options per question, one valid correct
+      option index, useful explanations, the requested language, and content aligned
+      with the requested grade, subject, and topic. For adaptive prompts, the quiz
+      difficulty must match the requested easy, medium, or hard progression while
+      remaining within the requested grade. A clarification, block, quality failure,
+      unrelated topic, wrong language, or malformed quiz does not fulfill the task.
+
+      User Prompt: {prompt}
+      Final Response: {response}
+
+      Return ONLY the following valid JSON object. The first character of your
+      response must be "{" and the last character must be "}". Do not include
+      analysis, Markdown, code fences, or any text outside the object:
+      {"score": <integer from 1 to 5>, "explanation": "<reason>"}

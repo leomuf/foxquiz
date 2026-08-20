@@ -74,6 +74,16 @@ agents-cli update
    uv run uvicorn app.fast_api_app:app --reload
    ```
 
+   The FoxQuiz browser creates the required structured request automatically.
+   When using the ADK playground directly, enter JSON text such as:
+
+   ```json
+   {"grade":"Grade 8","subject":"Biology","topic":"Cells","preferred_language":"en"}
+   ```
+
+   Free-form chat prompts and incomplete payloads are intentionally rejected
+   without an LLM call.
+
 #### Inspecting Local Quiz Logs
 
 For troubleshooting a complete quiz request, run the application in the
@@ -103,16 +113,16 @@ Filter the saved log for the most relevant agent stages and failures:
 
 ```bash
 grep -Ei \
-  "Raw prompt|Extracted parameters|curriculum|compatib|Generating Quiz|Judge|ERROR|WARNING" \
+  "Gather and Route|validated structured|quiz contract|curriculum|compatib|Generating Quiz|Judge|ERROR|WARNING" \
   /tmp/foxquiz-local.log
 ```
 
 For curriculum-routing problems, inspect these messages in order:
 
-- `Gather and Route. Raw prompt`
-- `Extracted parameters`
+- `Gather and Route started.`
+- `Loaded validated structured quiz parameters.`
 - `Performing upfront curriculum validation check`
-- `Upfront curriculum check results`
+- `Upfront curriculum check completed with status=...`
 - `Curriculum Search Skill invoked`
 - `Generating Quiz`
 
@@ -349,6 +359,119 @@ gcloud beta run domain-mappings create \
 Configure a CNAME record at the domain registrar that points `www` to
 `ghs.googlehosted.com.`.
 
+#### Temporary Public DEV Campaigns
+
+Maintainer-led DEV campaigns normally remain available for two to five days so
+the application can be tested from multiple unauthenticated smartphones. Each
+campaign must use a new, cryptographically random Cloud Run service name. Do
+not reuse predictable names containing the project, application, environment,
+date, version, or previous service name.
+
+Generate 80 bits of randomness locally and keep the resulting value out of
+Git, pull requests, issues, screenshots, and shared logs:
+
+```bash
+export GCLOUD_PROJECT_ID="<GCLOUD_PROJECT_ID>"
+export GCLOUD_REGION="us-east1"
+export GCLOUD_RUN_DEV_SERVICE_NAME="svc-$(openssl rand -hex 10)"
+```
+
+Before deploying, confirm that the working tree is clean and that the generated
+name is not already present in the selected project and region:
+
+```bash
+test -z "$(git status --porcelain)"
+
+gcloud run services describe "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}"
+```
+
+The describe command should report that the service does not exist. Do not
+continue if it returns an existing service or if the project, region, or
+commit is ambiguous.
+
+Prepare build metadata and deploy with the bounded DEV resource profile. Fill
+in the runtime service account and Firestore database locally; never commit
+their real values:
+
+```bash
+COMMIT_SHA="$(git rev-parse HEAD)"
+AGENT_VERSION="$(uv version --short)-dev"
+BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+agents-cli deploy \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}" \
+  --service-name "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --service-account "<RUNTIME_SERVICE_ACCOUNT>" \
+  --cpu 1 \
+  --memory 4Gi \
+  --concurrency 8 \
+  --min-instances 0 \
+  --max-instances 2 \
+  --no-confirm-project \
+  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME},FIRESTORE_DATABASE_ID=<FIRESTORE_DATABASE_ID>,ENABLE_A2A=FALSE,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=FALSE"
+
+gcloud run services update "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}" \
+  --min-instances 0 \
+  --cpu-boost \
+  --execution-environment gen1
+
+gcloud run services add-iam-policy-binding \
+  "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}" \
+  --member='allUsers' \
+  --role='roles/run.invoker'
+```
+
+Retrieve the stable campaign address without copying it into repository files:
+
+```bash
+export GCLOUD_RUN_DEV_URL="$(gcloud run services describe \
+  "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}" \
+  --format='value(status.url)')"
+```
+
+For work spanning multiple shells, store `GCLOUD_RUN_DEV_SERVICE_NAME` and
+`GCLOUD_RUN_DEV_URL` only in the ignored local `.env` file. The address is not
+a credential: public invocation means anyone who obtains it can access the
+service. Its random name makes guessing impractical, while token budgets,
+Sheriff blocking, and the two-instance ceiling remain the abuse and cost
+controls during the campaign.
+
+Verify the root page, `/version`, ADK session creation, A2A-disabled response,
+runtime identity, resource limits, and security behavior before beginning the
+evaluation pilot. Monitor request errors, token budgets, and security events
+throughout the campaign.
+
+At campaign end, the maintainer manually deletes the exact service recorded in
+`GCLOUD_RUN_DEV_SERVICE_NAME`:
+
+```bash
+test -n "${GCLOUD_PROJECT_ID:-}"
+test -n "${GCLOUD_REGION:-}"
+test -n "${GCLOUD_RUN_DEV_SERVICE_NAME:-}"
+
+gcloud run services describe "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}"
+
+gcloud run services delete "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --region "${GCLOUD_REGION}"
+```
+
+Read the confirmation prompt carefully before deleting. Afterwards, remove the
+two local campaign variables. `min-instances=0` only scales idle containers to
+zero; it does not deactivate the public endpoint. The next campaign must
+generate a completely new random service name and URL.
+
 ### Inspecting Production Logs Programmatically
 
 Use `gcloud logging read` to search Cloud Run logs without manually scrolling
@@ -404,6 +527,126 @@ gcloud logging read \
 The logs-based counter is available as
 `logging.googleapis.com/user/foxquiz_firestore_operation_failures` in Cloud
 Monitoring.
+
+#### Analyzing token usage
+
+FoxQuiz emits privacy-minimized `llm_token_usage` events for direct Gemini
+responses and at most one `llm_invocation_token_summary` per invocation with
+model usage. These events contain only allowlisted stage names, numeric token
+counters, bounded attempt numbers, terminal outcomes, and trusted build
+metadata. They do not contain prompts, responses, quiz content, learner data,
+IP addresses, or persistent client identifiers.
+
+Inspect the numeric call breakdown for one deployed revision:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_token_usage" AND jsonPayload.deployment_revision="<REVISION>"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=10000 \
+  --order=asc \
+  --format='table(timestamp,jsonPayload.call_stage,jsonPayload.generation_attempt,jsonPayload.judge_attempt,jsonPayload.prompt_token_count,jsonPayload.cached_content_token_count,jsonPayload.candidates_token_count,jsonPayload.thoughts_token_count,jsonPayload.total_token_count)'
+```
+
+Count successful quiz summaries. This is the authoritative rollout count;
+completed HTTP requests can also represent clarification or quality-failure
+responses:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_invocation_token_summary" AND jsonPayload.terminal_outcome="success" AND jsonPayload.deployment_revision="<REVISION>"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=10000 \
+  --format='value(timestamp)' \
+  | wc -l
+```
+
+Aggregate prompt, cached, candidate, thinking, and total tokens by workflow
+stage without printing any unrelated log payloads:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_token_usage" AND jsonPayload.deployment_revision="<REVISION>"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=10000 \
+  --format='csv[no-heading](jsonPayload.call_stage,jsonPayload.prompt_token_count,jsonPayload.cached_content_token_count,jsonPayload.candidates_token_count,jsonPayload.thoughts_token_count,jsonPayload.total_token_count)' \
+  | awk -F, '{calls[$1]++; prompt[$1]+=$2; cached[$1]+=$3; candidate[$1]+=$4; thoughts[$1]+=$5; total[$1]+=$6} END {for (stage in calls) printf "%s calls=%d prompt=%d cached=%d candidate=%d thoughts=%d thinking_share=%.2f%% total=%d\n", stage,calls[stage],prompt[stage],cached[stage],candidate[stage],thoughts[stage],(total[stage] ? 100*thoughts[stage]/total[stage] : 0),total[stage]}' \
+  | sort
+```
+
+Calculate call-level cache-hit rate:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_token_usage" AND jsonPayload.deployment_revision="<REVISION>"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=10000 \
+  --format='value(jsonPayload.cached_content_token_count)' \
+  | awk '{calls++; if ($1>0) hits++} END {if (calls) printf "calls=%d cache_hits=%d hit_rate=%.2f%%\n", calls,hits,100*hits/calls}'
+```
+
+Measure provider-reported token overhead from second generator or Judge calls:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_token_usage" AND jsonPayload.deployment_revision="<REVISION>" AND (jsonPayload.generation_attempt>1 OR jsonPayload.judge_attempt>1)' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=10000 \
+  --format='csv[no-heading](jsonPayload.call_stage,jsonPayload.total_token_count)' \
+  | awk -F, '{calls[$1]++; total[$1]+=$2} END {for (stage in calls) printf "%s retry_calls=%d retry_tokens=%d\n", stage,calls[stage],total[stage]}' \
+  | sort
+```
+
+Calculate average, median, and p95 total tokens for successful quizzes:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_invocation_token_summary" AND jsonPayload.terminal_outcome="success" AND jsonPayload.deployment_revision="<REVISION>"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=24h \
+  --limit=10000 \
+  --format='value(jsonPayload.total_token_count)' \
+  | sort -n \
+  | awk '{values[NR]=$1; sum+=$1} END {if (NR) {p50=int((NR-1)*0.50)+1; p95=int((NR-1)*0.95)+1; printf "count=%d average=%.2f median=%d p95=%d\n", NR,sum/NR,values[p50],values[p95]}}'
+```
+
+Summaries expose generator and Judge retry booleans and call counts. Cache-hit
+rate comes from calls whose `cached_content_token_count` is greater than zero.
+Group successful totals by revision before and after an optimization so traffic
+from different builds is never combined:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND jsonPayload.event="llm_invocation_token_summary" AND jsonPayload.terminal_outcome="success"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=30d \
+  --limit=100000 \
+  --format='csv[no-heading](jsonPayload.deployment_revision,jsonPayload.total_token_count,jsonPayload.generator_retry_occurred,jsonPayload.judge_retry_occurred)' \
+  | awk -F, '{count[$1]++; total[$1]+=$2; generator_retry[$1]+=(tolower($3)=="true"); judge_retry[$1]+=(tolower($4)=="true")} END {for (revision in count) printf "%s calls=%d average=%.2f generator_retries=%d judge_retries=%d\n", revision,count[revision],total[revision]/count[revision],generator_retry[revision],judge_retry[revision]}' \
+  | sort
+```
+
+For a controlled concurrency rollout, inspect request failures and latency in
+the same time window separately from application token events:
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND resource.labels.service_name=<SERVICE_NAME> AND httpRequest.requestUrl:"/run_sse"' \
+  --project=<YOUR_PROJECT_ID> \
+  --freshness=1h \
+  --limit=10000 \
+  --order=asc \
+  --format='table(timestamp,httpRequest.status,httpRequest.latency,resource.labels.revision_name)'
+```
+
+No log-based token metric, BigQuery dataset, prompt-response upload, or other
+managed observability infrastructure is provisioned by this feature. Add those
+only after a separate privacy, retention, and cost review.
 
 #### Analyzing deterministic quiz validation
 

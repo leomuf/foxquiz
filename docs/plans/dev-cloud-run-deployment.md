@@ -14,7 +14,7 @@ The target topology is:
 
 - production service: `foxquiz`;
 - development service: `foxquiz-dev`;
-- Google Cloud project: `quiz-buddy-501017`;
+- Google Cloud project: `GCLOUD_PROJECT_ID`;
 - region: `us-east1`;
 - DEV address: the stable `run.app` URL assigned to `foxquiz-dev`;
 - logging: the existing Cloud Logging project, separated by the Cloud Run
@@ -56,7 +56,7 @@ DEV workflow.
 ### Firestore Path A: Share the Production `(default)` Database
 
 This is the fastest path and requires no application change. A new Cloud Run
-service in `quiz-buddy-501017` uses the project's default runtime identity and
+service in `GCLOUD_PROJECT_ID` uses the project's default runtime identity and
 the Firestore Python client connects to `(default)` when no database ID is
 specified.
 
@@ -96,17 +96,17 @@ gcloud firestore databases create \
   --database=foxquiz-dev \
   --location=us-east1 \
   --type=firestore-native \
-  --project=quiz-buddy-501017
+  --project=GCLOUD_PROJECT_ID
 ```
 
-Required implementation work:
+Required implementation and provisioning work:
 
-1. Add a `FIRESTORE_DATABASE_ID` runtime setting with `(default)` as the
-   production-safe default.
-2. Initialize the repository client with the selected database ID, for example
-   `firestore.Client(database=database_id)`.
-3. Add unit tests proving that an unset value selects `(default)` and the DEV
-   value selects `foxquiz-dev`.
+1. The application supports a `FIRESTORE_DATABASE_ID` runtime setting with
+   `(default)` as the production-safe default.
+2. The repository initializes `firestore.Client(database=database_id)` with
+   the selected database ID.
+3. Unit tests prove that an unset value selects `(default)` and the DEV value
+   selects `foxquiz-dev`.
 4. Pass `FIRESTORE_DATABASE_ID=foxquiz-dev` only to the DEV service.
 5. Populate the DEV database with the required private security configuration
    through the existing private configuration procedure. Do not commit private
@@ -138,7 +138,7 @@ Required conditions:
 - unit, integration, and frontend tests pass;
 - `agents-cli lint` passes;
 - the current commit is the revision intended for manual testing;
-- `gcloud` is authenticated to `quiz-buddy-501017`.
+- `gcloud` is authenticated to `GCLOUD_PROJECT_ID`.
 
 Do not continue when the current branch or commit is ambiguous.
 
@@ -165,13 +165,13 @@ the commit SHA identifies its exact source.
 
 ```bash
 agents-cli deploy \
-  --project quiz-buddy-501017 \
+  --project GCLOUD_PROJECT_ID \
   --region us-east1 \
   --service-name foxquiz-dev \
   --min-instances 0 \
   --max-instances 2 \
   --no-confirm-project \
-  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME}"
+  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME},ENABLE_A2A=FALSE"
 ```
 
 ### Path B: Named `foxquiz-dev` Firestore Database
@@ -181,13 +181,13 @@ are complete:
 
 ```bash
 agents-cli deploy \
-  --project quiz-buddy-501017 \
+  --project GCLOUD_PROJECT_ID \
   --region us-east1 \
   --service-name foxquiz-dev \
   --min-instances 0 \
   --max-instances 2 \
   --no-confirm-project \
-  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME},FIRESTORE_DATABASE_ID=foxquiz-dev"
+  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME},FIRESTORE_DATABASE_ID=foxquiz-dev,ENABLE_A2A=FALSE"
 ```
 
 The installed `agents-cli` derives `APP_URL` from the explicit service name,
@@ -203,7 +203,7 @@ settings, so apply them to the DEV service explicitly:
 
 ```bash
 gcloud run services update foxquiz-dev \
-  --project quiz-buddy-501017 \
+  --project GCLOUD_PROJECT_ID \
   --region us-east1 \
   --min-instances 0 \
   --cpu-boost \
@@ -217,7 +217,7 @@ Verify the runtime identity:
 
 ```bash
 gcloud run services describe foxquiz-dev \
-  --project=quiz-buddy-501017 \
+  --project=GCLOUD_PROJECT_ID \
   --region=us-east1 \
   --format='value(spec.template.spec.serviceAccountName)'
 ```
@@ -232,7 +232,7 @@ have succeeded:
 gcloud run services add-iam-policy-binding foxquiz-dev \
   --member='allUsers' \
   --role='roles/run.invoker' \
-  --project=quiz-buddy-501017 \
+  --project=GCLOUD_PROJECT_ID \
   --region=us-east1
 ```
 
@@ -240,7 +240,7 @@ Retrieve the stable DEV URL:
 
 ```bash
 gcloud run services describe foxquiz-dev \
-  --project=quiz-buddy-501017 \
+  --project=GCLOUD_PROJECT_ID \
   --region=us-east1 \
   --format='value(status.url)'
 ```
@@ -283,7 +283,7 @@ DEV only:
 ```bash
 gcloud logging read \
   'resource.type="cloud_run_revision" AND resource.labels.service_name="foxquiz-dev"' \
-  --project=quiz-buddy-501017 \
+  --project=GCLOUD_PROJECT_ID \
   --freshness=1h \
   --limit=200
 ```
@@ -293,7 +293,7 @@ Production and DEV together:
 ```bash
 gcloud logging read \
   'resource.type="cloud_run_revision" AND resource.labels.service_name=~"^foxquiz(-dev)?$"' \
-  --project=quiz-buddy-501017 \
+  --project=GCLOUD_PROJECT_ID \
   --freshness=1h \
   --limit=300
 ```
@@ -311,7 +311,7 @@ Remove anonymous invocation:
 gcloud run services remove-iam-policy-binding foxquiz-dev \
   --member='allUsers' \
   --role='roles/run.invoker' \
-  --project=quiz-buddy-501017 \
+  --project=GCLOUD_PROJECT_ID \
   --region=us-east1
 ```
 
@@ -319,7 +319,7 @@ Verify that the service no longer lists `allUsers` as an invoker:
 
 ```bash
 gcloud run services get-iam-policy foxquiz-dev \
-  --project=quiz-buddy-501017 \
+  --project=GCLOUD_PROJECT_ID \
   --region=us-east1
 ```
 

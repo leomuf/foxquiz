@@ -270,25 +270,31 @@ terminology:
 
 The browser submits its predefined form values as structured JSON containing
 `grade`, `subject`, `topic`, and `preferred_language`. The agent parses this
-deterministically and skips the additional LLM extraction call. Natural
-language chat remains supported and uses structured LLM extraction only when
-the prompt is not a valid frontend payload. Missing language values always
-fall back to English.
+deterministically. The ADK playground and direct API clients must use the same
+contract. Free-form text, malformed JSON, missing required fields, and unknown
+fields receive a fixed localized `INVALID_REQUEST` response before the
+semantic security classifier or workflow can consume LLM tokens. Missing
+optional language values fall back to English.
 
 ```gherkin
 Feature: Information gathering before quiz creation
 
-  Scenario: Complete information in one message
-    Given the assistant has greeted the user
-    When the user enters grade, subject, and topic
-    Then the assistant recognizes all three values
+  Scenario: Complete structured request
+    Given the user has opened the quiz form
+    When the browser submits grade, subject, and topic as structured JSON
+    Then the assistant validates all three values deterministically
     And the assistant starts quiz creation
 
-  Scenario: Incomplete information requires a follow-up
-    Given the assistant has greeted the user
-    When the user provides only the subject
-    Then the assistant politely asks for the missing grade and topic
-    And the assistant starts the quiz only once all three values are present
+  Scenario: Structured clarification response
+    Given the curriculum preflight requested a narrower scope
+    When the browser resubmits the original quiz fields with a clarification response
+    Then the assistant evaluates the original topic together with the added scope
+
+  Scenario: Unsupported request shape
+    Given a direct client sends free-form text, malformed JSON, or missing fields
+    When the request reaches the security checkpoint
+    Then the request receives a localized INVALID_REQUEST response
+    And neither parameter extraction nor a mascot LLM call runs
 ```
 
 ---
@@ -312,6 +318,21 @@ quiz:
   correct_answers_per_question: 1
   selection: "single_click"
 
+request_contract:
+  format: "structured_json"
+  required: ["grade", "subject", "topic"]
+  optional:
+    - "preferred_language"
+    - "mascot_id"
+    - "clarification_response"
+    - "previous_score"
+    - "previous_questions"
+    - "previous_quiz_json"
+    - "selected_difficulty"
+  unknown_fields: "reject"
+  free_form_input: "unsupported"
+  invalid_response: "localized_INVALID_REQUEST_before_LLM"
+
 judge:
   enabled: true
   model: "gemini-2.5-flash"
@@ -326,6 +347,19 @@ judge:
   on_second_rejection: "fail_closed"
   on_exception: "fail_closed"
 
+duplicate_option_repair:
+  enabled: true
+  trigger: "retry_when_all_deterministic_issues_are_duplicate_option"
+  scope: "affected_option_lists_and_correct_indices_only"
+  temperature: 0.2
+  preserve:
+    - "quiz title and difficulty"
+    - "question text and explanations"
+    - "all unaffected questions"
+  after_repair: "repeat_deterministic_validation_then_run_judge"
+  on_mixed_or_other_issues: "regenerate_complete_quiz"
+  on_exhausted_retry: "fail_closed"
+
 knowledge_sources:
   default:
     - "llm_internal"
@@ -335,25 +369,40 @@ knowledge_sources:
 
 **The principal stages:**
 
-1. **Information collection.** Parse deterministic frontend JSON directly, or
-   extract missing values from natural language.
+1. **Request validation.** Parse initial, clarification, and adaptive requests
+   against the deterministic structured JSON contract. Reject unsupported
+   request shapes without an LLM call.
 2. **Curriculum preflight.** Classify the exact grade/subject/topic combination
    as `compatible`, `needs_clarification`, or `incompatible` before grounding
    and generation (Section 6.3).
 3. **Knowledge grounding.** Search localized Wikipedia and retain content only
    when the article title is relevant to every meaningful topic term.
 4. **Quiz generation.** Generate exactly ten multiple-choice questions under
-   the preflight's authoritative `difficulty_guidance`.
+   the preflight's authoritative `difficulty_guidance`. The initial generation
+   produces the complete quiz candidate.
 5. **Deterministic validation.** Before any LLM judge call, a pure validation
    component checks objective structure, option counts, duplicate options,
    correct-index bounds, and empty fields. Answer options must be neutral text
    and contain neither Unicode emojis nor visual correctness cues. A first
-   failure routes to regeneration using privacy-safe issue codes and positions.
+   failure returns to `quiz_generation` using privacy-safe issue codes and
+   positions. When every issue is `duplicate_option`, the generation node uses
+   an internal targeted-repair branch that returns only complete replacement
+   option lists and corrected indices for the affected questions. It must
+   preserve the title, question text, explanations, and every unaffected
+   question. Mixed or non-duplicate issues use complete quiz regeneration
+   because option replacement alone cannot safely correct them. Every repaired
+   or regenerated candidate passes deterministic validation again; the repair
+   is never accepted on trust.
 6. **Semantic quality check.** A separate judge verifies factual correctness,
    exact topic fit, grade-level scope, and whether an emoji in a question names,
    depicts, or otherwise reveals the correct answer. Decorative question emojis
-   remain allowed. Judge rejection shares the same single-retry generation
-   budget with deterministic validation.
+   remain allowed. A candidate recovered through targeted option repair still
+   requires this semantic and academic review, including confirmation that each
+   repaired `correct_option_index` points to the genuinely correct answer.
+   Judge rejection shares the same single-retry generation budget with
+   deterministic validation. The existing reinforcement-mode exception remains:
+   when `previous_score <= 3`, previously validated questions are shuffled and
+   reused, so the academic Judge is skipped.
 7. **Terminal routing.** Only a passed quiz reaches the presentation layer.
    Exhausted retries or a judge exception route to a localized fail-closed
    response and diagnostic persistence. The generation node may keep a
@@ -391,6 +440,37 @@ Feature: Quiz solving and result
     When the chat asks for the next difficulty
     And the user chooses "harder"
     Then a new quiz starts at higher difficulty from step 1
+
+  Scenario: Duplicate-only failure repairs affected options
+    Given an unreleased quiz candidate fails deterministic validation
+    And every reported issue is "duplicate_option"
+    And the deterministic repair allowance is not exhausted
+    When the retry returns to quiz generation
+    Then only the affected option lists and their correct indices are regenerated
+    And the title, questions, explanations, and unaffected questions are preserved
+    And the repaired candidate passes through deterministic validation again
+    And the repaired candidate must pass the academic Judge before release
+
+  Scenario: Mixed validation failure regenerates the complete quiz
+    Given an unreleased quiz candidate has a duplicate option and another structural defect
+    And the deterministic repair allowance is not exhausted
+    When the retry returns to quiz generation
+    Then the system regenerates the complete quiz instead of using targeted option repair
+    And the regenerated candidate passes through deterministic validation again
+
+  Scenario: Invalid duplicate repair fails closed
+    Given a duplicate-only candidate used its one targeted repair
+    When the repaired candidate still fails deterministic validation
+    Then no quiz JSON is released to the browser
+    And the request routes to the localized quality-failure response
+
+  Scenario: Academic correction remains after deterministic repair
+    Given a candidate used its one deterministic repair
+    And the repaired candidate passes deterministic validation
+    When the academic Judge rejects the repaired candidate
+    Then the system regenerates the complete quiz once using the Judge feedback
+    And the new candidate passes through deterministic validation and academic review
+    And no candidate is released unless both gates pass
 ```
 
 ### 6.1 Asymptotic Progress Loader Overlay
@@ -874,8 +954,15 @@ application plugin's `before_run_callback`:
    - Perform case-insensitive checks of the user's prompt against `blocklist_keywords`.
    - Evaluate the prompt against `injection_regexes`.
    - If a match is found, immediately classify as `MALICIOUS` and short-circuit.
-3. **Stage 2: LLM Classification (Semantic Filter)**:
-   - If Stage 1 passes, use `gemini-2.5-flash` with temperature 0.0,
+3. **Structured Request Validation (Zero-Token Contract Gate)**:
+   - After the local malicious-pattern scan, validate initial, clarification,
+     and adaptive requests against the public structured JSON contract.
+   - Reject malformed JSON, missing required fields, unknown fields, and
+     free-form text with a fixed localized `INVALID_REQUEST` response.
+   - Keep the local scan first so known malicious input retains Sheriff event
+     logging and strike behavior even when its request shape is unsupported.
+4. **Stage 2: LLM Classification (Semantic Filter)**:
+   - If the local scan and contract validation pass, use `gemini-2.5-flash` with temperature 0.0,
      `max_output_tokens=512`, and a small `thinking_budget=256`. Limited
      thinking improves semantic verification while keeping latency and cost
      bounded.
@@ -889,7 +976,7 @@ application plugin's `before_run_callback`:
      fail closed with a localized temporary-unavailability message.
    - If the classifier returns `MALICIOUS`, `OFF_TOPIC`, or `PII`, block and
      short-circuit.
-4. **Action on Violation**:
+5. **Action on Violation**:
    - **Block Prompt**: The prompt is not sent to the main Quiz Generator.
    - **Log Security Event**: If classified as `MALICIOUS`, write a log entry to the `security_events` Firestore collection (storing timestamp, blocked input, violation type, e.g. `RegexMatch`, `KeywordMatch`, `ClassifierBlock`, and anonymous ID).
    - **Protect PII**: Inputs classified as `PII` are not written to
@@ -964,10 +1051,16 @@ The Sheriff operates inside the plugin's pre-run security check and uses secure,
 ```gherkin
 Feature: Security checkpoint & Malicious prompt detection
 
+  Scenario: Unsupported request is rejected without LLM use
+    Given a direct client submits free-form text or malformed quiz JSON
+    When the request passes the local malicious-pattern scan
+    Then the request receives a localized INVALID_REQUEST response
+    And the semantic classifier and quiz workflow do not run
+
   Scenario: Off-topic question (weather)
-    Given the user has opened the chat
-    When the user asks about the weather
-    Then the prompt is not forwarded to the LLM
+    Given the user has opened the quiz form
+    When the user submits weather as the topic in a valid structured request
+    Then the prompt is not forwarded to the quiz-generation LLM
     And the user receives the friendly off-topic response
 
   Scenario: Personal data is protected

@@ -1,0 +1,994 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "de_grade6_ancient_egypt",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 6\",\"subject\":\"Geschichte\",\"topic\":\"Altes Ägypten\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_grade7_forest_ecosystem",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Biologie\",\"topic\":\"Ökosystem Wald\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_grade8_forces_motion",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 8\",\"subject\":\"Physik\",\"topic\":\"Kräfte und Bewegung\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_grade9_acids_bases",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 9\",\"subject\":\"Chemie\",\"topic\":\"Säuren und Basen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_grade10_quadratic_functions",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 10\",\"subject\":\"Mathematik\",\"topic\":\"Quadratische Funktionen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_grade11_industrialization",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 11\",\"subject\":\"Geschichte\",\"topic\":\"Industrialisierung\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_grade12_cellular_respiration",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 12\",\"subject\":\"Biologie\",\"topic\":\"Zellatmung\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_grade6_climate_zones",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 6\",\"subject\":\"Geografie\",\"topic\":\"Kontinente und Klimazonen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_grade9_narrative_perspective",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 9\",\"subject\":\"Deutsch\",\"topic\":\"Erzählperspektive in Kurzgeschichten\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_grade5_solar_system",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 5\",\"subject\":\"Science\",\"topic\":\"The solar system\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_grade6_fractions_decimals",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 6\",\"subject\":\"Mathematics\",\"topic\":\"Fractions and decimals\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_grade7_roman_empire",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"History\",\"topic\":\"The Roman Empire\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_grade9_electric_circuits",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 9\",\"subject\":\"Physics\",\"topic\":\"Electric circuits\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_grade10_chemical_bonding",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 10\",\"subject\":\"Chemistry\",\"topic\":\"Chemical bonding\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_grade11_supply_demand",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 11\",\"subject\":\"Economics\",\"topic\":\"Supply and demand\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_grade12_macbeth",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 12\",\"subject\":\"Literature\",\"topic\":\"Themes in Macbeth\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_grade8_climate_zones",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 8\",\"subject\":\"Geography\",\"topic\":\"Climate zones\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_grade10_algorithms",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 10\",\"subject\":\"Computer Science\",\"topic\":\"Basic algorithms\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "pt_grade5_food_chain",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 5\",\"subject\":\"Ciências\",\"topic\":\"Cadeia alimentar\",\"preferred_language\":\"pt\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "pt_grade6_fractions",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 6\",\"subject\":\"Matemática\",\"topic\":\"Frações\",\"preferred_language\":\"pt\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "pt_grade7_colonial_brazil",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"História\",\"topic\":\"Brasil colonial\",\"preferred_language\":\"pt\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "pt_grade8_brazilian_biomes",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 8\",\"subject\":\"Geografia\",\"topic\":\"Biomas brasileiros\",\"preferred_language\":\"pt\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "pt_grade9_uniform_motion",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 9\",\"subject\":\"Física\",\"topic\":\"Movimento uniforme\",\"preferred_language\":\"pt\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "pt_grade10_periodic_table",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 10\",\"subject\":\"Química\",\"topic\":\"Tabela periódica\",\"preferred_language\":\"pt\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "pt_grade11_inflation_interest",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 11\",\"subject\":\"Economia\",\"topic\":\"Inflação e juros\",\"preferred_language\":\"pt\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "pt_grade12_ecology",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 12\",\"subject\":\"Biologia\",\"topic\":\"Ecologia\",\"preferred_language\":\"pt\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "pt_grade8_grammar_classes",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 8\",\"subject\":\"Português\",\"topic\":\"Classes gramaticais\",\"preferred_language\":\"pt\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_easy_grade6_fractions",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 6\",\"subject\":\"Mathematik\",\"topic\":\"Brüche\",\"preferred_language\":\"de\",\"previous_score\":2,\"previous_questions\":[\"Previous question 1 about Brüche?\",\"Previous question 2 about Brüche?\",\"Previous question 3 about Brüche?\",\"Previous question 4 about Brüche?\",\"Previous question 5 about Brüche?\",\"Previous question 6 about Brüche?\",\"Previous question 7 about Brüche?\",\"Previous question 8 about Brüche?\",\"Previous question 9 about Brüche?\",\"Previous question 10 about Brüche?\"],\"previous_quiz_json\":{\"title\":\"Previous quiz about Brüche\",\"difficulty\":\"⭐ Medium\",\"questions\":[{\"question\":\"Previous question 1 about Brüche?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 1 about Brüche.\"},{\"question\":\"Previous question 2 about Brüche?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 2 about Brüche.\"},{\"question\":\"Previous question 3 about Brüche?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 3 about Brüche.\"},{\"question\":\"Previous question 4 about Brüche?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 4 about Brüche.\"},{\"question\":\"Previous question 5 about Brüche?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 5 about Brüche.\"},{\"question\":\"Previous question 6 about Brüche?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 6 about Brüche.\"},{\"question\":\"Previous question 7 about Brüche?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 7 about Brüche.\"},{\"question\":\"Previous question 8 about Brüche?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 8 about Brüche.\"},{\"question\":\"Previous question 9 about Brüche?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 9 about Brüche.\"},{\"question\":\"Previous question 10 about Brüche?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 10 about Brüche.\"}]}}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_easy_grade7_cells",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Biology\",\"topic\":\"Cell structure\",\"preferred_language\":\"en\",\"previous_score\":3,\"previous_questions\":[\"Previous question 1 about Cell structure?\",\"Previous question 2 about Cell structure?\",\"Previous question 3 about Cell structure?\",\"Previous question 4 about Cell structure?\",\"Previous question 5 about Cell structure?\",\"Previous question 6 about Cell structure?\",\"Previous question 7 about Cell structure?\",\"Previous question 8 about Cell structure?\",\"Previous question 9 about Cell structure?\",\"Previous question 10 about Cell structure?\"],\"previous_quiz_json\":{\"title\":\"Previous quiz about Cell structure\",\"difficulty\":\"⭐ Medium\",\"questions\":[{\"question\":\"Previous question 1 about Cell structure?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 1 about Cell structure.\"},{\"question\":\"Previous question 2 about Cell structure?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 2 about Cell structure.\"},{\"question\":\"Previous question 3 about Cell structure?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 3 about Cell structure.\"},{\"question\":\"Previous question 4 about Cell structure?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 4 about Cell structure.\"},{\"question\":\"Previous question 5 about Cell structure?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 5 about Cell structure.\"},{\"question\":\"Previous question 6 about Cell structure?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 6 about Cell structure.\"},{\"question\":\"Previous question 7 about Cell structure?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 7 about Cell structure.\"},{\"question\":\"Previous question 8 about Cell structure?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 8 about Cell structure.\"},{\"question\":\"Previous question 9 about Cell structure?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 9 about Cell structure.\"},{\"question\":\"Previous question 10 about Cell structure?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 10 about Cell structure.\"}]}}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "pt_easy_grade8_industrial_revolution",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 8\",\"subject\":\"História\",\"topic\":\"Revolução Industrial\",\"preferred_language\":\"pt\",\"previous_score\":1,\"previous_questions\":[\"Previous question 1 about Revolução Industrial?\",\"Previous question 2 about Revolução Industrial?\",\"Previous question 3 about Revolução Industrial?\",\"Previous question 4 about Revolução Industrial?\",\"Previous question 5 about Revolução Industrial?\",\"Previous question 6 about Revolução Industrial?\",\"Previous question 7 about Revolução Industrial?\",\"Previous question 8 about Revolução Industrial?\",\"Previous question 9 about Revolução Industrial?\",\"Previous question 10 about Revolução Industrial?\"],\"previous_quiz_json\":{\"title\":\"Previous quiz about Revolução Industrial\",\"difficulty\":\"⭐ Medium\",\"questions\":[{\"question\":\"Previous question 1 about Revolução Industrial?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 1 about Revolução Industrial.\"},{\"question\":\"Previous question 2 about Revolução Industrial?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 2 about Revolução Industrial.\"},{\"question\":\"Previous question 3 about Revolução Industrial?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 3 about Revolução Industrial.\"},{\"question\":\"Previous question 4 about Revolução Industrial?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 4 about Revolução Industrial.\"},{\"question\":\"Previous question 5 about Revolução Industrial?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 5 about Revolução Industrial.\"},{\"question\":\"Previous question 6 about Revolução Industrial?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 6 about Revolução Industrial.\"},{\"question\":\"Previous question 7 about Revolução Industrial?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 7 about Revolução Industrial.\"},{\"question\":\"Previous question 8 about Revolução Industrial?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 8 about Revolução Industrial.\"},{\"question\":\"Previous question 9 about Revolução Industrial?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 9 about Revolução Industrial.\"},{\"question\":\"Previous question 10 about Revolução Industrial?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 10 about Revolução Industrial.\"}]}}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_easy_grade9_irregular_verbs",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 9\",\"subject\":\"Englisch\",\"topic\":\"Unregelmäßige Verben\",\"preferred_language\":\"de\",\"previous_score\":3,\"previous_questions\":[\"Previous question 1 about Unregelmäßige Verben?\",\"Previous question 2 about Unregelmäßige Verben?\",\"Previous question 3 about Unregelmäßige Verben?\",\"Previous question 4 about Unregelmäßige Verben?\",\"Previous question 5 about Unregelmäßige Verben?\",\"Previous question 6 about Unregelmäßige Verben?\",\"Previous question 7 about Unregelmäßige Verben?\",\"Previous question 8 about Unregelmäßige Verben?\",\"Previous question 9 about Unregelmäßige Verben?\",\"Previous question 10 about Unregelmäßige Verben?\"],\"previous_quiz_json\":{\"title\":\"Previous quiz about Unregelmäßige Verben\",\"difficulty\":\"⭐ Medium\",\"questions\":[{\"question\":\"Previous question 1 about Unregelmäßige Verben?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 1 about Unregelmäßige Verben.\"},{\"question\":\"Previous question 2 about Unregelmäßige Verben?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 2 about Unregelmäßige Verben.\"},{\"question\":\"Previous question 3 about Unregelmäßige Verben?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 3 about Unregelmäßige Verben.\"},{\"question\":\"Previous question 4 about Unregelmäßige Verben?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 4 about Unregelmäßige Verben.\"},{\"question\":\"Previous question 5 about Unregelmäßige Verben?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 5 about Unregelmäßige Verben.\"},{\"question\":\"Previous question 6 about Unregelmäßige Verben?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 6 about Unregelmäßige Verben.\"},{\"question\":\"Previous question 7 about Unregelmäßige Verben?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 7 about Unregelmäßige Verben.\"},{\"question\":\"Previous question 8 about Unregelmäßige Verben?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 8 about Unregelmäßige Verben.\"},{\"question\":\"Previous question 9 about Unregelmäßige Verben?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 9 about Unregelmäßige Verben.\"},{\"question\":\"Previous question 10 about Unregelmäßige Verben?\",\"options\":[\"Option A\",\"Option B\",\"Option C\"],\"correct_option_index\":0,\"explanation\":\"Previous explanation 10 about Unregelmäßige Verben.\"}]}}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_medium_grade8_energy",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 8\",\"subject\":\"Physik\",\"topic\":\"Energieformen\",\"preferred_language\":\"de\",\"previous_score\":6,\"previous_questions\":[\"Previous question 1 about Energieformen?\",\"Previous question 2 about Energieformen?\",\"Previous question 3 about Energieformen?\",\"Previous question 4 about Energieformen?\",\"Previous question 5 about Energieformen?\",\"Previous question 6 about Energieformen?\",\"Previous question 7 about Energieformen?\",\"Previous question 8 about Energieformen?\",\"Previous question 9 about Energieformen?\",\"Previous question 10 about Energieformen?\"]}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_medium_grade9_world_war_one",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 9\",\"subject\":\"History\",\"topic\":\"World War I\",\"preferred_language\":\"en\",\"previous_score\":5,\"previous_questions\":[\"Previous question 1 about World War I?\",\"Previous question 2 about World War I?\",\"Previous question 3 about World War I?\",\"Previous question 4 about World War I?\",\"Previous question 5 about World War I?\",\"Previous question 6 about World War I?\",\"Previous question 7 about World War I?\",\"Previous question 8 about World War I?\",\"Previous question 9 about World War I?\",\"Previous question 10 about World War I?\"]}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "pt_medium_grade10_functions",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 10\",\"subject\":\"Matemática\",\"topic\":\"Funções\",\"preferred_language\":\"pt\",\"previous_score\":7,\"previous_questions\":[\"Previous question 1 about Funções?\",\"Previous question 2 about Funções?\",\"Previous question 3 about Funções?\",\"Previous question 4 about Funções?\",\"Previous question 5 about Funções?\",\"Previous question 6 about Funções?\",\"Previous question 7 about Funções?\",\"Previous question 8 about Funções?\",\"Previous question 9 about Funções?\",\"Previous question 10 about Funções?\"]}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_medium_grade11_genetics",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 11\",\"subject\":\"Biologie\",\"topic\":\"Genetik\",\"preferred_language\":\"de\",\"previous_score\":4,\"previous_questions\":[\"Previous question 1 about Genetik?\",\"Previous question 2 about Genetik?\",\"Previous question 3 about Genetik?\",\"Previous question 4 about Genetik?\",\"Previous question 5 about Genetik?\",\"Previous question 6 about Genetik?\",\"Previous question 7 about Genetik?\",\"Previous question 8 about Genetik?\",\"Previous question 9 about Genetik?\",\"Previous question 10 about Genetik?\"]}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_medium_grade12_market_structures",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 12\",\"subject\":\"Economics\",\"topic\":\"Market structures\",\"preferred_language\":\"en\",\"previous_score\":6,\"previous_questions\":[\"Previous question 1 about Market structures?\",\"Previous question 2 about Market structures?\",\"Previous question 3 about Market structures?\",\"Previous question 4 about Market structures?\",\"Previous question 5 about Market structures?\",\"Previous question 6 about Market structures?\",\"Previous question 7 about Market structures?\",\"Previous question 8 about Market structures?\",\"Previous question 9 about Market structures?\",\"Previous question 10 about Market structures?\"]}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_hard_grade7_percentages",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Mathematik\",\"topic\":\"Prozentrechnung\",\"preferred_language\":\"de\",\"previous_score\":9,\"previous_questions\":[\"Previous question 1 about Prozentrechnung?\",\"Previous question 2 about Prozentrechnung?\",\"Previous question 3 about Prozentrechnung?\",\"Previous question 4 about Prozentrechnung?\",\"Previous question 5 about Prozentrechnung?\",\"Previous question 6 about Prozentrechnung?\",\"Previous question 7 about Prozentrechnung?\",\"Previous question 8 about Prozentrechnung?\",\"Previous question 9 about Prozentrechnung?\",\"Previous question 10 about Prozentrechnung?\"],\"selected_difficulty\":\"hard\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "en_hard_grade8_photosynthesis",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 8\",\"subject\":\"Science\",\"topic\":\"Photosynthesis\",\"preferred_language\":\"en\",\"previous_score\":10,\"previous_questions\":[\"Previous question 1 about Photosynthesis?\",\"Previous question 2 about Photosynthesis?\",\"Previous question 3 about Photosynthesis?\",\"Previous question 4 about Photosynthesis?\",\"Previous question 5 about Photosynthesis?\",\"Previous question 6 about Photosynthesis?\",\"Previous question 7 about Photosynthesis?\",\"Previous question 8 about Photosynthesis?\",\"Previous question 9 about Photosynthesis?\",\"Previous question 10 about Photosynthesis?\"],\"selected_difficulty\":\"hard\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "pt_hard_grade9_globalization",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 9\",\"subject\":\"Geografia\",\"topic\":\"Globalização\",\"preferred_language\":\"pt\",\"previous_score\":9,\"previous_questions\":[\"Previous question 1 about Globalização?\",\"Previous question 2 about Globalização?\",\"Previous question 3 about Globalização?\",\"Previous question 4 about Globalização?\",\"Previous question 5 about Globalização?\",\"Previous question 6 about Globalização?\",\"Previous question 7 about Globalização?\",\"Previous question 8 about Globalização?\",\"Previous question 9 about Globalização?\",\"Previous question 10 about Globalização?\"],\"selected_difficulty\":\"hard\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "de_hard_grade10_redox",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 10\",\"subject\":\"Chemie\",\"topic\":\"Redoxreaktionen\",\"preferred_language\":\"de\",\"previous_score\":10,\"previous_questions\":[\"Previous question 1 about Redoxreaktionen?\",\"Previous question 2 about Redoxreaktionen?\",\"Previous question 3 about Redoxreaktionen?\",\"Previous question 4 about Redoxreaktionen?\",\"Previous question 5 about Redoxreaktionen?\",\"Previous question 6 about Redoxreaktionen?\",\"Previous question 7 about Redoxreaktionen?\",\"Previous question 8 about Redoxreaktionen?\",\"Previous question 9 about Redoxreaktionen?\",\"Previous question 10 about Redoxreaktionen?\"],\"selected_difficulty\":\"hard\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "structured_en_grade5_water_cycle",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Grade 5\",\"subject\":\"Science\",\"topic\":\"The water cycle\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "structured_de_grade7_middle_ages",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Geschichte\",\"topic\":\"Das Mittelalter\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "structured_pt_grade8_solar_system",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"8º ano\",\"subject\":\"Ciências\",\"topic\":\"O sistema solar\",\"preferred_language\":\"pt\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "structured_en_grade11_functional_groups",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Grade 11\",\"subject\":\"Chemistry\",\"topic\":\"Organic functional groups\",\"preferred_language\":\"en\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    },
+    {
+      "eval_case_id": "structured_de_grade10_climate_change",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 10\",\"subject\":\"Geografie\",\"topic\":\"Klimawandel\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      },
+      "agent_data": {
+        "agents": {
+          "root_agent": {
+            "agent_id": "root_agent",
+            "agent_type": "Workflow",
+            "description": "Interactive School Exam Preparation Companion (FoxQuiz)",
+            "sub_agents": []
+          }
+        },
+        "turns": []
+      }
+    }
+  ]
+}

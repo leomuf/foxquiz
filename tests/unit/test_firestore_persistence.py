@@ -31,6 +31,26 @@ def real_repo():
         yield FirestoreRepository(), client_class.return_value
 
 
+def test_unset_database_id_selects_default(monkeypatch):
+    """Production must retain the default Firestore database when unset."""
+    monkeypatch.delenv("FIRESTORE_DATABASE_ID", raising=False)
+
+    with patch("app.database.firestore_repo.firestore.Client") as client_class:
+        FirestoreRepository()
+
+    client_class.assert_called_once_with(database="(default)")
+
+
+def test_configured_database_id_selects_named_database(monkeypatch):
+    """DEV must be able to select its isolated named Firestore database."""
+    monkeypatch.setenv("FIRESTORE_DATABASE_ID", "foxquiz-dev")
+
+    with patch("app.database.firestore_repo.firestore.Client") as client_class:
+        FirestoreRepository()
+
+    client_class.assert_called_once_with(database="foxquiz-dev")
+
+
 def test_increment_token_budget_starts_transaction(real_repo):
     """The budget update must run through Firestore's transactional wrapper."""
     repo, client = real_repo

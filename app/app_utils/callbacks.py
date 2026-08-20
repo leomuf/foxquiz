@@ -15,17 +15,34 @@ from google.adk.plugins.base_plugin import BasePlugin
 from google.genai import Client
 from google.genai import types as genai_types
 
-from app.app_utils.operational_logging import emit_operational_event
+from app.app_utils.operational_logging import (
+    emit_llm_invocation_token_summary,
+    emit_llm_token_usage_event,
+    emit_operational_event,
+)
 from app.app_utils.request_context import (
     get_anonymous_id,
     get_client_ip,
     get_client_locale,
+)
+from app.app_utils.token_usage import (
+    MODEL_BY_STAGE,
+    CallStage,
+    InvocationTokenUsage,
+    TerminalOutcome,
+    TokenUsage,
+    normalize_attempt,
 )
 from app.database.firestore_repo import (
     FirestorePersistenceError,
     FirestoreRepository,
     SecurityConfigurationError,
     validate_security_config,
+)
+from app.domain.quiz_request import (
+    QuizRequestValidationError,
+    invalid_request_message,
+    parse_quiz_request,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,6 +61,7 @@ _local_banned_cache: dict[str, datetime.datetime] = {}
 # from being persisted as durable session state by ADK session services.
 _TOKEN_USAGE_STATE_KEY = "temp:foxquiz_token_usage"
 _TOKEN_USAGE_FLUSHED_STATE_KEY = "temp:foxquiz_token_usage_flushed"
+_TERMINAL_OUTCOME_STATE_KEY = "temp:foxquiz_terminal_outcome"
 SECURITY_BLOCK_STATE_KEY = "temp:foxquiz_security_block"
 _PII_CLASSIFICATION_RULE = """\
 Additional mandatory privacy category:
@@ -72,16 +90,52 @@ class SecurityBlockException(Exception):
         self.block_type = block_type  # "BANNED", "MALICIOUS", "OFF_TOPIC", "PII", etc.
 
 
-def record_token_usage(callback_context: CallbackContext, response: Any) -> int:
-    """Accumulate token usage from a direct Google GenAI response."""
-    usage_metadata = getattr(response, "usage_metadata", None)
-    tokens = getattr(usage_metadata, "total_token_count", 0) or 0
-    if tokens <= 0:
-        return 0
+def set_invocation_outcome(
+    callback_context: CallbackContext,
+    outcome: TerminalOutcome | str,
+) -> None:
+    """Record one trusted terminal outcome in temporary invocation state."""
+    callback_context.state[_TERMINAL_OUTCOME_STATE_KEY] = TerminalOutcome(outcome).value
 
-    current_total = callback_context.state.get(_TOKEN_USAGE_STATE_KEY, 0) or 0
-    callback_context.state[_TOKEN_USAGE_STATE_KEY] = current_total + tokens
-    return tokens
+
+def record_token_usage(
+    callback_context: CallbackContext,
+    response: Any,
+    *,
+    call_stage: CallStage | str,
+    generation_attempt: int | None = None,
+    judge_attempt: int | None = None,
+) -> int:
+    """Accumulate and emit allowlisted usage from one direct Gemini response."""
+    stage = CallStage(call_stage)
+    normalized_generation_attempt = normalize_attempt(generation_attempt)
+    normalized_judge_attempt = normalize_attempt(judge_attempt)
+    if (
+        normalized_generation_attempt is not None
+        and stage is not CallStage.QUIZ_GENERATOR
+    ):
+        raise ValueError("generation_attempt is only valid for quiz_generator.")
+    if normalized_judge_attempt is not None and stage is not CallStage.ACADEMIC_JUDGE:
+        raise ValueError("judge_attempt is only valid for academic_judge.")
+
+    usage = TokenUsage.from_response(response)
+    accumulator = InvocationTokenUsage.from_state(
+        callback_context.state.get(_TOKEN_USAGE_STATE_KEY)
+    )
+    accumulator.add_direct(stage, usage)
+    callback_context.state[_TOKEN_USAGE_STATE_KEY] = accumulator.as_state()
+
+    try:
+        emit_llm_token_usage_event(
+            call_stage=stage,
+            model=MODEL_BY_STAGE[stage],
+            usage=usage,
+            generation_attempt=normalized_generation_attempt,
+            judge_attempt=normalized_judge_attempt,
+        )
+    except Exception:
+        logger.warning("Token usage event logging was unavailable.")
+    return usage.total_token_count
 
 
 def get_cached_security_config(repo: FirestoreRepository) -> dict[str, Any]:
@@ -214,6 +268,18 @@ async def _run_security_checkpoint(
                 locale_suffix,
             )
 
+    # Reject unsupported input before it can consume semantic-classifier or
+    # workflow tokens. The local malicious-pattern scan remains first so known
+    # attacks retain Sheriff logging and strike behavior.
+    try:
+        parse_quiz_request(prompt)
+    except QuizRequestValidationError:
+        logger.info("Blocked a request that did not match the quiz contract.")
+        raise SecurityBlockException(
+            invalid_request_message(locale_suffix),
+            "INVALID_REQUEST",
+        ) from None
+
     # --- Stage 2: LLM Classification (Semantic Filter) ---
     try:
         classifier_prompt = config.get("classification_prompt")
@@ -225,7 +291,7 @@ async def _run_security_checkpoint(
             )
         # Call Google GenAI fast model for safe, cost-efficient security classification
         client = Client()
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
                 genai_types.Content(
@@ -243,7 +309,11 @@ async def _run_security_checkpoint(
                 thinking_config=genai_types.ThinkingConfig(thinking_budget=256),
             ),
         )
-        record_token_usage(callback_context, response)
+        record_token_usage(
+            callback_context,
+            response,
+            call_stage=CallStage.SECURITY_CLASSIFIER,
+        )
         response_text = response.text
         if not isinstance(response_text, str) or not response_text.strip():
             raise ValueError("Semantic classifier returned no decision.")
@@ -335,13 +405,20 @@ async def after_agent_callback(
         return None
 
     invocation_id = callback_context.invocation_id
-    total_tokens = callback_context.state.get(_TOKEN_USAGE_STATE_KEY, 0) or 0
+    accumulator = InvocationTokenUsage.from_state(
+        callback_context.state.get(_TOKEN_USAGE_STATE_KEY)
+    )
 
     # Include usage emitted by any ADK-managed model calls that may be added to
-    # the workflow in the future. Direct GenAI calls are accumulated above.
+    # the workflow in the future. FoxQuiz direct calls create fresh workflow
+    # events without usage metadata, so the two sources are disjoint.
     for event in callback_context.session.events:
         if event.invocation_id == invocation_id and event.usage_metadata:
-            total_tokens += event.usage_metadata.total_token_count or 0
+            accumulator.add_adk_managed(
+                TokenUsage.from_usage_metadata(event.usage_metadata)
+            )
+
+    total_tokens = accumulator.totals.total_token_count
 
     if total_tokens > 0:
         logger.info("Aggregated invocation token usage will be written to the budget.")
@@ -355,7 +432,24 @@ async def after_agent_callback(
             # Do not turn a successful quiz into an error after generation.
             logger.warning("Token budget persistence was unavailable after the run.")
 
-    callback_context.state[_TOKEN_USAGE_STATE_KEY] = 0
+    if accumulator.model_call_count > 0:
+        try:
+            outcome = TerminalOutcome(
+                callback_context.state.get(
+                    _TERMINAL_OUTCOME_STATE_KEY, TerminalOutcome.ERROR.value
+                )
+            )
+        except (TypeError, ValueError):
+            outcome = TerminalOutcome.ERROR
+        try:
+            emit_llm_invocation_token_summary(
+                usage=accumulator,
+                terminal_outcome=outcome,
+            )
+        except Exception:
+            logger.warning("Token usage summary logging was unavailable.")
+
+    callback_context.state[_TOKEN_USAGE_STATE_KEY] = InvocationTokenUsage().as_state()
     callback_context.state[_TOKEN_USAGE_FLUSHED_STATE_KEY] = True
     return None
 
@@ -370,8 +464,11 @@ class FoxQuizSecurityPlugin(BasePlugin):
         self, *, invocation_context: InvocationContext
     ) -> genai_types.Content | None:
         callback_context = Context(invocation_context)
-        callback_context.state[_TOKEN_USAGE_STATE_KEY] = 0
+        callback_context.state[_TOKEN_USAGE_STATE_KEY] = (
+            InvocationTokenUsage().as_state()
+        )
         callback_context.state[_TOKEN_USAGE_FLUSHED_STATE_KEY] = False
+        set_invocation_outcome(callback_context, TerminalOutcome.ERROR)
         try:
             await before_agent_callback(callback_context)
         except SecurityBlockException as exc:
@@ -385,6 +482,7 @@ class FoxQuizSecurityPlugin(BasePlugin):
                 "block_type": exc.block_type,
                 "message": exc.message,
             }
+            set_invocation_outcome(callback_context, TerminalOutcome.BLOCKED)
             # ADK 2.6's Workflow runner ignores before_run return values. The
             # workflow's first node consumes this state and routes to a terminal
             # block response before any quiz-generation node can run.
@@ -405,4 +503,6 @@ class FoxQuizSecurityPlugin(BasePlugin):
             "Flushing token usage after a failed invocation (%s).",
             type(error).__name__,
         )
-        await after_agent_callback(Context(invocation_context))
+        callback_context = Context(invocation_context)
+        set_invocation_outcome(callback_context, TerminalOutcome.ERROR)
+        await after_agent_callback(callback_context)

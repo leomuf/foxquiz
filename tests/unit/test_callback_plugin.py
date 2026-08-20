@@ -19,6 +19,7 @@ Boundary:
 """
 
 import json
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
@@ -36,37 +37,147 @@ from app.app_utils.callbacks import (
     SecurityBlockException,
     after_agent_callback,
     record_token_usage,
+    set_invocation_outcome,
 )
 from app.app_utils.request_context import anonymous_id_ctx
+from app.app_utils.token_usage import (
+    CallStage,
+    InvocationTokenUsage,
+    TerminalOutcome,
+    TokenUsage,
+)
 from app.database.firestore_repo import FirestorePersistenceError
 
 
 def test_record_token_usage_accumulates_direct_genai_responses():
     callback_context = MagicMock()
     callback_context.state = {}
-    first_response = MagicMock()
-    first_response.usage_metadata.total_token_count = 120
-    second_response = MagicMock()
-    second_response.usage_metadata.total_token_count = 30
+    first_response = SimpleNamespace(
+        usage_metadata=SimpleNamespace(
+            prompt_token_count=80,
+            candidates_token_count=20,
+            thoughts_token_count=20,
+            total_token_count=120,
+        )
+    )
+    second_response = SimpleNamespace(
+        usage_metadata=SimpleNamespace(total_token_count=30)
+    )
 
-    assert record_token_usage(callback_context, first_response) == 120
-    assert record_token_usage(callback_context, second_response) == 30
-    assert callback_context.state["temp:foxquiz_token_usage"] == 150
+    with patch("app.app_utils.callbacks.emit_llm_token_usage_event") as emit_event:
+        assert (
+            record_token_usage(
+                callback_context,
+                first_response,
+                call_stage=CallStage.QUIZ_GENERATOR,
+                generation_attempt=1,
+            )
+            == 120
+        )
+        assert (
+            record_token_usage(
+                callback_context,
+                second_response,
+                call_stage=CallStage.ACADEMIC_JUDGE,
+                judge_attempt=1,
+            )
+            == 30
+        )
+
+    accumulator = InvocationTokenUsage.from_state(
+        callback_context.state["temp:foxquiz_token_usage"]
+    )
+    assert accumulator.totals.total_token_count == 150
+    assert accumulator.stage_call_counts == {
+        CallStage.QUIZ_GENERATOR: 1,
+        CallStage.ACADEMIC_JUDGE: 1,
+    }
+    assert emit_event.call_count == 2
+
+
+def test_record_token_usage_rejects_unknown_stage() -> None:
+    callback_context = MagicMock()
+    callback_context.state = {}
+    response = SimpleNamespace(usage_metadata=SimpleNamespace(total_token_count=10))
+
+    with pytest.raises(ValueError):
+        record_token_usage(
+            callback_context,
+            response,
+            call_stage="private-user-supplied-stage",
+        )
+
+    assert "temp:foxquiz_token_usage" not in callback_context.state
+
+
+def test_record_token_usage_keeps_accounting_when_logging_fails() -> None:
+    callback_context = MagicMock()
+    callback_context.state = {}
+    response = SimpleNamespace(usage_metadata=SimpleNamespace(total_token_count=10))
+
+    with patch(
+        "app.app_utils.callbacks.emit_llm_token_usage_event",
+        side_effect=RuntimeError("logging unavailable"),
+    ):
+        assert (
+            record_token_usage(
+                callback_context,
+                response,
+                call_stage=CallStage.SECURITY_CLASSIFIER,
+            )
+            == 10
+        )
+
+    accumulator = InvocationTokenUsage.from_state(
+        callback_context.state["temp:foxquiz_token_usage"]
+    )
+    assert accumulator.totals.total_token_count == 10
+
+
+def test_record_token_usage_never_serializes_response_content(capsys) -> None:
+    private_response = "PRIVATE-QUIZ-CONTENT-27ac"
+    callback_context = MagicMock()
+    callback_context.state = {}
+    response = SimpleNamespace(
+        text=private_response,
+        usage_metadata=SimpleNamespace(total_token_count=10),
+    )
+
+    record_token_usage(
+        callback_context,
+        response,
+        call_stage=CallStage.CURRICULUM_EVALUATOR,
+    )
+
+    output = capsys.readouterr()
+    assert private_response not in output.err
+    assert output.out == ""
 
 
 @pytest.mark.asyncio
 async def test_after_callback_flushes_direct_usage_exactly_once():
     callback_context = MagicMock()
+    accumulator = InvocationTokenUsage()
+    accumulator.add_direct(
+        CallStage.QUIZ_GENERATOR,
+        TokenUsage(total_token_count=150),
+    )
     callback_context.state = {
-        "temp:foxquiz_token_usage": 150,
+        "temp:foxquiz_token_usage": accumulator.as_state(),
         "temp:foxquiz_token_usage_flushed": False,
     }
+    set_invocation_outcome(callback_context, TerminalOutcome.SUCCESS)
     callback_context.invocation_id = "invocation-1"
     callback_context.session.events = []
     token = anonymous_id_ctx.set("test-anonymous-user")
 
     try:
-        with patch("app.app_utils.callbacks.FirestoreRepository") as repo_class:
+        with (
+            patch("app.app_utils.callbacks.FirestoreRepository") as repo_class,
+            patch(
+                "app.app_utils.callbacks.emit_llm_invocation_token_summary"
+            ) as emit_summary,
+        ):
             repo = repo_class.return_value
 
             await after_agent_callback(callback_context)
@@ -76,6 +187,11 @@ async def test_after_callback_flushes_direct_usage_exactly_once():
                 call("budget_test-anonymous-user", 150),
                 call("global", 150),
             ]
+            emit_summary.assert_called_once()
+            assert (
+                emit_summary.call_args.kwargs["terminal_outcome"]
+                is TerminalOutcome.SUCCESS
+            )
     finally:
         anonymous_id_ctx.reset(token)
 
@@ -98,8 +214,114 @@ async def test_after_callback_keeps_successful_quiz_when_budget_flush_fails():
 
         assert await after_agent_callback(callback_context) is None
 
-    assert callback_context.state["temp:foxquiz_token_usage"] == 0
+    assert (
+        InvocationTokenUsage.from_state(
+            callback_context.state["temp:foxquiz_token_usage"]
+        ).model_call_count
+        == 0
+    )
     assert callback_context.state["temp:foxquiz_token_usage_flushed"] is True
+
+
+@pytest.mark.asyncio
+async def test_after_callback_combines_disjoint_direct_and_adk_usage() -> None:
+    callback_context = MagicMock()
+    accumulator = InvocationTokenUsage()
+    accumulator.add_direct(
+        CallStage.SECURITY_CLASSIFIER,
+        TokenUsage(total_token_count=10),
+    )
+    callback_context.state = {
+        "temp:foxquiz_token_usage": accumulator.as_state(),
+        "temp:foxquiz_token_usage_flushed": False,
+    }
+    set_invocation_outcome(callback_context, TerminalOutcome.NEEDS_INPUT)
+    callback_context.invocation_id = "invocation-1"
+    callback_context.session.events = [
+        SimpleNamespace(
+            invocation_id="invocation-1",
+            usage_metadata=SimpleNamespace(total_token_count=5),
+        ),
+        SimpleNamespace(
+            invocation_id="another-invocation",
+            usage_metadata=SimpleNamespace(total_token_count=999),
+        ),
+    ]
+
+    with (
+        patch("app.app_utils.callbacks.FirestoreRepository") as repo_class,
+        patch(
+            "app.app_utils.callbacks.emit_llm_invocation_token_summary"
+        ) as emit_summary,
+    ):
+        await after_agent_callback(callback_context)
+
+    assert repo_class.return_value.increment_token_budget.call_args_list == [
+        call("budget_anon-default", 15),
+        call("global", 15),
+    ]
+    summary = emit_summary.call_args.kwargs["usage"]
+    assert summary.totals.total_token_count == 15
+    assert summary.model_call_count == 2
+    assert summary.adk_managed_model_call_count == 1
+    assert (
+        emit_summary.call_args.kwargs["terminal_outcome"] is TerminalOutcome.NEEDS_INPUT
+    )
+
+
+@pytest.mark.asyncio
+async def test_summary_logging_failure_does_not_change_budget_flush() -> None:
+    callback_context = MagicMock()
+    accumulator = InvocationTokenUsage()
+    accumulator.add_direct(
+        CallStage.QUIZ_GENERATOR,
+        TokenUsage(total_token_count=42),
+    )
+    callback_context.state = {
+        "temp:foxquiz_token_usage": accumulator.as_state(),
+        "temp:foxquiz_token_usage_flushed": False,
+        "temp:foxquiz_terminal_outcome": "success",
+    }
+    callback_context.invocation_id = "invocation-1"
+    callback_context.session.events = []
+
+    with (
+        patch("app.app_utils.callbacks.FirestoreRepository") as repo_class,
+        patch(
+            "app.app_utils.callbacks.emit_llm_invocation_token_summary",
+            side_effect=RuntimeError("logging unavailable"),
+        ),
+    ):
+        assert await after_agent_callback(callback_context) is None
+
+    assert repo_class.return_value.increment_token_budget.call_args_list == [
+        call("budget_anon-default", 42),
+        call("global", 42),
+    ]
+    assert callback_context.state["temp:foxquiz_token_usage_flushed"] is True
+
+
+@pytest.mark.asyncio
+async def test_error_callback_flushes_usage_with_error_outcome() -> None:
+    plugin = FoxQuizSecurityPlugin()
+    callback_context = MagicMock()
+    callback_context.state = {}
+    invocation_context = MagicMock()
+
+    with (
+        patch("app.app_utils.callbacks.Context", return_value=callback_context),
+        patch(
+            "app.app_utils.callbacks.after_agent_callback",
+            new_callable=AsyncMock,
+        ) as after_callback,
+    ):
+        await plugin.on_run_error_callback(
+            invocation_context=invocation_context,
+            error=RuntimeError("private failure details"),
+        )
+
+    assert callback_context.state["temp:foxquiz_terminal_outcome"] == "error"
+    after_callback.assert_awaited_once_with(callback_context)
 
 
 @pytest.mark.asyncio
@@ -212,10 +434,13 @@ async def test_foxquiz_workflow_routes_security_block_to_terminal_response():
         user_id="test-user",
     )
 
-    with patch(
-        "app.app_utils.callbacks.before_agent_callback",
-        new_callable=AsyncMock,
-        side_effect=SecurityBlockException("Do not share personal data.", "PII"),
+    with (
+        patch(
+            "app.app_utils.callbacks.before_agent_callback",
+            new_callable=AsyncMock,
+            side_effect=SecurityBlockException("Do not share personal data.", "PII"),
+        ),
+        patch("app.agent.Client") as client_class,
     ):
         events = [
             event
@@ -229,7 +454,13 @@ async def test_foxquiz_workflow_routes_security_block_to_terminal_response():
             )
         ]
 
-    content_events = [event for event in events if event.content is not None]
+    content_events = [
+        event
+        for event in events
+        if event.content is not None
+        and event.content.parts
+        and any(part.text for part in event.content.parts)
+    ]
     assert len(content_events) == 1
     block_event = json.loads(content_events[0].content.parts[0].text)
     assert block_event == {
@@ -239,3 +470,4 @@ async def test_foxquiz_workflow_routes_security_block_to_terminal_response():
     }
     assert SECURITY_BLOCK_STATE_KEY not in session.state
     assert not any(event.output for event in events)
+    client_class.assert_not_called()

@@ -2,9 +2,11 @@
 
 ## Status
 
-Planned. This document describes a future observability improvement. It does
-not change the current token budget, model configuration, quiz workflow, or
-release behavior.
+Implemented, deployed to DEV, and verified with a controlled deployed-only
+baseline. See
+the [version 1.0.0 baseline report](../reports/token-usage-observability-baseline-v1.0.0.md)
+for the versioned results. The implementation does not change the current token
+budget, model configuration, quiz workflow, or release behavior.
 
 ## 1. Problem
 
@@ -147,8 +149,9 @@ containing:
 - generator call count;
 - Judge call count;
 - whether generator or Judge retries occurred;
-- terminal outcome from a small allowlist such as `success`, `blocked`,
-  `quality_failure`, or `error`.
+- terminal outcome from the `success`, `needs_input`, `blocked`,
+  `quality_failure`, and `error` allowlist. Only a validated quiz is
+  `success`; a clarification response is `needs_input`.
 
 Do not include an invocation, session, user, cookie, quiz, trace, or IP
 identifier in the application payload. Cloud Run's normal platform metadata
@@ -336,7 +339,7 @@ the telemetry implementation.
 
 ## 14. Acceptance Criteria
 
-The future implementation is complete when:
+Source implementation is complete when:
 
 - every direct Gemini call is assigned one stable workflow stage;
 - call and invocation events expose the complete numeric token breakdown;
@@ -345,6 +348,15 @@ The future implementation is complete when:
 - credential-free CI tests pass;
 - local Google-dependent verification confirms real SDK metadata handling;
 - maintainers can compare stages and revisions without viewing prompt or quiz
-  content;
+  content.
+
+Rollout verification is complete when:
+
+- the DEV telemetry revision produces at least 50 successful quiz summaries
+  using the versioned five-case pilot and 45-case rollout datasets;
+- the pilot runs at concurrency 2, the remaining cases at concurrency 4, and
+  an optional concurrency 8 experiment repeats the same pilot cases;
+- token limits remain enabled and HTTP failures, timeouts, retries, latency,
+  cache hits, token distributions, and privacy-safe payloads are inspected;
 - the collected baseline supports an evidence-based decision about thinking
   budgets, retry policy, daily limits, and context caching.

@@ -23,7 +23,8 @@ Privacy boundary:
 """
 
 import datetime
-from unittest.mock import ANY, MagicMock, patch
+import json
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -73,10 +74,18 @@ def test_language_defaults_to_english() -> None:
     assert state_context.preferred_language == "en"
 
 
-def _semantic_classifier_context() -> MagicMock:
+def _semantic_classifier_context(*, topic: str = "Cells") -> MagicMock:
     context = MagicMock()
     part = MagicMock()
-    part.text = "Create a biology quiz."
+    part.text = json.dumps(
+        {
+            "grade": "Grade 8",
+            "subject": "Biology",
+            "topic": topic,
+            "preferred_language": "en",
+        },
+        ensure_ascii=False,
+    )
     context.user_content.parts = [part]
     context.state = {}
     return context
@@ -272,7 +281,7 @@ async def test_firestore_checkpoint_outages_fail_closed(
 
         assert exc_info.value.block_type == "SECURITY_UNAVAILABLE"
         assert "temporarily unavailable" in exc_info.value.message
-        client_class.return_value.models.generate_content.assert_not_called()
+        client_class.return_value.aio.models.generate_content.assert_not_called()
     finally:
         client_ip_ctx.reset(tokens[0])
         anonymous_id_ctx.reset(tokens[1])
@@ -309,17 +318,19 @@ async def test_daily_user_budget_boundary(tokens_used: int, should_block: bool) 
             response = MagicMock()
             response.text = "SAFE"
             response.usage_metadata.total_token_count = 7
-            client_class.return_value.models.generate_content.return_value = response
+            client_class.return_value.aio.models.generate_content = AsyncMock(
+                return_value=response
+            )
 
             if should_block:
                 with pytest.raises(SecurityBlockException) as exc_info:
                     await before_agent_callback(_semantic_classifier_context())
 
                 assert exc_info.value.block_type == "BUDGET_EXCEEDED"
-                client_class.return_value.models.generate_content.assert_not_called()
+                client_class.return_value.aio.models.generate_content.assert_not_called()
             else:
                 await before_agent_callback(_semantic_classifier_context())
-                client_class.return_value.models.generate_content.assert_called_once()
+                client_class.return_value.aio.models.generate_content.assert_awaited_once()
     finally:
         client_ip_ctx.reset(tokens[0])
         anonymous_id_ctx.reset(tokens[1])
@@ -605,22 +616,32 @@ async def test_semantic_classifier_safe_response_uses_bounded_thinking():
         response = MagicMock()
         response.text = "SAFE"
         response.usage_metadata.total_token_count = 7
-        MockClient.return_value.models.generate_content.return_value = response
+        MockClient.return_value.aio.models.generate_content = AsyncMock(
+            return_value=response
+        )
 
         context = _semantic_classifier_context()
         await before_agent_callback(context)
 
         generate_config = (
-            MockClient.return_value.models.generate_content.call_args.kwargs["config"]
+            MockClient.return_value.aio.models.generate_content.call_args.kwargs[
+                "config"
+            ]
         )
         assert generate_config.max_output_tokens == 512
         assert generate_config.thinking_config.thinking_budget == 256
         classifier_contents = (
-            MockClient.return_value.models.generate_content.call_args.kwargs["contents"]
+            MockClient.return_value.aio.models.generate_content.call_args.kwargs[
+                "contents"
+            ]
         )
         classifier_input = classifier_contents[0].parts[0].text
         assert classifier_input.count("Additional mandatory privacy category:") == 1
-        assert context.state[callbacks._TOKEN_USAGE_STATE_KEY] == 7
+        usage = callbacks.InvocationTokenUsage.from_state(
+            context.state[callbacks._TOKEN_USAGE_STATE_KEY]
+        )
+        assert usage.totals.total_token_count == 7
+        assert usage.stage_call_counts[callbacks.CallStage.SECURITY_CLASSIFIER] == 1
 
     client_ip_ctx.reset(t1)
     anonymous_id_ctx.reset(t2)
@@ -649,10 +670,11 @@ async def test_semantic_classifier_blocks_pii_without_security_event(prompt):
         response = MagicMock()
         response.text = "PII"
         response.usage_metadata.total_token_count = 7
-        MockClient.return_value.models.generate_content.return_value = response
+        MockClient.return_value.aio.models.generate_content = AsyncMock(
+            return_value=response
+        )
 
-        context = _semantic_classifier_context()
-        context.user_content.parts[0].text = prompt
+        context = _semantic_classifier_context(topic=prompt)
         with pytest.raises(SecurityBlockException) as exc_info:
             await before_agent_callback(context)
 
@@ -660,7 +682,9 @@ async def test_semantic_classifier_blocks_pii_without_security_event(prompt):
         assert "dados pessoais" in exc_info.value.message
         MockRepo.return_value.log_security_event.assert_not_called()
         classifier_contents = (
-            MockClient.return_value.models.generate_content.call_args.kwargs["contents"]
+            MockClient.return_value.aio.models.generate_content.call_args.kwargs[
+                "contents"
+            ]
         )
         classifier_input = classifier_contents[0].parts[0].text
         assert "mandatory privacy category" in classifier_input
@@ -671,6 +695,43 @@ async def test_semantic_classifier_blocks_pii_without_security_event(prompt):
     client_ip_ctx.reset(t1)
     anonymous_id_ctx.reset(t2)
     client_locale_ctx.reset(t3)
+
+
+@pytest.mark.asyncio
+async def test_invalid_request_is_blocked_before_semantic_classification() -> None:
+    """Unsupported input must consume no classifier or workflow LLM tokens."""
+    t1 = client_ip_ctx.set("127.0.0.1")
+    t2 = anonymous_id_ctx.set("test_anon_id")
+    t3 = client_locale_ctx.set("en")
+
+    try:
+        with (
+            patch("app.app_utils.callbacks.FirestoreRepository") as repo_class,
+            patch("app.app_utils.callbacks.Client") as client_class,
+        ):
+            _configure_semantic_classifier_repo(repo_class.return_value)
+            context = _semantic_classifier_context()
+            context.user_content.parts[0].text = "Create a biology quiz."
+            context.state[callbacks._TOKEN_USAGE_STATE_KEY] = (
+                callbacks.InvocationTokenUsage().as_state()
+            )
+
+            with pytest.raises(SecurityBlockException) as exc_info:
+                await before_agent_callback(context)
+
+            assert exc_info.value.block_type == "INVALID_REQUEST"
+            assert "expected quiz format" in exc_info.value.message
+            client_class.return_value.aio.models.generate_content.assert_not_called()
+            repo_class.return_value.log_security_event.assert_not_called()
+            usage = callbacks.InvocationTokenUsage.from_state(
+                context.state[callbacks._TOKEN_USAGE_STATE_KEY]
+            )
+            assert usage.model_call_count == 0
+            assert usage.stage_call_counts == {}
+    finally:
+        client_ip_ctx.reset(t1)
+        anonymous_id_ctx.reset(t2)
+        client_locale_ctx.reset(t3)
 
 
 @pytest.mark.asyncio
@@ -689,7 +750,9 @@ async def test_semantic_classifier_invalid_response_fails_closed(classifier_text
         response = MagicMock()
         response.text = classifier_text
         response.usage_metadata.total_token_count = 7
-        MockClient.return_value.models.generate_content.return_value = response
+        MockClient.return_value.aio.models.generate_content = AsyncMock(
+            return_value=response
+        )
 
         with pytest.raises(SecurityBlockException) as exc_info:
             await before_agent_callback(_semantic_classifier_context())
