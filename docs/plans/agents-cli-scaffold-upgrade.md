@@ -297,30 +297,15 @@ Run project linting:
 agents-cli lint
 ```
 
-Verify both deployment targets without deploying:
+Verify both deployment targets through the guarded deployment preview:
 
 ```bash
-agents-cli deploy \
-  --project GCLOUD_PROJECT_ID \
-  --region us-east1 \
-  --service-name foxquiz \
-  --service-account foxquiz-prod-runtime@GCLOUD_PROJECT_ID.iam.gserviceaccount.com \
-  --no-confirm-project \
-  --dry-run
-
-agents-cli deploy \
-  --project GCLOUD_PROJECT_ID \
-  --region us-east1 \
-  --service-name GCLOUD_RUN_DEV_SERVICE_NAME \
-  --service-account foxquiz-dev-runtime@GCLOUD_PROJECT_ID.iam.gserviceaccount.com \
-  --min-instances 0 \
-  --max-instances 2 \
-  --no-confirm-project \
-  --dry-run
+scripts/deploy.sh --environment prod --project GCLOUD_PROJECT_ID
+scripts/deploy.sh --environment dev --project GCLOUD_PROJECT_ID
 ```
 
-Inspect both rendered commands for service name, region, sizing, authentication
-mode, environment variables, source directory, and build metadata behavior.
+Inspect both rendered plans for service name, region, sizing, runtime identity,
+database, environment variables, source commit, and build metadata behavior.
 
 If the scaffold changed ADK behavior, run the relevant local Google-dependent
 integration tests and `agents-cli eval` workflow before considering the upgrade
@@ -372,6 +357,6 @@ present.
 - all FoxQuiz-specific code and documentation decisions are preserved.
 - credential-free tests and `agents-cli lint` pass.
 - required local Google-dependent checks pass.
-- production and DEV `agents-cli deploy --dry-run` commands are correct.
+- production and DEV `scripts/deploy.sh` previews are correct.
 - no deployment or cloud infrastructure mutation occurred during the upgrade.
 - the upgrade is reviewable as an isolated pull request.

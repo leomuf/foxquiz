@@ -176,10 +176,14 @@ Before submitting your changes, please ensure that all tests and code quality ch
   ```
 
 ### 4. Deploying & Infrastructure Optimization (For Maintainers)
-Application deployment and infrastructure configuration are separate operations.
-After deploying the container, complete the manual infrastructure steps below.
-FoxQuiz intentionally does not use the optional Terraform infrastructure stack;
-do not run `agents-cli infra single-project` for this project.
+`scripts/deploy.sh` is the single entry point for manual DEV and production
+deployments. It generates build metadata, runs `agents-cli deploy`, applies the
+Cloud Run scaling and startup settings, grants public invocation, and verifies
+the deployed identity, configuration, root page, and `/version` response.
+
+One-time IAM and Firestore preparation remains separate. FoxQuiz intentionally
+does not use the optional Terraform infrastructure stack; do not run
+`agents-cli infra single-project` for this project.
 
 #### Step 1: Initialize Firestore (One-Time Project Prerequisite)
 
@@ -195,7 +199,7 @@ gcloud firestore databases create \
 The `us-east1` location keeps Firestore in the same region as FoxQuiz.
 Skip this command when the `(default)` database already exists.
 
-#### Step 2: Deploy the Application Container
+#### Step 2: Provision Runtime Identities (One-Time Prerequisite)
 
 Provision the dedicated identities before the first deployment. The first
 command is a dry run; the second changes IAM and therefore requires explicit
@@ -209,76 +213,58 @@ scripts/provision-runtime-identities.sh \
   --apply
 ```
 
-If production still uses the default Compute Engine service account, stop here
-until the DEV identity has passed the verification in Step 3.2. Provisioning
-the identities does not update either Cloud Run service.
+Provisioning does not update either Cloud Run service. If production still uses
+the default Compute Engine service account, first deploy and verify DEV with its
+dedicated identity.
+
+#### Step 3: Preview and Deploy with `scripts/deploy.sh`
+
+The script is dry-run-only unless `--apply` is present. Always inspect the
+rendered project, environment, service, identity, database, commit, and commands
+before applying them.
+
+Preview and deploy DEV with a new random `svc-...` service name:
 
 ```bash
-if [[ -n "$(git status --porcelain)" ]]; then
-  echo "Refusing production deployment: commit or remove all workspace changes."
-  exit 1
-fi
+scripts/deploy.sh --environment dev --project "${GCLOUD_PROJECT_ID}"
+scripts/deploy.sh --environment dev --project "${GCLOUD_PROJECT_ID}" --apply
+```
 
-COMMIT_SHA="$(git rev-parse HEAD)"
-AGENT_VERSION="$(uv version --short)"
-BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+To update the current DEV campaign rather than create another random service,
+pass its locally recorded name explicitly:
 
-agents-cli deploy \
+```bash
+scripts/deploy.sh \
+  --environment dev \
   --project "${GCLOUD_PROJECT_ID}" \
-  --region us-east1 \
-  --service-name foxquiz \
-  --service-account "foxquiz-prod-runtime@${GCLOUD_PROJECT_ID}.iam.gserviceaccount.com" \
-  --no-confirm-project \
-  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME}"
+  --service-name "${GCLOUD_RUN_DEV_SERVICE_NAME}"
+
+scripts/deploy.sh \
+  --environment dev \
+  --project "${GCLOUD_PROJECT_ID}" \
+  --service-name "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
+  --apply
 ```
 
-The clean-worktree check ensures the commit identifies every deployed source
-change. The version, full commit SHA, and UTC build time are exposed at
-`/version`, in the page footer, and in telemetry. Production must use the
-dedicated `foxquiz-prod-runtime` identity; do not deploy FoxQuiz with the
-project's default Compute service account.
+Preview and deploy production only after DEV verification and separate
+production approval:
 
-#### Step 3: Configure Required Infrastructure Manually
-
-Complete the following Cloud Run, OpenTelemetry, Firestore, and operational
-monitoring configuration topics after deployment.
-
-##### Step 3.1: Cloud Run Cost and Startup Settings
 ```bash
-gcloud run services update foxquiz \
-  --project <YOUR_PROJECT_ID> \
-  --region us-east1 \
-  --min-instances 0 \
-  --cpu-boost \
-  --execution-environment gen1
+scripts/deploy.sh --environment prod --project "${GCLOUD_PROJECT_ID}"
+scripts/deploy.sh --environment prod --project "${GCLOUD_PROJECT_ID}" --apply
 ```
 
-- `--min-instances 0` scales to zero while idle.
-- `--cpu-boost` allocates additional CPU during startup.
-- `--execution-environment gen1` selects the lightweight Gen1 environment.
+Both `--apply` forms require a clean worktree and the exact typed confirmation
+shown by the script. The deployer must have `roles/iam.serviceAccountUser` on
+the selected runtime identity. Production is fixed to service `foxquiz`; DEV
+uses `foxquiz-dev-runtime`, database `foxquiz-dev`, and at most two instances.
+The script never creates IAM roles, Firestore resources, tags, or releases.
 
-##### Step 3.2: Dedicated Runtime Identities and Export Permissions
+#### Step 4: Configure Remaining Infrastructure Manually
 
-The plan creates separate `foxquiz-prod-runtime` and `foxquiz-dev-runtime`
-service accounts. Both receive Vertex AI, structured logging, metric, trace,
-and service-usage permissions. Their `roles/datastore.user` grants are
-conditioned on `(default)` and `foxquiz-dev`, respectively. Runtime identities
-do not receive Artifact Registry Writer or Storage Object Viewer.
+These one-time resources are not part of an application deployment.
 
-The script never updates Cloud Run. Migrate DEV first and verify model calls,
-database writes, structured logs, metrics, and traces before assigning the
-production identity. The deployer must have `roles/iam.serviceAccountUser` on
-the selected runtime identity.
-
-Verify production after migration:
-```bash
-gcloud run services describe foxquiz \
-  --project=GCLOUD_PROJECT_ID \
-  --region=us-east1 \
-  --format='value(spec.template.spec.serviceAccountName)'
-```
-
-##### Step 3.3: Firestore Security-Event Composite Index
+##### Step 4.1: Firestore Security-Event Composite Index
 
 Create the index required by the automated Sheriff to count recent violations
 for one privacy-preserving client signature:
@@ -303,7 +289,7 @@ gcloud firestore indexes composite list \
   --format='table(name.basename(),queryScope,state,fields)'
 ```
 
-##### Step 3.4: Firestore Time To Live (TTL) Policies
+##### Step 4.2: Firestore Time To Live (TTL) Policies
 ```bash
 gcloud firestore fields ttls update expires_at \
   --collection-group=budgets \
@@ -322,7 +308,7 @@ The application sets `expires_at` to seven days for transient budgets and
 30 days for shared quizzes. Firestore TTL performs the eventual physical
 deletion.
 
-##### Step 3.5: Firestore Failure Counter
+##### Step 4.3: Firestore Failure Counter
 
 Create a project-level logs-based counter once so Firestore outages can be
 tracked over time without storing prompts, IP addresses, signatures, private
@@ -339,17 +325,6 @@ The application emits one structured event for each failed Firestore operation.
 The event contains only the phase, operation name, exception class/code, service
 version, and deployed commit. An alert policy can be added later if operational
 notifications are needed; it is not required for deployment.
-
-#### Step 4: Ensure Public Accessibility
-
-Public invocation is a post-deployment command:
-```bash
-gcloud run services add-iam-policy-binding foxquiz \
-  --member='allUsers' \
-  --role='roles/run.invoker' \
-  --project <YOUR_PROJECT_ID> \
-  --region us-east1
-```
 
 #### Step 5: Configure a Custom Domain (Optional)
 
@@ -372,84 +347,32 @@ campaign must use a new, cryptographically random Cloud Run service name. Do
 not reuse predictable names containing the project, application, environment,
 date, version, or previous service name.
 
-Generate 80 bits of randomness locally and keep the resulting value out of
-Git, pull requests, issues, screenshots, and shared logs:
+The deployment script generates 80 bits of randomness, verifies the dedicated
+DEV configuration, and prints the service name and URL after success:
 
 ```bash
 export GCLOUD_PROJECT_ID="<GCLOUD_PROJECT_ID>"
-export GCLOUD_REGION="us-east1"
-export GCLOUD_RUN_DEV_SERVICE_NAME="svc-$(openssl rand -hex 10)"
-export GCLOUD_RUN_DEV_SERVICE_ACCOUNT="foxquiz-dev-runtime@${GCLOUD_PROJECT_ID}.iam.gserviceaccount.com"
+scripts/deploy.sh --environment dev --project "${GCLOUD_PROJECT_ID}"
+scripts/deploy.sh --environment dev --project "${GCLOUD_PROJECT_ID}" --apply
 ```
 
-Before deploying, confirm that the working tree is clean and that the generated
-name is not already present in the selected project and region:
+The preview is non-mutating. The apply form refuses a dirty worktree, checks the
+runtime identity, confirms that an automatically generated name is unused,
+requires `DEPLOY DEV`, deploys, configures public access and resource limits,
+then verifies the service.
+
+For work spanning multiple shells, record the reported values only in the
+ignored local `.env` file:
 
 ```bash
-test -z "$(git status --porcelain)"
-
-gcloud run services describe "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
-  --project "${GCLOUD_PROJECT_ID}" \
-  --region "${GCLOUD_REGION}"
+export GCLOUD_RUN_DEV_SERVICE_NAME="<RANDOM_DEV_SERVICE_NAME>"
+export GCLOUD_RUN_DEV_URL="<GCLOUD_RUN_DEV_URL>"
 ```
 
-The describe command should report that the service does not exist. Do not
-continue if it returns an existing service or if the project, region, or
-commit is ambiguous.
-
-Prepare build metadata and deploy with the bounded DEV resource profile. The
-dedicated DEV identity and database are fixed architectural values; only the
-random service name and resulting URL remain local campaign values:
-
-```bash
-COMMIT_SHA="$(git rev-parse HEAD)"
-AGENT_VERSION="$(uv version --short)-dev"
-BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-agents-cli deploy \
-  --project "${GCLOUD_PROJECT_ID}" \
-  --region "${GCLOUD_REGION}" \
-  --service-name "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
-  --service-account "${GCLOUD_RUN_DEV_SERVICE_ACCOUNT}" \
-  --cpu 1 \
-  --memory 4Gi \
-  --concurrency 8 \
-  --min-instances 0 \
-  --max-instances 2 \
-  --no-confirm-project \
-  --update-env-vars "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME},FIRESTORE_DATABASE_ID=foxquiz-dev,ENABLE_A2A=FALSE,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=FALSE"
-
-gcloud run services update "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
-  --project "${GCLOUD_PROJECT_ID}" \
-  --region "${GCLOUD_REGION}" \
-  --min-instances 0 \
-  --cpu-boost \
-  --execution-environment gen1
-
-gcloud run services add-iam-policy-binding \
-  "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
-  --project "${GCLOUD_PROJECT_ID}" \
-  --region "${GCLOUD_REGION}" \
-  --member='allUsers' \
-  --role='roles/run.invoker'
-```
-
-Retrieve the stable campaign address without copying it into repository files:
-
-```bash
-export GCLOUD_RUN_DEV_URL="$(gcloud run services describe \
-  "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
-  --project "${GCLOUD_PROJECT_ID}" \
-  --region "${GCLOUD_REGION}" \
-  --format='value(status.url)')"
-```
-
-For work spanning multiple shells, store `GCLOUD_RUN_DEV_SERVICE_NAME` and
-`GCLOUD_RUN_DEV_URL` only in the ignored local `.env` file. The address is not
-a credential: public invocation means anyone who obtains it can access the
-service. Its random name makes guessing impractical, while token budgets,
-Sheriff blocking, and the two-instance ceiling remain the abuse and cost
-controls during the campaign.
+The address is not a credential: public invocation means anyone who obtains it
+can access the service. Its random name makes guessing impractical, while token
+budgets, Sheriff blocking, and the two-instance ceiling remain the abuse and
+cost controls during the campaign.
 
 Verify the root page, `/version`, ADK session creation, A2A-disabled response,
 runtime identity, resource limits, and security behavior before beginning the
@@ -461,16 +384,15 @@ At campaign end, the maintainer manually deletes the exact service recorded in
 
 ```bash
 test -n "${GCLOUD_PROJECT_ID:-}"
-test -n "${GCLOUD_REGION:-}"
 test -n "${GCLOUD_RUN_DEV_SERVICE_NAME:-}"
 
 gcloud run services describe "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
   --project "${GCLOUD_PROJECT_ID}" \
-  --region "${GCLOUD_REGION}"
+  --region us-east1
 
 gcloud run services delete "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
   --project "${GCLOUD_PROJECT_ID}" \
-  --region "${GCLOUD_REGION}"
+  --region us-east1
 ```
 
 Read the confirmation prompt carefully before deleting. Afterwards, remove the

@@ -1,224 +1,92 @@
-# Planned FoxQuiz Deployment Script
+# FoxQuiz Deployment Script
 
 ## Status
 
-This document describes a future deployment script. The script has not been
-implemented yet, and the commands below must not be executed merely by reading
-or updating this document.
+Implemented as `scripts/deploy.sh`. The script is the required entry point for
+manual DEV and production Cloud Run deployments from Linux or WSL.
 
-## Trigger and Confirmation
+## Interface
 
-The future script supports the established FoxQuiz deployment workflow used
-when the user asks:
-
-- "Please deploy the application"
-- "Deploy the application"
-- "Deploy to Google Cloud"
-
-Before making any Google Cloud change, the operator or coding agent must:
-
-1. Explain the complete deployment and post-configuration sequence.
-2. Show the version, branch, full commit SHA, project, service, and region.
-3. Ask for explicit human confirmation.
-4. Stop without executing anything unless confirmation is given.
-
-## Problem
-
-The deployed container does not include the repository's `.git` directory, so
-FoxQuiz cannot discover its Git commit at runtime. When deployment does not
-provide `COMMIT_SHA`, the frontend and `/version` endpoint display `dev`.
-The build timestamp is also unavailable when `BUILD_TIME` is omitted.
-
-Running plain `agents-cli deploy --no-confirm-project` therefore does not
-guarantee complete build identity.
-
-## Goal
-
-Create a versioned script such as `scripts/deploy.sh` and use it for every
-manual deployment. It must preserve the established deployment sequence while
-injecting the project version, exact Git commit, and UTC build timestamp
-automatically.
-
-## Fixed FoxQuiz Deployment Targets
-
-The first script is project-specific and should use:
-
-```text
-Google Cloud project: GCLOUD_PROJECT_ID
-Cloud Run service: foxquiz
-Cloud Run region: us-east1
-```
-
-## Required Safeguards
-
-The future script should:
-
-- Run from the FoxQuiz repository root on Linux or WSL.
-- Use `set -euo pipefail` so the sequence stops after any failed command.
-- Refuse deployment when `git status --porcelain` is not empty.
-- Read the full commit SHA with `git rev-parse HEAD`.
-- Read the branch with `git branch --show-current`.
-- Read the application version with `uv version --short`.
-- Generate the build time in UTC.
-- Require explicit human confirmation before changing Google Cloud.
-- Run every deployment command in the foreground and preserve its live output.
-- Report an error immediately and never continue to the next phase after a
-  failure.
-- Never write Google credentials, project secrets, or generated environment
-  values into versioned files.
-- Never deploy as a side effect of tests, builds, commits, tags, or releases.
-
-Before this script is used, `scripts/provision-runtime-identities.sh` must have
-created the production and DEV identities and the isolated DEV deployment must
-have passed its runtime verification. The deployment script must not provision
-IAM implicitly or fall back to the default Compute Engine service account.
-
-## Planned Command Sequence
-
-### Phase 1: Preflight and Confirmation
-
-The script should calculate and display the exact deployment identity:
+The default mode is a non-mutating preview:
 
 ```bash
-set -euo pipefail
-
-PROJECT_ID="GCLOUD_PROJECT_ID"
-SERVICE_NAME="foxquiz"
-REGION="us-east1"
-RUNTIME_SERVICE_ACCOUNT="foxquiz-prod-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
-
-if [[ -n "$(git status --porcelain)" ]]; then
-  echo "Deployment refused: the worktree is not clean."
-  exit 1
-fi
-
-COMMIT_SHA="$(git rev-parse HEAD)"
-BRANCH_NAME="$(git branch --show-current)"
-AGENT_VERSION="$(uv version --short)"
-BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-echo "FoxQuiz deployment plan"
-echo "Version: ${AGENT_VERSION}"
-echo "Branch: ${BRANCH_NAME}"
-echo "Commit: ${COMMIT_SHA}"
-echo "Project: ${PROJECT_ID}"
-echo "Service: ${SERVICE_NAME}"
-echo "Region: ${REGION}"
-
-read -r -p "Continue with deployment and post-configuration? [y/N] " CONFIRM
-if [[ "${CONFIRM}" != "y" && "${CONFIRM}" != "Y" ]]; then
-  echo "Deployment cancelled."
-  exit 0
-fi
+scripts/deploy.sh --environment dev --project GCLOUD_PROJECT_ID
+scripts/deploy.sh --environment prod --project GCLOUD_PROJECT_ID
 ```
 
-### Phase 2: Deploy FoxQuiz
-
-The script must announce this phase and run:
+Cloud changes require `--apply` and the environment-specific typed
+confirmation:
 
 ```bash
-echo "Deploying FoxQuiz to Google Cloud"
-
-agents-cli deploy \
-  --project "${PROJECT_ID}" \
-  --region "${REGION}" \
-  --service-name "${SERVICE_NAME}" \
-  --service-account "${RUNTIME_SERVICE_ACCOUNT}" \
-  --no-confirm-project \
-  --update-env-vars \
-  "COMMIT_SHA=${COMMIT_SHA},AGENT_VERSION=${AGENT_VERSION},BUILD_TIME=${BUILD_TIME}"
+scripts/deploy.sh --environment dev --project GCLOUD_PROJECT_ID --apply
+scripts/deploy.sh --environment prod --project GCLOUD_PROJECT_ID --apply
 ```
 
-The command must run in the foreground. Its output should remain visible while
-the deployment is in progress. The script may continue only after
-`agents-cli deploy` exits successfully. Any error must stop the sequence.
-
-### Phase 3: Apply Cloud Run Cost and Startup Settings
-
-After successful deployment, the script must announce this phase and run:
+An existing temporary DEV campaign can be updated without changing its URL:
 
 ```bash
-echo "Applying Cloud Run cost and startup settings"
-
-gcloud run services update "${SERVICE_NAME}" \
-  --project "${PROJECT_ID}" \
-  --region "${REGION}" \
-  --min-instances 0 \
-  --cpu-boost \
-  --execution-environment gen1
+scripts/deploy.sh \
+  --environment dev \
+  --project GCLOUD_PROJECT_ID \
+  --service-name RANDOM_DEV_SERVICE_NAME \
+  --apply
 ```
 
-The script may continue only after Cloud Run reports a successful service
-update. Any error must stop the sequence.
+Production always targets `foxquiz`; `--service-name` is rejected for
+production. A new DEV deployment generates an unguessable `svc-...` name when
+the option is omitted.
 
-### Phase 4: Ensure Public Invocation
+## Owned Deployment Sequence
 
-After the successful service update, the script must announce this phase and
-run:
+The script performs these operations in order:
 
-```bash
-echo "Ensuring public invocation is enabled"
+1. Validates the environment, project ID, repository, tools, and target name.
+2. Refuses an applied deployment from a dirty worktree.
+3. Generates the version, full commit SHA, branch, and UTC build timestamp.
+4. Selects the fixed environment configuration:
+   - production: service `foxquiz`, production identity, `(default)` Firestore,
+     and zero-to-ten instance scaling;
+   - DEV: random or explicitly reused service, DEV identity, `foxquiz-dev`, and
+     zero-to-two instance scaling.
+5. Prints the complete command plan. Without `--apply`, execution ends here.
+6. Confirms an active Google account and the selected runtime identity.
+7. Requires the operator to type `DEPLOY DEV` or `DEPLOY PROD`.
+8. Runs `agents-cli deploy` with explicit CPU, memory, concurrency, scaling,
+   service account, database, A2A setting, content-capture setting, and build
+   metadata.
+9. Applies startup CPU boost and the Gen1 execution environment.
+10. Grants `allUsers` the Cloud Run Invoker role.
+11. Verifies the Cloud Run identity, scaling annotations, startup settings,
+    required environment variables, public IAM policy, root page, and exact
+    `/version` metadata.
 
-gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
-  --member="allUsers" \
-  --role="roles/run.invoker" \
-  --project "${PROJECT_ID}" \
-  --region "${REGION}"
-```
+Every command runs in the foreground under `set -euo pipefail`; a failure stops
+the sequence. The script does not create Git tags or GitHub releases.
 
-The script may continue only after the IAM policy update succeeds. Any error
-must stop the sequence.
+## Safety Boundary
 
-### Phase 5: Verify the Deployment
+`scripts/provision-runtime-identities.sh` remains a separate, one-time IAM
+operation. The deployment script confirms that its selected account exists but
+does not create service accounts or grant project roles.
 
-After deployment and post-configuration succeed, the script should query:
+The deployment script also does not create Firestore databases, indexes, Time
+To Live policies, log-based metrics, or domain mappings. Those are one-time
+infrastructure operations documented in `CONTRIBUTING.md`.
 
-```bash
-echo "Verifying deployed build identity"
+DEV deletion remains manual and separately confirmed so deployment cannot
+accidentally remove an existing campaign. Production deployment remains a
+separately approved operation after DEV verification.
 
-DEPLOYED_SERVICE_ACCOUNT="$(gcloud run services describe "${SERVICE_NAME}" \
-  --project "${PROJECT_ID}" \
-  --region "${REGION}" \
-  --format='value(spec.template.spec.serviceAccountName)')"
+## Verification and Testing
 
-test "${DEPLOYED_SERVICE_ACCOUNT}" = "${RUNTIME_SERVICE_ACCOUNT}"
-
-curl --fail --silent --show-error https://foxquiz.app/version
-```
-
-A successful response must contain:
-
-- The version from `pyproject.toml`.
-- The full deployed commit SHA.
-- The seven-character short commit SHA.
-- A GitHub URL pointing to that commit.
-- A non-null UTC build timestamp.
-- The dedicated `foxquiz-prod-runtime` service account as the active revision's
-  runtime identity.
-
-The script should compare the returned version and commit with
-`AGENT_VERSION` and `COMMIT_SHA`, not merely check for HTTP success. It
-should report completion only when deployment, both post-configuration commands,
-and build-identity verification all succeed.
-
-The FoxQuiz footer should display the semantic version and linked short commit,
-for example `FoxQuiz v1.1.0` followed by `edeb34b`.
-
-## Release Boundary
-
-The Git tag is not detected automatically. Deployment completion must not
-create a tag or GitHub release.
-
-The release tag should be created only after:
-
-1. Manual FoxQuiz testing is complete.
-2. Cloud Run logs have been reviewed.
-3. No release-blocking errors remain.
-4. The tag target matches the commit returned by `/version`.
+Credential-free tests exercise DEV and production previews, reject unsafe
+arguments, and run the full applied DEV sequence against fake `agents-cli`,
+`gcloud`, and `curl` commands. A real deployment is tested only on DEV after
+explicit human approval; production is never deployed as part of automated
+testing.
 
 ## Possible Future Automation
 
-A later GitHub Actions deployment could obtain the exact commit from
-`GITHUB_SHA` and authenticate to Google Cloud through Workload Identity
-Federation. This would avoid storing a long-lived Google service-account key in
-GitHub, but it is outside the scope of the first deployment script.
+A later GitHub Actions workflow could call the same script with workload
+identity federation and an approval-protected production environment. That is
+outside the current manual deployment scope.

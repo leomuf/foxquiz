@@ -1261,7 +1261,8 @@ Feature: Daily token budget
 ## 13. Deployment, Build Identity, and Observability
 
 FoxQuiz supports Python 3.10+ and is packaged in a Python 3.12 image with
-`uv==0.12.2`, then deployed to Google Cloud Run with `agents-cli deploy`.
+`uv==0.12.2`, then deployed to Google Cloud Run through `scripts/deploy.sh`,
+which invokes `agents-cli deploy` with the required FoxQuiz configuration.
 The project uses manual infrastructure configuration documented in `CONTRIBUTING.md`; the
 optional `agents-cli infra single-project` Terraform stack is not used.
 
@@ -1296,11 +1297,12 @@ Required post-deployment configuration:
 
 The identity-provisioning script is idempotent, prints a dry run by default,
 requires explicit confirmation before applying IAM changes, and never updates
-Cloud Run. Every deployment passes its intended identity through
-`agents-cli deploy --service-account`. A new identity is assigned to an
-isolated DEV service and verified for model calls, Firestore persistence,
-structured logs, metrics, and traces before the separately approved production
-migration.
+Cloud Run. Every manual deployment uses `scripts/deploy.sh`, which selects the
+intended identity and database, generates build metadata, configures scaling,
+startup CPU boost and public access, and verifies the resulting service. A new
+identity is assigned to an isolated DEV service and verified for model calls,
+Firestore persistence, structured logs, metrics, and traces before the
+separately approved production migration.
 
 OpenTelemetry prompt-response export is enabled only when a logs bucket and
 capture setting are configured. Capture is forced to `NO_CONTENT` so exported
