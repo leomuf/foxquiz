@@ -267,6 +267,12 @@ scripts/deploy.sh --environment prod --project "${GCLOUD_PROJECT_ID}"
 scripts/deploy.sh --environment prod --project "${GCLOUD_PROJECT_ID}" --apply
 ```
 
+The final production revision name combines a UTC build identifier with the
+normalized release version. For example, version `1.2.0` produces a name such
+as `foxquiz-20260820t031500z-v1p2p0`. The build identifier keeps repeated
+deployments of one release unique, and the script verifies the exact resulting
+revision. DEV deployments retain Cloud Run's generated revision names.
+
 Every `--apply` form requires a clean worktree and the exact typed confirmation
 shown by the script. The deployer must have `roles/iam.serviceAccountUser` on
 the selected runtime identity. Production is fixed to service `foxquiz`; DEV

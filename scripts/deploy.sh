@@ -152,6 +152,8 @@ BRANCH_NAME="$(git branch --show-current)"
 BASE_VERSION="$(uv version --short)"
 BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 GENERATED_DEV_SERVICE="false"
+EXPECTED_REVISION_NAME=""
+PROD_REVISION_SUFFIX=""
 
 if [[ "${ENVIRONMENT}" == "prod" ]]; then
   SERVICE_NAME="${PROD_SERVICE_NAME}"
@@ -159,6 +161,26 @@ if [[ "${ENVIRONMENT}" == "prod" ]]; then
   DATABASE_ID="${PROD_DATABASE_ID}"
   AGENT_VERSION="${BASE_VERSION}"
   MAX_INSTANCES="${PROD_MAX_INSTANCES}"
+
+  RELEASE_REVISION_LABEL="v${BASE_VERSION,,}"
+  RELEASE_REVISION_LABEL="${RELEASE_REVISION_LABEL//./p}"
+  RELEASE_REVISION_LABEL="${RELEASE_REVISION_LABEL//+/-}"
+  RELEASE_REVISION_LABEL="${RELEASE_REVISION_LABEL//_/-}"
+  if [[ ! "${RELEASE_REVISION_LABEL}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
+    echo "Cannot convert release version '${BASE_VERSION}' into a Cloud Run revision label." >&2
+    exit 1
+  fi
+
+  REVISION_BUILD_ID="${BUILD_TIME//-/}"
+  REVISION_BUILD_ID="${REVISION_BUILD_ID//:/}"
+  REVISION_BUILD_ID="${REVISION_BUILD_ID,,}"
+  PROD_REVISION_SUFFIX="${REVISION_BUILD_ID}-${RELEASE_REVISION_LABEL}"
+  EXPECTED_REVISION_NAME="${SERVICE_NAME}-${PROD_REVISION_SUFFIX}"
+  if (( ${#EXPECTED_REVISION_NAME} > 63 )); then
+    echo "Production revision name exceeds Cloud Run's 63-character limit:" >&2
+    echo "  ${EXPECTED_REVISION_NAME}" >&2
+    exit 1
+  fi
 else
   if [[ -n "${REQUESTED_SERVICE_NAME}" ]]; then
     SERVICE_NAME="${REQUESTED_SERVICE_NAME}"
@@ -200,6 +222,10 @@ SETTINGS_COMMAND=(
   --quiet
 )
 
+if [[ "${ENVIRONMENT}" == "prod" ]]; then
+  SETTINGS_COMMAND+=(--revision-suffix "${PROD_REVISION_SUFFIX}")
+fi
+
 PUBLIC_COMMAND=(
   gcloud run services add-iam-policy-binding "${SERVICE_NAME}"
   --project "${PROJECT_ID}"
@@ -226,6 +252,9 @@ echo "Version: ${AGENT_VERSION}"
 echo "Branch: ${BRANCH_NAME:-detached HEAD}"
 echo "Commit: ${COMMIT_SHA}"
 echo "Build time: ${BUILD_TIME}"
+if [[ "${ENVIRONMENT}" == "prod" ]]; then
+  echo "Final revision: ${EXPECTED_REVISION_NAME}"
+fi
 echo "Scaling: ${MIN_INSTANCES}-${MAX_INSTANCES} instances, concurrency ${CONCURRENCY}"
 if [[ -n "${WORKTREE_CHANGES}" ]]; then
   echo "Warning: the worktree is dirty; preview is allowed but deployment is not."
@@ -314,7 +343,15 @@ printf '%s' "${SERVICE_JSON}" | uv run python -c '
 import json
 import sys
 
-expected_account, expected_min, expected_max, expected_commit, expected_version, expected_database = sys.argv[1:]
+(
+    expected_account,
+    expected_min,
+    expected_max,
+    expected_commit,
+    expected_version,
+    expected_database,
+    expected_revision,
+) = sys.argv[1:]
 service = json.load(sys.stdin)
 template = service["spec"]["template"]
 annotations = template.get("metadata", {}).get("annotations", {})
@@ -335,8 +372,10 @@ assert environment.get("ENABLE_A2A") == "FALSE"
 assert environment.get("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS") == "FALSE"
 assert environment.get("BUILD_TIME")
 assert service.get("status", {}).get("url")
+if expected_revision:
+    assert service.get("status", {}).get("latestReadyRevisionName") == expected_revision
 ' "${RUNTIME_SERVICE_ACCOUNT}" "${MIN_INSTANCES}" "${MAX_INSTANCES}" \
-  "${COMMIT_SHA}" "${AGENT_VERSION}" "${DATABASE_ID}"
+  "${COMMIT_SHA}" "${AGENT_VERSION}" "${DATABASE_ID}" "${EXPECTED_REVISION_NAME}"
 
 POLICY_JSON="$(gcloud run services get-iam-policy "${SERVICE_NAME}" \
   --project "${PROJECT_ID}" \
@@ -380,6 +419,9 @@ echo "Environment: ${ENVIRONMENT^^}"
 echo "Service: ${SERVICE_NAME}"
 echo "URL: ${SERVICE_URL}"
 echo "Commit: ${COMMIT_SHA}"
+if [[ "${ENVIRONMENT}" == "prod" ]]; then
+  echo "Revision: ${EXPECTED_REVISION_NAME}"
+fi
 if [[ "${ENVIRONMENT}" == "dev" ]]; then
   echo "Keep the service name and URL locally for this DEV campaign."
 fi

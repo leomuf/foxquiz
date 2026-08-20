@@ -45,6 +45,8 @@ def test_dev_dry_run_renders_isolated_bounded_deployment() -> None:
     assert "Firestore database: foxquiz-dev" in result.stdout
     assert "--max-instances 2" in result.stdout
     assert "AGENT_VERSION=1.2.0-dev" in result.stdout
+    assert "--revision-suffix" not in result.stdout
+    assert "Final revision:" not in result.stdout
     assert "Dry run only" in result.stdout
 
 
@@ -61,6 +63,12 @@ def test_prod_dry_run_renders_fixed_production_deployment() -> None:
     assert "Firestore database: (default)" in result.stdout
     assert "Version: 1.2.0" in result.stdout
     assert "--max-instances 10" in result.stdout
+    revision_match = re.search(
+        r"Final revision: (foxquiz-\d{8}t\d{6}z-v1p2p0)", result.stdout
+    )
+    assert revision_match
+    revision_suffix = revision_match.group(1).removeprefix("foxquiz-")
+    assert f"--revision-suffix {revision_suffix}" in result.stdout
     assert "Dry run only" in result.stdout
 
 
@@ -251,6 +259,7 @@ esac
     assert "--service-account foxquiz-dev-runtime@" in log
     assert "gcloud run services update" in log
     assert "--cpu-boost --execution-environment gen1" in log
+    assert "--revision-suffix" not in log
     assert "gcloud run services add-iam-policy-binding" in log
     assert "gcloud run services describe" in log
     assert "gcloud run services get-iam-policy" in log

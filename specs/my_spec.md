@@ -1153,12 +1153,27 @@ individual users. IP-based counting is **not** recommended as the primary
 mechanism: schools and families share IPs (false blocks), and IP addresses
 are sensitive for minors (see Section 14).
 
-**ADK 2.0 implementation:** token usage is accumulated for every model call
-and flushed by the application plugin after a successful invocation and also
-from its run-error callback. The same plugin checks both personal and global
-budgets before the workflow starts. A post-run Firestore failure is logged and
-counted operationally but does not replace an already validated quiz; its token
-usage may remain uncounted until storage is available again.
+**ADK 2.0 implementation:** direct Gemini responses are normalized from the
+provider's `usage_metadata` and accumulated under allowlisted workflow stages.
+The application plugin may also add usage from ADK-managed events, but only
+when that source is disjoint from the directly recorded calls. The accumulator
+is flushed at most once per invocation after success or from the run-error
+path. The same plugin checks both personal and global budgets before the
+workflow starts. A post-run Firestore failure is logged and counted
+operationally but does not replace an already validated quiz; its token usage
+may remain uncounted until storage is available again.
+
+The provider-reported `total_token_count` is authoritative for both the
+personal and global budgets. Cached input tokens remain part of that total and
+therefore are not discounted from the current usage limits. Call-level
+`llm_token_usage` events and the invocation-level
+`llm_invocation_token_summary` expose only normalized numeric counters,
+allowlisted stages and outcomes, bounded retry numbers, model identity, and
+trusted build metadata. They must never contain prompts, responses, quiz
+content, grade, subject, topic, language, learner or browser identifiers,
+session or invocation identifiers, IP addresses, disclosed personally
+identifiable information, or private security configuration. Telemetry remains
+best-effort and must not turn an otherwise valid quiz into an error response.
 
 ```yaml
 # token-budget-config.yaml
@@ -1179,8 +1194,10 @@ token_budget:
     note: "Independent of per-user recognition; bounds total LLM cost."
 
   counting:
-    scope: "input_and_output"
-    source: "adk_native_usage"
+    scope: "provider_reported_total_tokens"
+    source: "direct_gemini_responses_and_disjoint_adk_events"
+    cached_input_tokens: "included"
+    aggregation: "exactly_once_per_invocation"
 
   reset:
     schedule: "daily"
@@ -1299,7 +1316,10 @@ The identity-provisioning script is idempotent, prints a dry run by default,
 requires explicit confirmation before applying IAM changes, and never updates
 Cloud Run. Every manual deployment uses `scripts/deploy.sh`, which selects the
 intended identity and database, generates build metadata, configures scaling,
-startup CPU boost and public access, and verifies the resulting service. A new
+startup CPU boost and public access, and verifies the resulting service. The
+final production revision name combines a UTC build identifier with the
+normalized release version (for example, `v1p2p0` for version `1.2.0`); DEV
+retains Cloud Run-generated revision names. A new
 identity is assigned to an isolated DEV service and verified for model calls,
 Firestore persistence, structured logs, metrics, and traces before the
 separately approved production migration.
@@ -1333,6 +1353,12 @@ Feature: Deployed source identification
     And DEV can access only the foxquiz-dev Firestore database
     And production can access only the default Firestore database
     And neither service runs as the default Compute Engine service account
+
+  Scenario: Production revision identifies its release
+    Given FoxQuiz is deployed to production with a release version
+    When the final Cloud Run settings revision becomes ready
+    Then its unique revision name ends with the normalized release version
+    And DEV revision naming remains platform-managed
 ```
 
 ---
