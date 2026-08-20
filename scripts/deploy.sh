@@ -38,6 +38,38 @@ Options:
 EOF
 }
 
+require_command() {
+  local command_name="$1"
+
+  if command -v "${command_name}" >/dev/null 2>&1; then
+    return
+  fi
+
+  echo "Missing required command: ${command_name}" >&2
+  case "${command_name}" in
+    git)
+      echo "Install Git before continuing: https://git-scm.com/downloads" >&2
+      ;;
+    uv)
+      echo "Install uv before continuing: https://docs.astral.sh/uv/getting-started/installation/" >&2
+      ;;
+    openssl)
+      echo "Install OpenSSL before continuing (for example: sudo apt install openssl)." >&2
+      ;;
+    agents-cli)
+      echo "Install the Google Agents CLI before continuing:" >&2
+      echo "  uv tool install google-agents-cli" >&2
+      ;;
+    gcloud)
+      echo "Install the Google Cloud CLI before continuing: https://cloud.google.com/sdk/docs/install" >&2
+      ;;
+    curl)
+      echo "Install curl before continuing (for example: sudo apt install curl)." >&2
+      ;;
+  esac
+  exit 1
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --environment)
@@ -97,10 +129,7 @@ if [[ -n "${REQUESTED_SERVICE_NAME}" && ! "${REQUESTED_SERVICE_NAME}" =~ ^svc-[0
 fi
 
 for command_name in git uv openssl; do
-  if ! command -v "${command_name}" >/dev/null 2>&1; then
-    echo "Required command not found: ${command_name}" >&2
-    exit 1
-  fi
+  require_command "${command_name}"
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -217,20 +246,31 @@ if [[ "${APPLY_CHANGES}" != "true" ]]; then
 fi
 
 for command_name in agents-cli gcloud curl; do
-  if ! command -v "${command_name}" >/dev/null 2>&1; then
-    echo "Required command not found: ${command_name}" >&2
-    exit 1
-  fi
+  require_command "${command_name}"
 done
 
-ACTIVE_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' | head -n 1)"
+if ! ACTIVE_ACCOUNT="$(
+  gcloud auth list --filter=status:ACTIVE --limit=1 --format='value(account)' 2>/dev/null
+)"; then
+  echo "Unable to inspect Google Cloud authentication." >&2
+  echo "Run 'gcloud auth login', then verify access with 'gcloud auth list'." >&2
+  exit 1
+fi
 if [[ -z "${ACTIVE_ACCOUNT}" ]]; then
-  echo "No active gcloud account. Authenticate before deploying." >&2
+  echo "No active Google Cloud account." >&2
+  echo "Authenticate with 'gcloud auth login', then rerun the deployment." >&2
   exit 1
 fi
 
-gcloud iam service-accounts describe "${RUNTIME_SERVICE_ACCOUNT}" \
-  --project "${PROJECT_ID}" >/dev/null
+if ! gcloud iam service-accounts describe "${RUNTIME_SERVICE_ACCOUNT}" \
+  --project "${PROJECT_ID}" >/dev/null 2>&1; then
+  echo "Runtime service account not found or inaccessible:" >&2
+  echo "  ${RUNTIME_SERVICE_ACCOUNT}" >&2
+  echo "Provision the dedicated identities first:" >&2
+  echo "  scripts/provision-runtime-identities.sh --project ${PROJECT_ID} --apply" >&2
+  echo "If it already exists, verify that the active account can view and use it." >&2
+  exit 1
+fi
 
 if [[ "${GENERATED_DEV_SERVICE}" == "true" ]]; then
   EXISTING_SERVICE="$(gcloud run services list \

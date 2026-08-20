@@ -439,28 +439,16 @@ test boundaries, setup, and commands.
 
 FoxQuiz uses separate, user-managed runtime identities for production and DEV.
 Provision them once, then use `scripts/deploy.sh` as the deployment entry point.
-Both scripts preview their work unless `--apply` is present:
+Both scripts preview their work unless `--apply` is present. The deployment
+script also generates build metadata, configures Cloud Run scaling, startup CPU
+boost and public access, selects the dedicated identity and Firestore database,
+and verifies the resulting service.
 
-```bash
-export GCLOUD_PROJECT_ID="<GCLOUD_PROJECT_ID>"
-scripts/provision-runtime-identities.sh --project "${GCLOUD_PROJECT_ID}"
-scripts/provision-runtime-identities.sh --project "${GCLOUD_PROJECT_ID}" --apply
-
-# Preview and deploy an isolated temporary DEV service.
-scripts/deploy.sh --environment dev --project "${GCLOUD_PROJECT_ID}"
-scripts/deploy.sh --environment dev --project "${GCLOUD_PROJECT_ID}" --apply
-
-# Preview production after DEV verification; apply only with separate approval.
-scripts/deploy.sh --environment prod --project "${GCLOUD_PROJECT_ID}"
-scripts/deploy.sh --environment prod --project "${GCLOUD_PROJECT_ID}" --apply
-```
-
-The deployment script generates build metadata, configures Cloud Run scaling,
-startup CPU boost and public access, selects the dedicated identity and
-Firestore database, and verifies the resulting service. See
-[`CONTRIBUTING.md`](CONTRIBUTING.md#4-deploying--infrastructure-optimization-for-maintainers)
-for prerequisites, updating an existing DEV campaign, manual infrastructure,
-and cleanup. Provisioning or deploying requires explicit maintainer approval.
+The [maintainer deployment guide](CONTRIBUTING.md#4-deploying--infrastructure-optimization-for-maintainers)
+is the canonical command reference. It contains the prerequisites, preview and
+apply commands for both scripts, existing-DEV updates, production approval
+rules, verification, and campaign cleanup. Provisioning or deploying requires
+explicit maintainer approval.
 
 ### A2A access
 

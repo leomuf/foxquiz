@@ -93,6 +93,36 @@ def test_arguments_reject_unsafe_targets() -> None:
     assert predictable_dev_name.returncode == 2
 
 
+def test_missing_command_reports_actionable_installation_guidance(
+    tmp_path: Path,
+) -> None:
+    """Stop before planning and explain how to install a missing prerequisite."""
+    environment = os.environ.copy()
+    environment["PATH"] = str(tmp_path)
+
+    result = subprocess.run(
+        [
+            "/bin/bash",
+            str(SCRIPT),
+            "--environment",
+            "dev",
+            "--project",
+            TEST_PROJECT,
+        ],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "Missing required command: git" in result.stderr
+    assert "Install Git before continuing" in result.stderr
+    assert "https://git-scm.com/downloads" in result.stderr
+    assert "FoxQuiz Cloud Run deployment plan" not in result.stdout
+
+
 def test_apply_executes_and_verifies_the_complete_dev_sequence(tmp_path: Path) -> None:
     """Exercise deployment, settings, IAM, and verification with fake CLIs."""
     repository = tmp_path / "repo"

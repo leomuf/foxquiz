@@ -176,6 +176,11 @@ Before submitting your changes, please ensure that all tests and code quality ch
   ```
 
 ### 4. Deploying & Infrastructure Optimization (For Maintainers)
+
+This section is the single source of truth for using the provisioning and
+deployment scripts. The README intentionally provides only an overview and
+links here so the commands cannot drift between two documents.
+
 `scripts/deploy.sh` is the single entry point for manual DEV and production
 deployments. It generates build metadata, runs `agents-cli deploy`, applies the
 Cloud Run scaling and startup settings, grants public invocation, and verifies
@@ -185,13 +190,22 @@ One-time IAM and Firestore preparation remains separate. FoxQuiz intentionally
 does not use the optional Terraform infrastructure stack; do not run
 `agents-cli infra single-project` for this project.
 
+Set the target project once before following the steps below:
+
+```bash
+export GCLOUD_PROJECT_ID="<GCLOUD_PROJECT_ID>"
+```
+
+Run either script with `--help` to inspect its supported options without making
+changes.
+
 #### Step 1: Initialize Firestore (One-Time Project Prerequisite)
 
 Create the Native Mode Firestore database once for every new Google Cloud
 project:
 ```bash
 gcloud firestore databases create \
-  --project=<YOUR_PROJECT_ID> \
+  --project="${GCLOUD_PROJECT_ID}" \
   --location=us-east1 \
   --type=firestore-native
 ```
@@ -206,7 +220,6 @@ command is a dry run; the second changes IAM and therefore requires explicit
 maintainer approval:
 
 ```bash
-export GCLOUD_PROJECT_ID="<GCLOUD_PROJECT_ID>"
 scripts/provision-runtime-identities.sh --project "${GCLOUD_PROJECT_ID}"
 scripts/provision-runtime-identities.sh \
   --project "${GCLOUD_PROJECT_ID}" \
@@ -254,7 +267,7 @@ scripts/deploy.sh --environment prod --project "${GCLOUD_PROJECT_ID}"
 scripts/deploy.sh --environment prod --project "${GCLOUD_PROJECT_ID}" --apply
 ```
 
-Both `--apply` forms require a clean worktree and the exact typed confirmation
+Every `--apply` form requires a clean worktree and the exact typed confirmation
 shown by the script. The deployer must have `roles/iam.serviceAccountUser` on
 the selected runtime identity. Production is fixed to service `foxquiz`; DEV
 uses `foxquiz-dev-runtime`, database `foxquiz-dev`, and at most two instances.
@@ -276,7 +289,7 @@ gcloud firestore indexes composite create \
   --query-scope=collection \
   --field-config=field-path=hashed_ip,order=ascending \
   --field-config=field-path=timestamp,order=ascending \
-  --project=<YOUR_PROJECT_ID>
+  --project="${GCLOUD_PROJECT_ID}"
 ```
 
 Run this once per project. Index creation may take several minutes. Check that
@@ -285,7 +298,7 @@ its state is `READY` before testing the Sheriff:
 ```bash
 gcloud firestore indexes composite list \
   --database='(default)' \
-  --project=<YOUR_PROJECT_ID> \
+  --project="${GCLOUD_PROJECT_ID}" \
   --format='table(name.basename(),queryScope,state,fields)'
 ```
 
@@ -295,13 +308,13 @@ gcloud firestore fields ttls update expires_at \
   --collection-group=budgets \
   --database='(default)' \
   --enable-ttl \
-  --project=<YOUR_PROJECT_ID>
+  --project="${GCLOUD_PROJECT_ID}"
 
 gcloud firestore fields ttls update expires_at \
   --collection-group=quizzes \
   --database='(default)' \
   --enable-ttl \
-  --project=<YOUR_PROJECT_ID>
+  --project="${GCLOUD_PROJECT_ID}"
 ```
 
 The application sets `expires_at` to seven days for transient budgets and
@@ -316,7 +329,7 @@ rules, or exception messages:
 
 ```bash
 gcloud logging metrics create foxquiz_firestore_operation_failures \
-  --project=<YOUR_PROJECT_ID> \
+  --project="${GCLOUD_PROJECT_ID}" \
   --description='Count of privacy-safe FoxQuiz Firestore operation failures' \
   --log-filter='resource.type="cloud_run_revision" AND resource.labels.service_name="foxquiz" AND jsonPayload.event="firestore_operation_failed"'
 ```
@@ -332,7 +345,7 @@ notifications are needed; it is not required for deployment.
 gcloud beta run domain-mappings create \
   --service=foxquiz \
   --domain=www.foxquiz.app \
-  --project=<YOUR_PROJECT_ID> \
+  --project="${GCLOUD_PROJECT_ID}" \
   --region=us-east1
 ```
 
@@ -347,14 +360,11 @@ campaign must use a new, cryptographically random Cloud Run service name. Do
 not reuse predictable names containing the project, application, environment,
 date, version, or previous service name.
 
-The deployment script generates 80 bits of randomness, verifies the dedicated
-DEV configuration, and prints the service name and URL after success:
-
-```bash
-export GCLOUD_PROJECT_ID="<GCLOUD_PROJECT_ID>"
-scripts/deploy.sh --environment dev --project "${GCLOUD_PROJECT_ID}"
-scripts/deploy.sh --environment dev --project "${GCLOUD_PROJECT_ID}" --apply
-```
+Start a new campaign with the new-DEV preview and apply workflow in
+[Step 3](#step-3-preview-and-deploy-with-scriptsdeploysh). Do not pass
+`--service-name`: the deployment script must generate the campaign's random
+name. It uses 80 bits of randomness, verifies the dedicated DEV configuration,
+and prints the service name and URL after success.
 
 The preview is non-mutating. The apply form refuses a dirty worktree, checks the
 runtime identity, confirms that an automatically generated name is unused,
