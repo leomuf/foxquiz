@@ -116,6 +116,35 @@ def test_preserves_case_sensitive_genotype_options() -> None:
     assert validate_quiz_candidate(quiz).is_valid
 
 
+def test_grade_one_rejects_four_options_but_grade_three_accepts_them() -> None:
+    """Option-count validation follows the authoritative grade policy."""
+    quiz = _valid_quiz()
+    for question in quiz["questions"]:
+        question["question"] = question["question"].replace("💡", "")
+        question["options"].append("Another distinct option")
+
+    grade_one = validate_quiz_candidate(quiz, grade="Klasse 1")
+    grade_three = validate_quiz_candidate(quiz, grade="Klasse 3")
+
+    assert QuizValidationCode.INVALID_OPTION_COUNT in {
+        issue.code for issue in grade_one.issues
+    }
+    assert grade_three.is_valid
+
+
+def test_primary_grades_reject_question_emojis_but_secondary_allows_them() -> None:
+    """Pictograms cannot accidentally reveal answers in primary-school questions."""
+    quiz = _valid_quiz()
+
+    primary = validate_quiz_candidate(quiz, grade="Klasse 4")
+    secondary = validate_quiz_candidate(quiz, grade="Klasse 5")
+
+    assert QuizValidationCode.EMOJI_IN_QUESTION in {
+        issue.code for issue in primary.issues
+    }
+    assert secondary.is_valid
+
+
 def test_rejects_unicode_equivalent_duplicate_options() -> None:
     """NFKC-equivalent option text remains an objective duplicate."""
     quiz = _valid_quiz()

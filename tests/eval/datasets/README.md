@@ -40,6 +40,39 @@ agents-cli eval grade \
 The run uses live Vertex AI and must remain local because Google credentials
 are not stored in GitHub.
 
+### Grades 1–4
+
+The primary-school campaign contains eight successful quiz requests across
+German, English, and Portuguese plus two separate curriculum-routing cases.
+The quiz config combines deterministic grade-aware structure checking with an
+LLM rubric for factual, linguistic, and pedagogical quality. The routing config
+checks that an unsuitable topic is rejected and an overly broad foundational
+topic is clarified before generation.
+
+Start with one or two successful cases while iterating, then run the complete
+eight-case quiz dataset and both routing cases:
+
+```bash
+agents-cli eval generate \
+  --dataset tests/eval/datasets/grades-1-to-4.json \
+  --output artifacts/traces/grades-1-to-4
+agents-cli eval grade \
+  --traces artifacts/traces/grades-1-to-4 \
+  --config tests/eval/grades_1_to_4_eval_config.yaml \
+  --output artifacts/grade_results/grades-1-to-4
+
+agents-cli eval generate \
+  --dataset tests/eval/datasets/grades-1-to-4-routing.json \
+  --output artifacts/traces/grades-1-to-4-routing
+agents-cli eval grade \
+  --traces artifacts/traces/grades-1-to-4-routing \
+  --config tests/eval/grades_1_to_4_routing_eval_config.yaml \
+  --output artifacts/grade_results/grades-1-to-4-routing
+```
+
+These evaluations call live Vertex AI models but execute the application
+locally; generated artifacts remain ignored and must not be committed.
+
 ### Token-observability rollout
 
 The three token-observability files do not represent three independent

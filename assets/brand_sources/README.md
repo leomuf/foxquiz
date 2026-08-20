@@ -31,7 +31,7 @@ All other repository content remains under the license stated in the top-level
 
 These assets were created on 2026-08-10 with OpenAI's image-generation tooling
 from original FoxQuiz character directions. The selected visual direction
-is a warm storybook-explorer style for students in grades 5–12.
+is a warm storybook-explorer style for students in grades 1–12.
 
 The design brief required three original characters without tracing or imitating
 an operating-system emoji, vendor emoji set, existing mascot, brand character,

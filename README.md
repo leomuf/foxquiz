@@ -10,7 +10,7 @@
 ---
 
 ## 🎯 Project Overview
-FoxQuiz is an intelligent, highly engaging, and child-safe exam preparation application designed to help kids in Grades 5–12 master academic topics in a playful and localized environment. Powered by **Google ADK 2.0** and `gemini-2.5-flash`, FoxQuiz features dynamic mascot pedagogy (Felix the Fox, Olivia the Owl, Dino the Dragon), smart curriculum checks, academic peer-review nodes, and state-of-the-art security guardrails to keep students safe.
+FoxQuiz is an intelligent, highly engaging, and child-safe exam preparation application designed to help kids in Grades 1–12 (approximately ages 6–18) master academic topics in a playful and localized environment. Powered by **Google ADK 2.0** and `gemini-2.5-flash`, FoxQuiz features dynamic mascot pedagogy (Felix the Fox, Olivia the Owl, Dino the Dragon), smart curriculum checks, academic peer-review nodes, and state-of-the-art security guardrails to keep students safe. For younger children, the first release is designed for shared use with a parent or teacher, while every generated quiz remains age-appropriate for the selected grade.
 
 ## 🎥 Project Walkthrough & Demo
 
@@ -321,6 +321,10 @@ API clients must submit equivalent JSON text:
 
 `grade`, `subject`, and `topic` are required. `preferred_language` accepts
 `de`, `pt`, or `en`; `mascot_id` accepts `fox`, `owl`, or `dragon`. Structured
+grade labels from 1 through 12 are normalized to canonical `Klasse N` values;
+the contract accepts the labels shown by the German, English, and Portuguese
+interfaces. Grades 1–2 always receive exactly three options per question,
+whereas Grades 3–12 receive three to five. Structured
 clarification and adaptive follow-ups may additionally provide
 `clarification_response`, `previous_score`, `previous_questions`,
 `previous_quiz_json`, and `selected_difficulty`. Unknown fields, missing

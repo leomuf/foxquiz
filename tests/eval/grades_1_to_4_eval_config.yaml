@@ -1,0 +1,31 @@
+metrics_to_run:
+  - quiz_structure
+  - primary_grade_quality
+
+custom_metrics:
+  - name: quiz_structure
+    custom_function_file: quiz_structure_metric.py
+    execution: local
+
+  - name: primary_grade_quality
+    prompt_template: |
+      Evaluate the released FoxQuiz for the requested Grade 1-4 learner.
+      Give score 5 only when it contains exactly ten factually correct questions,
+      stays within the requested subject and topic, uses the requested language,
+      and is cognitively and linguistically appropriate for the requested grade.
+
+      Grades 1-2 additionally require exactly three options per question, very
+      short and concrete wording, simple distinct distractors, explanations of
+      no more than two short sentences, and no negative questions or double
+      negatives. Grades 3-4 require short simple language, concrete examples,
+      three to five options, uncomplicated distractors, and no negative questions
+      or double negatives. For all Grades 1-4, question text must contain no
+      emojis because pictograms can reveal the answer; playful title or
+      explanation emojis remain acceptable. Score 1 for a quality-failure response instead of a
+      quiz, and no higher than 3 for any material violation of these rules.
+
+      User Prompt: {prompt}
+      Final Response: {response}
+      Full Agent Trace: {agent_data}
+
+      Return JSON: {"score": <1|2|3|4|5>, "explanation": "<reason>"}

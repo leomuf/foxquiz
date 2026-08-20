@@ -1,0 +1,36 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "grade_1_de_numbers_to_20",
+      "prompt": {"role": "user", "parts": [{"text": "{\"grade\":\"Klasse 1\",\"subject\":\"Mathematik\",\"topic\":\"Zahlen bis 20\",\"preferred_language\":\"de\"}"}]}
+    },
+    {
+      "eval_case_id": "grade_1_de_simple_words",
+      "prompt": {"role": "user", "parts": [{"text": "{\"grade\":\"Klasse 1\",\"subject\":\"Deutsch\",\"topic\":\"Einfache Wörter lesen\",\"preferred_language\":\"de\"}"}]}
+    },
+    {
+      "eval_case_id": "grade_1_pt_addition_to_10",
+      "prompt": {"role": "user", "parts": [{"text": "{\"grade\":\"1º Ano\",\"subject\":\"Matemática\",\"topic\":\"Adição até 10\",\"preferred_language\":\"pt\"}"}]}
+    },
+    {
+      "eval_case_id": "grade_2_en_common_animals",
+      "prompt": {"role": "user", "parts": [{"text": "{\"grade\":\"Grade 2\",\"subject\":\"English\",\"topic\":\"Common animals\",\"preferred_language\":\"en\"}"}]}
+    },
+    {
+      "eval_case_id": "grade_3_de_seasons",
+      "prompt": {"role": "user", "parts": [{"text": "{\"grade\":\"Klasse 3\",\"subject\":\"Sachunterricht\",\"topic\":\"Jahreszeiten\",\"preferred_language\":\"de\"}"}]}
+    },
+    {
+      "eval_case_id": "grade_3_pt_plant_parts",
+      "prompt": {"role": "user", "parts": [{"text": "{\"grade\":\"3º Ano\",\"subject\":\"Ciências\",\"topic\":\"Partes de uma planta\",\"preferred_language\":\"pt\"}"}]}
+    },
+    {
+      "eval_case_id": "grade_4_de_written_addition",
+      "prompt": {"role": "user", "parts": [{"text": "{\"grade\":\"Klasse 4\",\"subject\":\"Mathematik\",\"topic\":\"Schriftliche Addition\",\"preferred_language\":\"de\"}"}]}
+    },
+    {
+      "eval_case_id": "grade_4_en_states_of_matter",
+      "prompt": {"role": "user", "parts": [{"text": "{\"grade\":\"Grade 4\",\"subject\":\"Science\",\"topic\":\"States of matter\",\"preferred_language\":\"en\"}"}]}
+    }
+  ]
+}

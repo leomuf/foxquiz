@@ -29,6 +29,23 @@ def test_initial_request_uses_safe_optional_defaults() -> None:
     assert request.preferred_language == "en"
     assert request.mascot_id == "fox"
     assert request.previous_score is None
+    assert request.grade == "Klasse 8"
+
+
+def test_localized_primary_grade_is_normalized_to_canonical_value() -> None:
+    """Localized labels share one stable internal request representation."""
+    request = parse_quiz_request(
+        json.dumps(
+            {
+                "grade": "1º Ano",
+                "subject": "Matemática",
+                "topic": "Adição até 10",
+                "preferred_language": "pt",
+            }
+        )
+    )
+
+    assert request.grade == "Klasse 1"
 
 
 def test_clarification_request_preserves_original_topic_and_added_scope() -> None:
@@ -91,6 +108,13 @@ def test_adaptive_request_accepts_previous_quiz_object() -> None:
                 "subject": "Biology",
                 "topic": "private-marker-should-not-appear",
                 "previous_score": 11,
+            }
+        ),
+        json.dumps(
+            {
+                "grade": "Grade 13",
+                "subject": "Biology",
+                "topic": "Cells",
             }
         ),
     ],

@@ -17,8 +17,8 @@
 
 ## 1. Overview
 
-**Goal:** A web application that helps school students (ages 10–18, grades
-5–12) prepare
+**Goal:** A web application that helps school students (approximately ages
+6–18, grades 1–12) prepare
 for exams by generating an interactive multiple-choice quiz based on grade,
 subject, and topic.
 
@@ -88,9 +88,12 @@ Tailwind) plus a component library.
 # design-tokens.yaml
 theme:
   name: "Animal Adventure"
-  # Two variants for the wide 10-16 age range:
+  # Variants cover the full 6-18 age range:
   variants:
-    playful:        # younger children (10-13)
+    primary:        # younger children (6-9), initially with adult guidance
+      mascots_visible: true
+      decorative_icon_density: high
+    playful:        # students (10-13)
       mascots_visible: true
       decorative_icon_density: high
     cool:           # older students (14-18); feels more grown-up
@@ -276,6 +279,14 @@ fields receive a fixed localized `INVALID_REQUEST` response before the
 semantic security classifier or workflow can consume LLM tokens. Missing
 optional language values fall back to English.
 
+Supported grade labels resolve deterministically to a central Python policy
+and are normalized to `Klasse 1` through `Klasse 12` in request state. The
+policy uses an integer enum for the grade, a pedagogical-stage enum, and an
+immutable data class for age, option-count, explanation, and negation rules.
+The browser renders the same twelve canonical values from one immutable
+JavaScript constant; translations affect only visible labels. The backend
+policy remains authoritative and rejects unsupported grades before an LLM call.
+
 ```gherkin
 Feature: Information gathering before quiz creation
 
@@ -315,6 +326,7 @@ quiz:
   answer_options:
     min: 3
     max: 5
+    grade_1_to_2: 3
   correct_answers_per_question: 1
   selection: "single_click"
 
@@ -332,6 +344,27 @@ request_contract:
   unknown_fields: "reject"
   free_form_input: "unsupported"
   invalid_response: "localized_INVALID_REQUEST_before_LLM"
+
+grade_policy:
+  grade_1_to_2:
+    age_range: "6-8"
+    answer_options: 3
+    language: "very short, concrete, easily readable"
+    explanation: "one or two short sentences"
+    negative_questions: false
+    question_emojis: false
+  grade_3_to_4:
+    age_range: "8-10"
+    answer_options: "3-5"
+    language: "short, simple, concrete examples"
+    negative_questions: false
+    question_emojis: false
+  grade_5_to_8:
+    age_range: "10-14"
+    answer_options: "3-5"
+  grade_9_to_12:
+    age_range: "14-18"
+    answer_options: "3-5"
 
 judge:
   enabled: true
@@ -420,7 +453,7 @@ Feature: Quiz solving and result
     Given a validated quiz of 10 questions exists
     When the user starts the quiz
     Then exactly one question is shown at a time
-    And each question has between 3 and 5 options
+    And each question has the option count required by the selected grade
     And only one option is correct
 
   Scenario: Good result
@@ -653,6 +686,17 @@ matrix, polynomial, complex-number, or another advanced interpretation; it must
 not produce elementary multiplication questions. A legitimate educational
 topic such as financial education for a graduating class may be compatible
 when the evaluator provides an appropriate scope.
+For Grades 1–4, an umbrella topic that spans materially different foundational
+skills requires clarification unless the request already supplies a concrete
+learning goal. For example, Grade 1 Mathematics plus "Rechnen" must clarify
+whether the learner wants counting, addition, subtraction, or another concrete
+scope. This stricter primary-school rule does not change the established
+general-overview behavior for recognizable topics in Grades 5–12.
+
+Children in Grades 1–4 may use the same interface and workflow as all other
+learners. This first version assumes that a parent or teacher assists younger
+children with setup; it does not add text-to-speech, images, a fixed subject
+catalog, or a separate primary-school interface.
 
 ```gherkin
 Feature: Upfront curriculum validation

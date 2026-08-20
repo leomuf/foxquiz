@@ -34,9 +34,15 @@ def _quiz() -> dict[str, Any]:
     }
 
 
-def _instance(response_text: str) -> dict[str, Any]:
+def _instance(response_text: str, *, grade: str | None = None) -> dict[str, Any]:
     """Wrap final response text in the shape supplied by agents-cli."""
-    return {"response": {"role": "model", "parts": [{"text": response_text}]}}
+    instance = {"response": {"role": "model", "parts": [{"text": response_text}]}}
+    if grade is not None:
+        instance["prompt"] = {
+            "role": "user",
+            "parts": [{"text": json.dumps({"grade": grade})}],
+        }
+    return instance
 
 
 def test_quiz_structure_metric_accepts_valid_quiz() -> None:
@@ -79,3 +85,16 @@ def test_quiz_structure_metric_rejects_non_json_response() -> None:
         "score": 0.0,
         "explanation": "The final response was not valid JSON.",
     }
+
+
+def test_quiz_structure_metric_enforces_three_options_for_grade_one() -> None:
+    """Behavioral grading mirrors the Grade 1 deterministic invariant."""
+    quiz = _quiz()
+    quiz["questions"][0]["options"].append("A fourth option")
+
+    result = _evaluate()(_instance(json.dumps(quiz), grade="Klasse 1"))
+
+    assert result["score"] == 0.0
+    assert (
+        result["explanation"] == "Deterministic validation failed: invalid_option_count"
+    )

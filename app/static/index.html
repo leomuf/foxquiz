@@ -1088,16 +1088,7 @@
                 <div class="quick-form">
                     <div class="form-row">
                         <label for="input-grade" data-translate="label_grade">Klasse/Schuljahr</label>
-                        <select id="input-grade">
-                            <option value="Klasse 5" data-translate="grade_5">Klasse 5 (Gymnasium/Realschule)</option>
-                            <option value="Klasse 6" data-translate="grade_6">Klasse 6</option>
-                            <option value="Klasse 7" data-translate="grade_7">Klasse 7</option>
-                            <option value="Klasse 8" data-translate="grade_8">Klasse 8</option>
-                            <option value="Klasse 9" data-translate="grade_9">Klasse 9</option>
-                            <option value="Klasse 10" data-translate="grade_10">Klasse 10</option>
-                            <option value="Klasse 11" data-translate="grade_11">Klasse 11</option>
-                            <option value="Klasse 12" data-translate="grade_12">Klasse 12 (Abitur/Oberstufe)</option>
-                        </select>
+                        <select id="input-grade"></select>
                     </div>
                     
                     <div class="form-row">
@@ -1324,6 +1315,10 @@
                 btn_home: "Zur Startseite",
                 feedback_title: "Wie gefällt dir das Quiz?",
                 score: "Ergebnis",
+                grade_1: "Klasse 1 (Grundschule)",
+                grade_2: "Klasse 2 (Grundschule)",
+                grade_3: "Klasse 3 (Grundschule)",
+                grade_4: "Klasse 4 (Grundschule)",
                 grade_5: "Klasse 5 (Gymnasium/Realschule)",
                 grade_6: "Klasse 6",
                 grade_7: "Klasse 7",
@@ -1395,6 +1390,10 @@
                 btn_home: "Go to Home",
                 feedback_title: "How did you like this quiz?",
                 score: "Score",
+                grade_1: "Grade 1 (Elementary School)",
+                grade_2: "Grade 2 (Elementary School)",
+                grade_3: "Grade 3 (Elementary School)",
+                grade_4: "Grade 4 (Elementary School)",
                 grade_5: "Grade 5 (Middle School)",
                 grade_6: "Grade 6",
                 grade_7: "Grade 7",
@@ -1466,6 +1465,10 @@
                 btn_home: "Voltar ao Início",
                 feedback_title: "O que achou deste quiz?",
                 score: "Pontuação",
+                grade_1: "1º Ano do Ensino Fundamental",
+                grade_2: "2º Ano do Ensino Fundamental",
+                grade_3: "3º Ano do Ensino Fundamental",
+                grade_4: "4º Ano do Ensino Fundamental",
                 grade_5: "5º Ano (Ensino Fundamental)",
                 grade_6: "6º Ano",
                 grade_7: "7º Ano",
@@ -1535,6 +1538,27 @@
         const PROGRESS_TICK_MS = 200;
         const PROGRESS_CEILING = 98;
         const PROGRESS_AT_TARGET = 95;
+
+        const SUPPORTED_GRADES = Object.freeze(
+            Array.from({ length: 12 }, (_, index) => Object.freeze({
+                number: index + 1,
+                value: `Klasse ${index + 1}`,
+                translationKey: `grade_${index + 1}`
+            }))
+        );
+
+        /** Render canonical grade values while leaving visible labels localized. */
+        function initializeGradeOptions() {
+            const gradeSelect = document.getElementById("input-grade");
+            SUPPORTED_GRADES.forEach(({ number, value, translationKey }) => {
+                const option = document.createElement("option");
+                option.value = value;
+                option.dataset.translate = translationKey;
+                option.innerText = value;
+                option.selected = number === 5;
+                gradeSelect.appendChild(option);
+            });
+        }
 
         const mascotNames = {
             de: { fox: "Felix der Fuchs", owl: "Olivia die Eule", dragon: "Dino der Drache" },
@@ -1645,6 +1669,7 @@
 
         // On Page Load
         window.addEventListener("DOMContentLoaded", () => {
+            initializeGradeOptions();
             detectLanguage();
             setupMascotThemes();
             checkForSharedQuiz();
