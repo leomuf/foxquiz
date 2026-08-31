@@ -17,7 +17,7 @@ plausibly turn the known 0.34% stage-removal floor into a 25% reduction.
 - Runtime candidate: commit `e4ff39f4140568a7037fb9bbbd3782e8be5a24e4`
 - Campaign date: 2026-08-19
 - Deployment: new random-name temporary public DEV service
-- Runtime: 1 CPU, 4 GiB memory, concurrency 8, zero minimum instances, two
+- Runtime: 1 CPU, 1 GiB memory, concurrency 8, zero minimum instances, two
   maximum instances, generation 1 execution environment, startup CPU boost
 - Persistence: isolated DEV Firestore database
 - A2A and prompt-response span capture: disabled

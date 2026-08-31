@@ -58,7 +58,7 @@ The deployed service retained the intended DEV configuration:
 | Maximum instances | 2 |
 | Container concurrency | 8 |
 | CPU | 1 |
-| Memory | 4 GiB |
+| Memory | 1 GiB |
 | Startup CPU boost | Enabled |
 | A2A | Disabled (`ENABLE_A2A=FALSE`) |
 | Access during testing | Public (`allUsers` has `roles/run.invoker`) |
@@ -100,7 +100,7 @@ agents-cli deploy \
   --service-name foxquiz-dev \
   --service-account <GCLOUD_PROJECT_NUMBER>-compute@developer.gserviceaccount.com \
   --cpu 1 \
-  --memory 4Gi \
+  --memory 1Gi \
   --concurrency 8 \
   --min-instances 0 \
   --max-instances 2 \
