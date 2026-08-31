@@ -44,7 +44,7 @@ def test_dev_dry_run_renders_isolated_bounded_deployment() -> None:
     )
     assert "Firestore database: foxquiz-dev" in result.stdout
     assert "--max-instances 2" in result.stdout
-    assert "AGENT_VERSION=1.2.0-dev" in result.stdout
+    assert "AGENT_VERSION=1.2.1-dev" in result.stdout
     assert "--revision-suffix" not in result.stdout
     assert "Final revision:" not in result.stdout
     assert "Dry run only" in result.stdout
@@ -61,10 +61,10 @@ def test_prod_dry_run_renders_fixed_production_deployment() -> None:
         f"foxquiz-prod-runtime@{TEST_PROJECT}.iam.gserviceaccount.com" in result.stdout
     )
     assert "Firestore database: (default)" in result.stdout
-    assert "Version: 1.2.0" in result.stdout
-    assert "--max-instances 10" in result.stdout
+    assert "Version: 1.2.1" in result.stdout
+    assert "--max-instances 3" in result.stdout
     revision_match = re.search(
-        r"Final revision: (foxquiz-\d{8}t\d{6}z-v1p2p0)", result.stdout
+        r"Final revision: (foxquiz-\d{8}t\d{6}z-v1p2p1)", result.stdout
     )
     assert revision_match
     revision_suffix = revision_match.group(1).removeprefix("foxquiz-")
@@ -140,7 +140,7 @@ def test_apply_executes_and_verifies_the_complete_dev_sequence(tmp_path: Path) -
     (repository / "scripts").mkdir()
     shutil.copy2(SCRIPT, repository / "scripts" / "deploy.sh")
     (repository / "pyproject.toml").write_text(
-        '[project]\nname = "foxquiz"\nversion = "1.2.0"\n', encoding="utf-8"
+        '[project]\nname = "foxquiz"\nversion = "1.2.1"\n', encoding="utf-8"
     )
 
     subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
@@ -169,6 +169,7 @@ def test_apply_executes_and_verifies_the_complete_dev_sequence(tmp_path: Path) -
                 "metadata": {
                     "annotations": {
                         "autoscaling.knative.dev/maxScale": "2",
+                        "run.googleapis.com/cpu-throttling": "true",
                         "run.googleapis.com/startup-cpu-boost": "true",
                         "run.googleapis.com/execution-environment": "gen1",
                     }
@@ -181,7 +182,7 @@ def test_apply_executes_and_verifies_the_complete_dev_sequence(tmp_path: Path) -
                         {
                             "env": [
                                 {"name": "COMMIT_SHA", "value": commit_sha},
-                                {"name": "AGENT_VERSION", "value": "1.2.0-dev"},
+                                {"name": "AGENT_VERSION", "value": "1.2.1-dev"},
                                 {"name": "BUILD_TIME", "value": "2026-08-20T12:00:00Z"},
                                 {
                                     "name": "FIRESTORE_DATABASE_ID",
@@ -223,7 +224,7 @@ esac
         f"""#!/usr/bin/env bash
 printf 'curl %s\\n' "$*" >>"${{COMMAND_LOG}}"
 case "$*" in
-  *"/version") printf '%s\\n' '{json.dumps({"version": "1.2.0-dev", "commit_sha": commit_sha, "short_commit_sha": commit_sha[:7], "commit_url": f"https://github.com/leomuf/foxquiz/commit/{commit_sha}", "build_time": "2026-08-20T12:00:00Z"})}' ;;
+  *"/version") printf '%s\\n' '{json.dumps({"version": "1.2.1-dev", "commit_sha": commit_sha, "short_commit_sha": commit_sha[:7], "commit_url": f"https://github.com/leomuf/foxquiz/commit/{commit_sha}", "build_time": "2026-08-20T12:00:00Z"})}' ;;
 esac
 """,
     )
@@ -258,7 +259,7 @@ esac
     assert f"--service-name {DEV_SERVICE}" in log
     assert "--service-account foxquiz-dev-runtime@" in log
     assert "gcloud run services update" in log
-    assert "--cpu-boost --execution-environment gen1" in log
+    assert "--cpu-throttling --cpu-boost --execution-environment gen1" in log
     assert "--revision-suffix" not in log
     assert "gcloud run services add-iam-policy-binding" in log
     assert "gcloud run services describe" in log

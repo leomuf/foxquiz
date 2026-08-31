@@ -9,10 +9,10 @@ DEV_ACCOUNT_ID="foxquiz-dev-runtime"
 PROD_DATABASE_ID="(default)"
 DEV_DATABASE_ID="foxquiz-dev"
 CPU="1"
-MEMORY="4Gi"
+MEMORY="1Gi"
 CONCURRENCY="8"
 MIN_INSTANCES="0"
-PROD_MAX_INSTANCES="10"
+PROD_MAX_INSTANCES="3"
 DEV_MAX_INSTANCES="2"
 
 ENVIRONMENT=""
@@ -217,6 +217,7 @@ SETTINGS_COMMAND=(
   --region "${REGION}"
   --min-instances "${MIN_INSTANCES}"
   --max-instances "${MAX_INSTANCES}"
+  --cpu-throttling
   --cpu-boost
   --execution-environment gen1
   --quiet
@@ -262,7 +263,7 @@ fi
 echo
 echo "Deploy application and inject build metadata:"
 print_command "${DEPLOY_COMMAND[@]}"
-echo "Apply Cloud Run scaling, startup CPU boost, and Gen1:"
+echo "Apply Cloud Run scaling, request-based billing, startup CPU boost, and Gen1:"
 print_command "${SETTINGS_COMMAND[@]}"
 echo "Grant public invocation:"
 print_command "${PUBLIC_COMMAND[@]}"
@@ -363,6 +364,7 @@ assert spec["serviceAccountName"] == expected_account
 actual_min = annotations.get("autoscaling.knative.dev/minScale", "0")
 assert str(actual_min) == expected_min
 assert str(annotations.get("autoscaling.knative.dev/maxScale")) == expected_max
+assert str(annotations.get("run.googleapis.com/cpu-throttling")).lower() == "true"
 assert str(annotations.get("run.googleapis.com/startup-cpu-boost")).lower() == "true"
 assert annotations.get("run.googleapis.com/execution-environment") == "gen1"
 assert environment.get("COMMIT_SHA") == expected_commit
