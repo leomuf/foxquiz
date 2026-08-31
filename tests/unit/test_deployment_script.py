@@ -169,6 +169,7 @@ def test_apply_executes_and_verifies_the_complete_dev_sequence(tmp_path: Path) -
                 "metadata": {
                     "annotations": {
                         "autoscaling.knative.dev/maxScale": "2",
+                        "run.googleapis.com/cpu-throttling": "true",
                         "run.googleapis.com/startup-cpu-boost": "true",
                         "run.googleapis.com/execution-environment": "gen1",
                     }
@@ -258,7 +259,7 @@ esac
     assert f"--service-name {DEV_SERVICE}" in log
     assert "--service-account foxquiz-dev-runtime@" in log
     assert "gcloud run services update" in log
-    assert "--cpu-boost --execution-environment gen1" in log
+    assert "--cpu-throttling --cpu-boost --execution-environment gen1" in log
     assert "--revision-suffix" not in log
     assert "gcloud run services add-iam-policy-binding" in log
     assert "gcloud run services describe" in log
