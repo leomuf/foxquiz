@@ -62,7 +62,7 @@ def test_prod_dry_run_renders_fixed_production_deployment() -> None:
     )
     assert "Firestore database: (default)" in result.stdout
     assert "Version: 1.2.0" in result.stdout
-    assert "--max-instances 10" in result.stdout
+    assert "--max-instances 3" in result.stdout
     revision_match = re.search(
         r"Final revision: (foxquiz-\d{8}t\d{6}z-v1p2p0)", result.stdout
     )
