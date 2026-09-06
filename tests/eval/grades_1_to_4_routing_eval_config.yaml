@@ -1,0 +1,21 @@
+metrics_to_run:
+  - primary_curriculum_routing
+
+custom_metrics:
+  - name: primary_curriculum_routing
+    prompt_template: |
+      Evaluate FoxQuiz's curriculum-preflight outcome for the supplied Grade 1
+      request. Differential equations must be rejected as cognitively
+      inappropriate, with a short encouraging German explanation and suitable
+      alternatives; no quiz may be generated. The broad topic "Rechnen" must
+      produce a short German clarification question that asks the learner to
+      choose a concrete foundational scope such as counting, addition, or
+      subtraction; no quiz may be generated yet. Use the case's prompt to decide
+      which outcome applies. Give score 5 only for the correct route and a clear,
+      child-friendly response.
+
+      User Prompt: {prompt}
+      Final Response: {response}
+      Full Agent Trace: {agent_data}
+
+      Return JSON: {"score": <1|2|3|4|5>, "explanation": "<reason>"}

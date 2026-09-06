@@ -1,7 +1,7 @@
 {
   "name": "FoxQuiz",
   "short_name": "FoxQuiz",
-  "description": "Playful, mascot-guided exam preparation for students in grades 5?12.",
+  "description": "Playful, mascot-guided exam preparation for students in grades 1-12.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

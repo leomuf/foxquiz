@@ -7,7 +7,9 @@
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+from app.domain.grade_policy import get_grade_policy
 
 _INVALID_REQUEST_MESSAGES = {
     "de": "Diese Anfrage hat nicht das erwartete Quizformat. Bitte verwende das FoxQuiz-Formular und versuche es erneut.",
@@ -35,6 +37,12 @@ class QuizRequest(BaseModel):
     previous_quiz_json: str | dict[str, Any] | None = None
     selected_difficulty: Literal["medium", "hard"] | None = None
     clarification_response: str | None = Field(default=None, max_length=500)
+
+    @field_validator("grade")
+    @classmethod
+    def normalize_grade(cls, value: str) -> str:
+        """Normalize supported localized labels to the stable internal value."""
+        return get_grade_policy(value).canonical_value
 
 
 def parse_quiz_request(payload: str) -> QuizRequest:

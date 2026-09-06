@@ -351,12 +351,31 @@ def test_judge_prompt_includes_prior_structural_repair_history() -> None:
     assert "Review the complete current quiz" in prompt
 
 
+def test_judge_prompt_applies_early_primary_contract() -> None:
+    """The Judge enforces the same Grade 1 rules as generation and validation."""
+    prompt = _build_judge_prompt(
+        quiz_dict={"difficulty": "⭐ Medium", "questions": []},
+        grade="Klasse 1",
+        subject="Mathematik",
+        topic="Zahlen bis 20",
+        curriculum_guidance="Use counting and simple addition within 20.",
+        previous_score=None,
+        selected_difficulty=None,
+    )
+
+    assert "exactly 3 answer options" in prompt
+    assert "one or two short sentences" in prompt
+    assert "hard acceptance requirements" in prompt
+    assert "Set passed to false" in prompt
+    assert "Do not use negative questions or double negatives" in prompt
+
+
 @pytest.mark.asyncio
 async def test_quiz_generation_prompt_requires_normalized_unique_options() -> None:
     """Every generation attempt must receive the option-uniqueness contract."""
     context = MagicMock()
     context.state = {
-        "grade": "Klasse 10",
+        "grade": "Klasse 1",
         "subject": "Biologia",
         "topic": "Herança mendeliana",
         "preferred_language": "pt",
@@ -396,6 +415,8 @@ async def test_quiz_generation_prompt_requires_normalized_unique_options() -> No
     assert "unique after Unicode normalization" in prompt
     assert "compare every pair of options" in prompt
     assert "replace repeated or equivalent choices" in prompt
+    assert "Do not use any emoji in question text for Grades 1-4" in prompt
+    assert "every explanation must contain no more than two short sentences" in prompt
 
 
 @pytest.mark.asyncio

@@ -56,6 +56,11 @@ from app.domain.quiz_request import (
     invalid_request_message,
     parse_quiz_request,
 )
+from app.domain.grade_policy import (
+    PedagogicalStage,
+    build_grade_prompt_guidance,
+    get_grade_policy,
+)
 from app.domain.quiz_validation import (
     build_retry_guidance,
     validate_quiz_candidate,
@@ -415,6 +420,22 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         difficulty_design_guidance = _build_difficulty_design_guidance(
             expected_difficulty
         )
+        grade_policy = get_grade_policy(grade)
+        grade_guidance = build_grade_prompt_guidance(grade_policy)
+        primary_scope_guidance = ""
+        if grade_policy.stage in {
+            PedagogicalStage.PRIMARY_EARLY,
+            PedagogicalStage.PRIMARY_LATE,
+        }:
+            primary_scope_guidance = (
+                "For Grades 1-4, request clarification when an umbrella topic "
+                "would span materially different foundational skills and no "
+                "specific learning goal was supplied. For example, Grade 1 "
+                "Mathematics plus 'Arithmetic' should clarify whether to focus "
+                "on counting, addition, subtraction, or another concrete skill. "
+                "Do not clarify a topic that already names a concrete, "
+                "age-appropriate skill.\n"
+            )
 
         # Perform Upfront Curriculum Validation Check to prevent mismatched/inappropriate topics
         logger.info("Performing upfront curriculum validation check.")
@@ -428,13 +449,16 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 f"Requested adaptive level: {expected_difficulty}.\n"
                 "Apply this generator-wide difficulty design contract:\n"
                 f"{difficulty_design_guidance}\n\n"
+                "Apply this authoritative age-appropriate design contract:\n"
+                f"{grade_guidance}\n\n"
                 "Decide whether this exact combination is ready for quiz generation.\n"
                 "Use status='compatible' only when the topic has a clear interpretation at the requested grade level without silently changing the requested topic. "
-                "A recognizable school topic is compatible even when it is broad: when no narrower scope is supplied, interpret it as a balanced general overview of the topic. "
+                "Except for the explicit Grades 1-4 foundational-skill rule below, a recognizable school topic is compatible even when it is broad: when no narrower scope is supplied, interpret it as a balanced general overview of the topic. "
                 "Treat an answer such as 'general information' as an explicit request for that overview. "
                 "Provide difficulty_guidance with concrete grade-level concepts, reasonable workload and task types to include, plus elementary or overly advanced concepts and repetitive task patterns to exclude. Translate the design contract into topic-specific guidance rather than weakening it.\n"
                 "Use status='needs_clarification' only when the topic is genuinely ambiguous, unintelligible, or level-dependent in a way that would produce materially different quizzes and no safe conventional school interpretation exists. "
                 "Do not request clarification merely because a valid school topic covers many facts or subtopics. "
+                f"{primary_scope_guidance}"
                 "For example, Grade 12 Mathematics plus 'Multiplication' needs clarification between matrix multiplication, polynomial multiplication, complex-number multiplication, or another advanced scope; it must not generate elementary multiplication questions. "
                 "Provide a short clarification_question and two or three suggested_topics/scopes.\n"
                 "Use status='incompatible' when the topic is fundamentally outside the subject, cognitively inappropriate for the grade, or not a suitable school-learning topic. "
@@ -661,6 +685,8 @@ def _build_judge_prompt(
     """Build the academic-review contract shared with the LLM judge."""
     expected_difficulty = _expected_quiz_difficulty(previous_score, selected_difficulty)
     difficulty_design_guidance = _build_difficulty_design_guidance(expected_difficulty)
+    grade_policy = get_grade_policy(grade)
+    grade_guidance = build_grade_prompt_guidance(grade_policy)
     repair_history_guidance = ""
     if repair_history:
         repair_history_guidance = (
@@ -671,17 +697,29 @@ def _build_judge_prompt(
             "Review the complete current quiz, and pay particular attention to the "
             "listed question indices and defect types.\n"
         )
+    exact_primary_constraints = ""
+    if grade_policy.stage is PedagogicalStage.PRIMARY_EARLY:
+        exact_primary_constraints = (
+            "For Grades 1-2, exactly three options and no more than two short "
+            "sentences in every explanation are hard acceptance requirements, "
+            "not minor style preferences. Set passed to false if either is "
+            "violated.\n"
+        )
     return (
         "You are a strict, professional school academic reviewer (LLM-as-a-judge).\n"
         "Assess if the following generated quiz JSON satisfies all standards:\n"
         f"1. Is the difficulty and content exactly aligned with school standards for Grade '{grade}'?\n"
         f"2. Does it cover the subject '{subject}' and topic '{topic}' accurately?\n"
         "3. Does the quiz contain exactly 10 questions?\n"
-        "4. Does each question contain between 3 and 5 options, with exactly ONE correct choice?\n"
+        f"4. Does each question contain {grade_policy.option_count_instruction}, with exactly ONE correct choice?\n"
         "5. Is the 'correct_option_index' mathematically and factually correct? "
         "CRITICAL: For each question, you MUST independently determine the factually correct answer (whether it is a mathematical calculation, a historical date, a biological definition, etc.). Then, verify that the 'correct_option_index' points EXACTLY to that correct answer inside the 0-based options array. "
         "If there is any mismatch between the factually correct answer, the option at 'correct_option_index', or the correct answer described in your explanation, you MUST set passed to false.\n"
         "6. Are all answer options neutral and free of emojis or visual correctness cues, and do any emojis in a question avoid depicting, naming, or otherwise revealing its correct answer? If not, you MUST set passed to false.\n\n"
+        "--- AUTHORITATIVE AGE-APPROPRIATE DESIGN CONTRACT ---\n"
+        f"{grade_guidance}\n"
+        f"{exact_primary_constraints}"
+        "Reject the quiz when it materially violates this contract.\n\n"
         "--- AUTHORITATIVE ADAPTIVE DIFFICULTY CONTRACT ---\n"
         f"The expected difficulty field is exactly '{expected_difficulty}'.\n"
         f"Previous score: {previous_score if previous_score is not None else 'not available'}/10.\n"
@@ -734,10 +772,12 @@ async def _repair_duplicate_options(
         {"question_index": index, "question": questions[index]}
         for index in question_indices
     ]
+    grade_policy = get_grade_policy(ctx.state.get("grade"))
     prompt = (
         "Repair duplicate answer options in the supplied quiz questions. Return "
         "one repair for every supplied 0-based question_index and no other indices. "
-        "For each repair, provide the complete list of 3 to 5 answer options. Every "
+        "For each repair, provide a complete list with "
+        f"{grade_policy.option_count_instruction}. Every "
         "option must be meaningfully distinct after Unicode normalization, trimming "
         "or collapsing whitespace. Preserve capitalization when it carries scientific "
         "meaning, such as genotype notation. Keep options neutral "
@@ -811,6 +851,27 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     selected_difficulty = ctx.state.get("selected_difficulty")
     expected_difficulty = _expected_quiz_difficulty(previous_score, selected_difficulty)
     difficulty_design_guidance = _build_difficulty_design_guidance(expected_difficulty)
+    grade_policy = get_grade_policy(grade)
+    grade_guidance = build_grade_prompt_guidance(grade_policy)
+    emoji_guidance = (
+        "Decorative emojis may appear in titles or explanations, but do not put "
+        "emojis in question text or answer options."
+        if not grade_policy.question_emojis_allowed
+        else "Decorative emojis may appear in titles, questions, or explanations, "
+        "but never in answer options and never when they reveal the correct answer."
+    )
+    question_emoji_rule = (
+        "Do not use any emoji in question text for Grades 1-4."
+        if not grade_policy.question_emojis_allowed
+        else "Question emojis are allowed only when they do not name, depict, "
+        "or otherwise reveal the correct answer."
+    )
+    explanation_length_rule = (
+        "For Grades 1-2, every explanation must contain no more than two short "
+        "sentences."
+        if grade_policy.maximum_explanation_sentences == 2
+        else "Keep each explanation concise and appropriate for the selected grade."
+    )
     curriculum_guidance = ctx.state.get("curriculum_guidance", "")
     judge_reasons = list(ctx.state.get("judge_reasons") or [])
     deterministic_retry_guidance = ctx.state.get("deterministic_retry_guidance", "")
@@ -843,13 +904,13 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
 
     prompt = (
         f"Create an interactive multiple-choice quiz with exactly 10 questions.\n"
-        f"Target Audience: School students in Grade/Year {grade} (aged 10-18 years old).\n"
+        f"Target Audience: School students in Grade/Year {grade}.\n"
         f"Subject: {subject}\n"
         f"Topic: {topic}\n"
         f"Preferred Language: Entire quiz MUST be written in '{lang}' (Deutsch, Português, or English).\n"
-        f"\nPedagogical Tone Scaling:\n"
-        f"- For younger students (Grades 5-8, ages 10-14): Keep the tone highly playful, simplified, and kid-friendly. Decorative emojis may appear in titles, questions, or explanations, but never in answer options and never when they reveal the correct answer.\n"
-        f"- For older students (Grades 9-12, ages 14-18): Switch to a supportive peer-mentor tone. Keep the mascot identity (e.g. Felix/Olivia/Dino) but communicate with intellectual respect, using advanced, clear explanations without sounding overly simple or talking down to them.\n"
+        "\n--- AUTHORITATIVE AGE-APPROPRIATE DESIGN CONTRACT ---\n"
+        f"{grade_guidance}\n"
+        f"{emoji_guidance}\n"
     )
 
     prompt += (
@@ -898,12 +959,14 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
     prompt += (
         "\nRules & Schema requirements:\n"
         "1. Create exactly 10 questions.\n"
-        "2. Each question has between 3 and 5 answer options.\n"
+        f"2. Each question has {grade_policy.option_count_instruction}.\n"
         "3. EXACTLY one option must be correct.\n"
         "4. Every option within one question must be meaningfully distinct and unique after Unicode normalization and trimming or collapsing whitespace. Preserve capitalization when it carries scientific meaning, such as genotype notation. Before returning the JSON, compare every pair of options in each question and replace repeated or equivalent choices with genuinely different distractors.\n"
         "5. Set 'correct_option_index' to the exact 0-based index of the correct option inside the options array. CRITICAL: Double-check that your 'correct_option_index' points exactly to the mathematically or factually correct option among the provided options, and matches the correct answer stated in your explanation.\n"
-        "6. Every answer option must be neutral, text-only content. Never put emojis, check marks, crosses, stars, labels such as 'correct', or any other visual answer cue in an option. Question emojis are allowed only when they do not name, depict, or otherwise reveal the correct answer.\n"
-        "7. Keep the explanations warm, educational, clear, and highly encouraging (explain why the correct answer is right and why others are wrong in a child-friendly mascot way). CRITICAL: Do NOT start explanations with affirmative or congratulatory words like 'Parabéns!', 'Isso mesmo!', 'Congratulations!', 'Exactly!', 'Herzlichen Glückwunsch!', or 'Richtig!', because these explanations are shown even when the student chooses the wrong answer. Start directly with the factual explanation (e.g. 'Células-tronco são...' instead of 'Isso mesmo! Células-tronco são...').\n"
+        "6. Every answer option must be neutral, text-only content. Never put emojis, check marks, crosses, stars, labels such as 'correct', or any other visual answer cue in an option. "
+        f"{question_emoji_rule}\n"
+        "7. Keep the explanations warm, educational, clear, and highly encouraging (explain why the correct answer is right and why others are wrong in a child-friendly mascot way). "
+        f"{explanation_length_rule} CRITICAL: Do NOT start explanations with affirmative or congratulatory words like 'Parabéns!', 'Isso mesmo!', 'Congratulations!', 'Exactly!', 'Herzlichen Glückwunsch!', or 'Richtig!', because these explanations are shown even when the student chooses the wrong answer. Start directly with the factual explanation (e.g. 'Células-tronco são...' instead of 'Isso mesmo! Células-tronco são...').\n"
     )
 
     adaptation_instructions = ""
@@ -1031,7 +1094,9 @@ def _route_after_failed_judge(academic_repair_attempts: int) -> str:
 @node
 async def deterministic_quiz_validation(ctx: Context, node_input: Any) -> Event:
     """Reject structural defects and answer cues before the expensive LLM judge."""
-    result = validate_quiz_candidate(ctx.state.get("temp_quiz"))
+    result = validate_quiz_candidate(
+        ctx.state.get("temp_quiz"), grade=ctx.state.get("grade")
+    )
     ctx.state["deterministic_validation_issues"] = [
         issue.as_dict() for issue in result.issues
     ]
@@ -1195,7 +1260,7 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     quiz_dict = ctx.state.get("temp_quiz")
     lang = ctx.state.get("preferred_language") or "en"
 
-    final_validation = validate_quiz_candidate(quiz_dict)
+    final_validation = validate_quiz_candidate(quiz_dict, grade=ctx.state.get("grade"))
     if not final_validation.is_valid:
         ctx.state["deterministic_validation_issues"] = [
             issue.as_dict() for issue in final_validation.issues
