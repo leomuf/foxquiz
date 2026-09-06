@@ -1315,18 +1315,6 @@
                 btn_home: "Zur Startseite",
                 feedback_title: "Wie gefällt dir das Quiz?",
                 score: "Ergebnis",
-                grade_1: "Klasse 1 (Grundschule)",
-                grade_2: "Klasse 2 (Grundschule)",
-                grade_3: "Klasse 3 (Grundschule)",
-                grade_4: "Klasse 4 (Grundschule)",
-                grade_5: "Klasse 5 (Gymnasium/Realschule)",
-                grade_6: "Klasse 6",
-                grade_7: "Klasse 7",
-                grade_8: "Klasse 8",
-                grade_9: "Klasse 9",
-                grade_10: "Klasse 10",
-                grade_11: "Klasse 11",
-                grade_12: "Klasse 12 (Abitur/Oberstufe)",
                 search_ticker: ["Wikipedia-Recherche läuft...", "Lehrpläne werden abgeglichen...", "Fragen werden altersgerecht verpackt...", "Sicherheits-Check läuft..."],
                 congrats: ["Super gemacht!", "Unglaublich!", "Pfotenstark!", "Wunderbar!"],
                 congrats_desc: "Du hast alle 10 Fragen gemeistert! Hier ist dein Ergebnis:",
@@ -1390,18 +1378,6 @@
                 btn_home: "Go to Home",
                 feedback_title: "How did you like this quiz?",
                 score: "Score",
-                grade_1: "Grade 1 (Elementary School)",
-                grade_2: "Grade 2 (Elementary School)",
-                grade_3: "Grade 3 (Elementary School)",
-                grade_4: "Grade 4 (Elementary School)",
-                grade_5: "Grade 5 (Middle School)",
-                grade_6: "Grade 6",
-                grade_7: "Grade 7",
-                grade_8: "Grade 8",
-                grade_9: "Grade 9",
-                grade_10: "Grade 10",
-                grade_11: "Grade 11 (High School)",
-                grade_12: "Grade 12 (High School / AP)",
                 search_ticker: ["Searching Wikipedia...", "Analyzing curricula...", "Tailoring kid-friendly phrasing...", "Performing safety checks..."],
                 congrats: ["Outstanding job!", "Magnificent!", "Awesome work!", "Great effort!"],
                 congrats_desc: "You successfully completed all 10 questions! Here is your score:",
@@ -1465,18 +1441,6 @@
                 btn_home: "Voltar ao Início",
                 feedback_title: "O que achou deste quiz?",
                 score: "Pontuação",
-                grade_1: "1º Ano do Ensino Fundamental",
-                grade_2: "2º Ano do Ensino Fundamental",
-                grade_3: "3º Ano do Ensino Fundamental",
-                grade_4: "4º Ano do Ensino Fundamental",
-                grade_5: "5º Ano (Ensino Fundamental)",
-                grade_6: "6º Ano",
-                grade_7: "7º Ano",
-                grade_8: "8º Ano",
-                grade_9: "9º Ano",
-                grade_10: "1º Ano do Ensino Médio",
-                grade_11: "2º Ano do Ensino Médio",
-                grade_12: "3º Ano do Ensino Médio (Vestibular)",
                 search_ticker: ["Pesquisando na Wikipédia...", "Verificando currículos acadêmicos...", "Formatando perguntas divertidas...", "Fazendo checagens de segurança..."],
                 congrats: ["Excelente trabalho!", "Incrível!", "Espetacular!", "Muito bem!"],
                 congrats_desc: "Você completou todas as 10 perguntas! Aqui está o seu resultado:",
@@ -1539,25 +1503,123 @@
         const PROGRESS_CEILING = 98;
         const PROGRESS_AT_TARGET = 95;
 
-        const SUPPORTED_GRADES = Object.freeze(
-            Array.from({ length: 12 }, (_, index) => Object.freeze({
-                number: index + 1,
-                value: `Klasse ${index + 1}`,
-                translationKey: `grade_${index + 1}`
-            }))
-        );
+        const GRADE_GROUPS = Object.freeze({
+            de: Object.freeze([
+                Object.freeze({
+                    label: "Grundschule",
+                    options: Object.freeze([
+                        { value: "Klasse 1", text: "Klasse 1" },
+                        { value: "Klasse 2", text: "Klasse 2" },
+                        { value: "Klasse 3", text: "Klasse 3" },
+                        { value: "Klasse 4", text: "Klasse 4" }
+                    ])
+                }),
+                Object.freeze({
+                    label: "Weiterführende Schule (Sekundarstufe I)",
+                    options: Object.freeze([
+                        { value: "Klasse 5", text: "Klasse 5" },
+                        { value: "Klasse 6", text: "Klasse 6" },
+                        { value: "Klasse 7", text: "Klasse 7" },
+                        { value: "Klasse 8", text: "Klasse 8" },
+                        { value: "Klasse 9", text: "Klasse 9" },
+                        { value: "Klasse 10", text: "Klasse 10" }
+                    ])
+                }),
+                Object.freeze({
+                    label: "Oberstufe (Abitur / Sekundarstufe II)",
+                    options: Object.freeze([
+                        { value: "Klasse 11", text: "Klasse 11" },
+                        { value: "Klasse 12", text: "Klasse 12" }
+                    ])
+                })
+            ]),
+            en: Object.freeze([
+                Object.freeze({
+                    label: "Elementary School",
+                    options: Object.freeze([
+                        { value: "Klasse 1", text: "Grade 1" },
+                        { value: "Klasse 2", text: "Grade 2" },
+                        { value: "Klasse 3", text: "Grade 3" },
+                        { value: "Klasse 4", text: "Grade 4" }
+                    ])
+                }),
+                Object.freeze({
+                    label: "Middle School",
+                    options: Object.freeze([
+                        { value: "Klasse 5", text: "Grade 5" },
+                        { value: "Klasse 6", text: "Grade 6" },
+                        { value: "Klasse 7", text: "Grade 7" },
+                        { value: "Klasse 8", text: "Grade 8" }
+                    ])
+                }),
+                Object.freeze({
+                    label: "High School (College Prep / AP)",
+                    options: Object.freeze([
+                        { value: "Klasse 9", text: "Grade 9" },
+                        { value: "Klasse 10", text: "Grade 10" },
+                        { value: "Klasse 11", text: "Grade 11" },
+                        { value: "Klasse 12", text: "Grade 12" }
+                    ])
+                })
+            ]),
+            pt: Object.freeze([
+                Object.freeze({
+                    label: "Ensino Fundamental — Anos Iniciais",
+                    options: Object.freeze([
+                        { value: "Klasse 1", text: "1º Ano" },
+                        { value: "Klasse 2", text: "2º Ano" },
+                        { value: "Klasse 3", text: "3º Ano" },
+                        { value: "Klasse 4", text: "4º Ano" },
+                        { value: "Klasse 5", text: "5º Ano" }
+                    ])
+                }),
+                Object.freeze({
+                    label: "Ensino Fundamental — Anos Finais",
+                    options: Object.freeze([
+                        { value: "Klasse 6", text: "6º Ano" },
+                        { value: "Klasse 7", text: "7º Ano" },
+                        { value: "Klasse 8", text: "8º Ano" },
+                        { value: "Klasse 9", text: "9º Ano" }
+                    ])
+                }),
+                Object.freeze({
+                    label: "Ensino Médio",
+                    options: Object.freeze([
+                        { value: "Klasse 10", text: "1º Ano" },
+                        { value: "Klasse 11", text: "2º Ano" },
+                        { value: "Klasse 12", text: "3º Ano (Vestibular)" }
+                    ])
+                })
+            ])
+        });
 
-        /** Render canonical grade values while leaving visible labels localized. */
-        function initializeGradeOptions() {
+        /**
+         * Renders categorized grade optgroups with localized labels and canonical values.
+         * @param {"de"|"en"|"pt"} lang Current language code.
+         */
+        function renderGradeOptions(lang) {
             const gradeSelect = document.getElementById("input-grade");
-            SUPPORTED_GRADES.forEach(({ number, value, translationKey }) => {
-                const option = document.createElement("option");
-                option.value = value;
-                option.dataset.translate = translationKey;
-                option.innerText = value;
-                option.selected = number === 5;
-                gradeSelect.appendChild(option);
+            if (!gradeSelect) return;
+            const previousValue = gradeSelect.value || "Klasse 5";
+            gradeSelect.innerHTML = "";
+            const groups = GRADE_GROUPS[lang] || GRADE_GROUPS.en;
+            groups.forEach(group => {
+                const optgroup = document.createElement("optgroup");
+                optgroup.label = group.label;
+                group.options.forEach(({ value, text }) => {
+                    const option = document.createElement("option");
+                    option.value = value;
+                    option.innerText = text;
+                    if (value === previousValue) {
+                        option.selected = true;
+                    }
+                    optgroup.appendChild(option);
+                });
+                gradeSelect.appendChild(optgroup);
             });
+            if (!gradeSelect.value) {
+                gradeSelect.value = "Klasse 5";
+            }
         }
 
         const mascotNames = {
@@ -1669,7 +1731,6 @@
 
         // On Page Load
         window.addEventListener("DOMContentLoaded", () => {
-            initializeGradeOptions();
             detectLanguage();
             setupMascotThemes();
             checkForSharedQuiz();
@@ -1707,6 +1768,7 @@
          */
         function setLanguage(lang) {
             currentLanguage = lang;
+            renderGradeOptions(lang);
             
             // Highlight button
             document.querySelectorAll(".lang-btn").forEach(btn => {

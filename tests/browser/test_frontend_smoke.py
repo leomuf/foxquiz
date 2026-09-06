@@ -137,7 +137,11 @@ def test_language_switching_and_mascot_selection(
         "options => options.map(option => option.value)"
     ) == [f"Klasse {grade}" for grade in range(1, 13)]
     expect(page.locator("#input-grade")).to_have_value("Klasse 5")
-    expect(grade_options.nth(0)).to_have_text("Grade 1 (Elementary School)")
+    expect(page.locator("#input-grade optgroup")).to_have_count(3)
+    expect(page.locator("#input-grade optgroup").nth(0)).to_have_attribute(
+        "label", "Elementary School"
+    )
+    expect(grade_options.nth(0)).to_have_text("Grade 1")
 
     missing_translations = page.evaluate(
         """() => {
@@ -168,7 +172,10 @@ def test_language_switching_and_mascot_selection(
     page.get_by_role("button", name="PT").click()
     expect(page.locator('label[for="input-grade"]')).to_have_text("Ano Escolar")
     expect(page.locator('[data-translate="btn_start"]')).to_have_text("Criar Quiz!")
-    expect(grade_options.nth(0)).to_have_text("1º Ano do Ensino Fundamental")
+    expect(page.locator("#input-grade optgroup").nth(0)).to_have_attribute(
+        "label", "Ensino Fundamental — Anos Iniciais"
+    )
+    expect(grade_options.nth(0)).to_have_text("1º Ano")
     portuguese_license = page.locator('[data-translate="footer_opensource"]')
     expect(portuguese_license).to_contain_text("Apache License 2.0")
     expect(portuguese_license).to_contain_text("CC BY 4.0")
