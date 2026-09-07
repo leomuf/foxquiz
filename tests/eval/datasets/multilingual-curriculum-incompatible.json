@@ -1,0 +1,37 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "grade_5_en_rejects_differential_equations",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Grade 5\",\"subject\":\"Math\",\"topic\":\"Differential equations\",\"preferred_language\":\"en\",\"mascot_id\":\"owl\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade_5_pt_rejects_differential_equations",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"5º ano\",\"subject\":\"Matemática\",\"topic\":\"Equações diferenciais\",\"preferred_language\":\"pt\",\"mascot_id\":\"dragon\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade_5_de_rejects_differential_equations",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 5\",\"subject\":\"Mathematik\",\"topic\":\"Differentialgleichungen\",\"preferred_language\":\"de\",\"mascot_id\":\"fox\"}"
+          }
+        ]
+      }
+    }
+  ]
+}
