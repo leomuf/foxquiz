@@ -21,6 +21,7 @@ Boundary:
 """
 
 import json
+import random
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -51,6 +52,8 @@ from app.agent import (
     search_wikipedia,
     security_block_node,
     security_checkpoint_node,
+    shuffle_question_options,
+    shuffle_quiz_options,
 )
 from app.app_utils.token_usage import TerminalOutcome
 from app.app_utils.typing import QuizContext, QuizQualityFailure
@@ -491,11 +494,17 @@ async def test_quiz_generation_repairs_only_questions_with_duplicate_options() -
     assert events[0].output == {"status": "candidate_ready"}
     assert repaired_quiz["questions"][0]["question"] == "Question 0?"
     assert repaired_quiz["questions"][0]["explanation"] == "Explanation 0."
-    assert repaired_quiz["questions"][0]["options"] == [
+    assert set(repaired_quiz["questions"][0]["options"]) == {
         "First option",
         "Second option",
         "Third option",
-    ]
+    }
+    assert (
+        repaired_quiz["questions"][0]["options"][
+            repaired_quiz["questions"][0]["correct_option_index"]
+        ]
+        == "First option"
+    )
     assert repaired_quiz["questions"][1:] == quiz["questions"][1:]
     assert context.state["generation_attempts"] == 2
     assert context.state["deterministic_repair_attempts"] == 1
@@ -859,3 +868,110 @@ async def test_deterministic_validation_logs_success_without_candidate(
     assert events[0].actions.route == "valid"
     assert emit_event.call_args.kwargs["event"] == expected_event
     assert emit_event.call_args.kwargs["generation_attempt"] == generation_attempt
+
+
+@pytest.mark.parametrize(
+    ("option_count", "correct_idx"),
+    [
+        (3, 0),
+        (3, 1),
+        (3, 2),
+        (4, 0),
+        (4, 3),
+        (5, 0),
+        (5, 4),
+    ],
+    ids=[
+        "3-options-first",
+        "3-options-middle",
+        "3-options-last",
+        "4-options-first",
+        "4-options-last",
+        "5-options-first",
+        "5-options-last",
+    ],
+)
+def test_shuffle_question_options_preserves_correct_answer(
+    option_count: int, correct_idx: int
+) -> None:
+    """Option shuffling preserves semantic correctness across 3, 4, and 5 options."""
+    options = [f"Choice {chr(ord('A') + i)}" for i in range(option_count)]
+    expected_correct_text = options[correct_idx]
+    question = {
+        "question": "What is the correct answer?",
+        "options": list(options),
+        "correct_option_index": correct_idx,
+        "explanation": "Explanation here.",
+    }
+
+    rng = random.Random(42)
+    shuffled = shuffle_question_options(question, rng=rng)
+
+    assert set(shuffled["options"]) == set(options)
+    assert len(shuffled["options"]) == option_count
+    assert (
+        shuffled["options"][shuffled["correct_option_index"]] == expected_correct_text
+    )
+
+
+def test_shuffle_question_options_robust_against_duplicate_texts() -> None:
+    """Permutation uses index mapping to avoid corrupting candidate duplicates."""
+    question = {
+        "question": "Duplicate options test?",
+        "options": ["Duplicate", "Duplicate", "Unique"],
+        "correct_option_index": 1,
+        "explanation": "Second option was chosen.",
+    }
+    rng = random.Random(123)
+    shuffled = shuffle_question_options(question, rng=rng)
+
+    assert len(shuffled["options"]) == 3
+    assert 0 <= shuffled["correct_option_index"] < 3
+    assert shuffled["options"][shuffled["correct_option_index"]] == "Duplicate"
+
+
+def test_shuffle_question_options_handles_invalid_data_gracefully() -> None:
+    """Non-conforming questions pass through without throwing exceptions."""
+    assert shuffle_question_options({}) == {}
+    assert shuffle_question_options({"options": "not a list"}) == {
+        "options": "not a list"
+    }
+    assert shuffle_question_options(
+        {"options": ["A", "B"], "correct_option_index": 5}
+    ) == {"options": ["A", "B"], "correct_option_index": 5}
+    assert shuffle_question_options(
+        {"options": ["A", "B"], "correct_option_index": -1}
+    ) == {"options": ["A", "B"], "correct_option_index": -1}
+
+
+def test_shuffle_quiz_options_shuffles_all_questions_deterministically() -> None:
+    """Quiz-level shuffling applies permutation across every question."""
+    quiz = {
+        "title": "Grade 1 Math",
+        "questions": [
+            {
+                "question": f"Question {i}?",
+                "options": [f"Q{i} Option A", f"Q{i} Option B", f"Q{i} Option C"],
+                "correct_option_index": 0,
+                "explanation": f"Explanation {i}",
+            }
+            for i in range(10)
+        ],
+    }
+
+    rng = random.Random(999)
+    shuffled_quiz = shuffle_quiz_options(quiz, rng=rng)
+
+    assert len(shuffled_quiz["questions"]) == 10
+    for i, q in enumerate(shuffled_quiz["questions"]):
+        expected_text = f"Q{i} Option A"
+        assert q["options"][q["correct_option_index"]] == expected_text
+        assert set(q["options"]) == {
+            f"Q{i} Option A",
+            f"Q{i} Option B",
+            f"Q{i} Option C",
+        }
+
+    # Verify that the correct_option_indices across the 10 questions are not all 0
+    indices = [q["correct_option_index"] for q in shuffled_quiz["questions"]]
+    assert len(set(indices)) > 1

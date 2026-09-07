@@ -24,6 +24,7 @@ import datetime
 import json
 import logging
 import os
+import random
 import re
 import unicodedata
 from difflib import SequenceMatcher
@@ -129,6 +130,43 @@ def _resolve_mascot(mascot_id: Any, language: str) -> tuple[str, str]:
     )
     normalized_language = language if language in {"de", "pt", "en"} else "en"
     return normalized_id, MASCOT_NAMES[normalized_id][normalized_language]
+
+
+def shuffle_question_options(
+    question: dict[str, Any], *, rng: random.Random | None = None
+) -> dict[str, Any]:
+    """Deterministically permute answer choices and update correct_option_index."""
+    options = question.get("options")
+    correct_idx = question.get("correct_option_index")
+    if (
+        not isinstance(options, list)
+        or not isinstance(correct_idx, int)
+        or isinstance(correct_idx, bool)
+        or not 0 <= correct_idx < len(options)
+    ):
+        return question
+
+    permutation = list(range(len(options)))
+    if rng is not None:
+        rng.shuffle(permutation)
+    else:
+        random.shuffle(permutation)
+
+    question["options"] = [options[i] for i in permutation]
+    question["correct_option_index"] = permutation.index(correct_idx)
+    return question
+
+
+def shuffle_quiz_options(
+    quiz_dict: dict[str, Any], *, rng: random.Random | None = None
+) -> dict[str, Any]:
+    """Permute options for all questions in a generated quiz dict."""
+    questions = quiz_dict.get("questions")
+    if isinstance(questions, list):
+        for question in questions:
+            if isinstance(question, dict):
+                shuffle_question_options(question, rng=rng)
+    return quiz_dict
 
 
 # --- Pydantic Models for Quiz and Safety Structures ---
@@ -811,10 +849,15 @@ async def _repair_duplicate_options(
         index = repair.question_index
         if index not in requested_indices or index in applied_indices:
             continue
-        repaired_quiz["questions"][index]["options"] = repair.options
-        repaired_quiz["questions"][index]["correct_option_index"] = (
-            repair.correct_option_index
-        )
+        repaired_question = {
+            "options": list(repair.options),
+            "correct_option_index": repair.correct_option_index,
+        }
+        shuffle_question_options(repaired_question)
+        repaired_quiz["questions"][index]["options"] = repaired_question["options"]
+        repaired_quiz["questions"][index]["correct_option_index"] = repaired_question[
+            "correct_option_index"
+        ]
         applied_indices.add(index)
     logger.info(
         "Applied targeted duplicate-option repairs to %s of %s question(s).",
@@ -982,7 +1025,6 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
                 f"Do NOT generate new or different questions. Do NOT avoid duplication.\n"
                 f"Instead, do the following:\n"
                 f"- Shuffle the order of the 10 questions compared to the previous quiz.\n"
-                f"- For each question, shuffle the order of its options (answer choices) and update the 'correct_option_index' accordingly.\n"
                 f"- You can make slight, minor improvements or rephrasings to make the questions or explanations even clearer/simpler, but they must cover the exact same questions and concepts.\n"
                 f"- Set the 'difficulty' field to exactly: '🌱 Easy' (since we are repeating for reinforcement and practice).\n"
             )
@@ -1054,6 +1096,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             generation_attempt=attempt,
         )
         quiz_dict = json.loads(response.text.strip())
+        quiz_dict = shuffle_quiz_options(quiz_dict)
         # Keep user-visible metadata deterministic and consistent with the
         # adaptive mode reviewed by the academic judge.
         quiz_dict["difficulty"] = expected_difficulty
