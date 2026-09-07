@@ -44,7 +44,7 @@ def test_dev_dry_run_renders_isolated_bounded_deployment() -> None:
     )
     assert "Firestore database: foxquiz-dev" in result.stdout
     assert "--max-instances 2" in result.stdout
-    assert "AGENT_VERSION=1.3.0-dev" in result.stdout
+    assert "AGENT_VERSION=1.3.1-dev" in result.stdout
     assert "--revision-suffix" not in result.stdout
     assert "Final revision:" not in result.stdout
     assert "Dry run only" in result.stdout
@@ -61,10 +61,10 @@ def test_prod_dry_run_renders_fixed_production_deployment() -> None:
         f"foxquiz-prod-runtime@{TEST_PROJECT}.iam.gserviceaccount.com" in result.stdout
     )
     assert "Firestore database: (default)" in result.stdout
-    assert "Version: 1.3.0" in result.stdout
+    assert "Version: 1.3.1" in result.stdout
     assert "--max-instances 3" in result.stdout
     revision_match = re.search(
-        r"Final revision: (foxquiz-\d{8}t\d{6}z-v1p3p0)", result.stdout
+        r"Final revision: (foxquiz-\d{8}t\d{6}z-v1p3p1)", result.stdout
     )
     assert revision_match
     revision_suffix = revision_match.group(1).removeprefix("foxquiz-")

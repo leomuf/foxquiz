@@ -53,6 +53,17 @@ class GradePolicy:
         """Return the stable value used in requests and internal state."""
         return f"Klasse {int(self.grade)}"
 
+    def localized_label(self, language: str = "de") -> str:
+        """Return the user-friendly grade label for a supported language."""
+        normalized = (language or "de").lower()
+        if normalized.startswith("pt"):
+            if self.grade > Grade.GRADE_9:
+                return f"{int(self.grade) - 9}º ano do ensino médio"
+            return f"{int(self.grade)}º ano"
+        if normalized.startswith("en"):
+            return f"Grade {int(self.grade)}"
+        return f"Klasse {int(self.grade)}"
+
     @property
     def option_count_instruction(self) -> str:
         """Describe the allowed number of options without duplicating policy text."""

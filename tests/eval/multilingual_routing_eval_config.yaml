@@ -1,0 +1,19 @@
+metrics_to_run:
+  - multilingual_curriculum_routing
+
+custom_metrics:
+  - name: multilingual_curriculum_routing
+    prompt_template: |
+      Evaluate FoxQuiz's curriculum-preflight outcome for the supplied request.
+      When an advanced or incompatible topic is requested (such as Differential equations for Grade 5 / 5º ano / Klasse 5):
+      1. The agent MUST NOT generate a quiz.
+      2. The agent MUST return a friendly, encouraging mascot response explaining in simple terms that the topic is for older students.
+      3. The agent MUST propose age-appropriate alternative topics.
+      4. STRICT LANGUAGE PURITY: The entire response, mascot explanation, grade references, and suggested topics MUST be 100% in the user's requested language ('en', 'pt', or 'de'). Under no circumstances may German words or grade terms leak into English or Portuguese responses, or vice versa.
+
+      User Prompt: {prompt}
+      Final Response: {response}
+      Full Agent Trace: {agent_data}
+
+      Give score 5 only when all 4 conditions are fully satisfied. Deduct points for foreign language leakage, missing alternative topics, or wrong routing.
+      Return JSON: {"score": <1|2|3|4|5>, "explanation": "<reason>"}

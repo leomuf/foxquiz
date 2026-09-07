@@ -73,6 +73,26 @@ agents-cli eval grade \
 These evaluations call live Vertex AI models but execute the application
 locally; generated artifacts remain ignored and must not be committed.
 
+### Multilingual Curriculum Routing & Language Purity
+
+This dataset tests curriculum validation and mascot guidance across English,
+Portuguese, and German when a topic is cognitively inappropriate or outside
+the requested grade (e.g. Grade 5 Differential Equations). The LLM-as-a-judge
+metric verifies rejection without quiz output, encouraging mascot tone,
+age-appropriate suggested topics, and strict 100% target language purity with
+zero foreign language leakage.
+
+```bash
+agents-cli eval generate \
+  --dataset tests/eval/datasets/multilingual-curriculum-incompatible.json \
+  --output artifacts/traces/multilingual-curriculum-incompatible
+agents-cli eval grade \
+  --traces artifacts/traces/multilingual-curriculum-incompatible \
+  --config tests/eval/multilingual_routing_eval_config.yaml \
+  --output artifacts/grade_results/multilingual-curriculum-incompatible
+```
+
+
 ### Token-observability rollout
 
 The three token-observability files do not represent three independent

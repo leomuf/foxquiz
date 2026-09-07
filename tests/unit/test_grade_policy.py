@@ -56,3 +56,24 @@ def test_existing_secondary_policy_keeps_three_to_five_options() -> None:
     assert policy.stage is PedagogicalStage.SECONDARY_LOWER
     assert (policy.minimum_options, policy.maximum_options) == (3, 5)
     assert policy.question_emojis_allowed
+
+
+@pytest.mark.parametrize(
+    ("grade_input", "lang", "expected_label"),
+    [
+        ("Grade 5", "de", "Klasse 5"),
+        ("Grade 5", "en", "Grade 5"),
+        ("Grade 5", "pt", "5º ano"),
+        ("Grade 11", "de", "Klasse 11"),
+        ("Grade 11", "en", "Grade 11"),
+        ("Grade 11", "pt", "2º ano do ensino médio"),
+        ("Grade 1", "en", "Grade 1"),
+        ("Grade 1", "pt", "1º ano"),
+    ],
+)
+def test_grade_policy_localized_label(
+    grade_input: str, lang: str, expected_label: str
+) -> None:
+    """GradePolicy localized_label produces correct strings for de, en, pt."""
+    policy = get_grade_policy(grade_input)
+    assert policy.localized_label(lang) == expected_label

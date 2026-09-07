@@ -36,6 +36,7 @@ Boundary:
     response quality remains an agents-cli eval responsibility.
 """
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -433,3 +434,130 @@ def test_upfront_curriculum_validation_accepts_a_recognizable_broad_topic(
     assert len(quiz_outputs[0].get("questions", [])) == 10
     assert final_session.state.get("curriculum_status") == "compatible"
     assert final_session.state.get("topic") == topic
+
+
+@pytest.mark.parametrize(
+    (
+        "grade",
+        "subject",
+        "topic",
+        "lang",
+        "mascot_id",
+        "forbidden_snippets",
+        "expected_snippets",
+    ),
+    [
+        (
+            "Grade 5",
+            "Math",
+            "Differential equations",
+            "en",
+            "owl",
+            [
+                "Klasse",
+                "Grundrechenarten",
+                "Brüche",
+                "Dezimalzahlen",
+                "Mathematik",
+                "Textaufgaben",
+            ],
+            ["Olivia", "Differential equations"],
+        ),
+        (
+            "5º ano",
+            "Matemática",
+            "Equações diferenciais",
+            "pt",
+            "dragon",
+            [
+                "Klasse",
+                "Grade",
+                "Grundrechenarten",
+                "Brüche",
+                "Dezimalzahlen",
+                "Differential equations",
+            ],
+            ["Dino", "diferenciais"],
+        ),
+    ],
+    ids=["en-grade5-differential-equations", "pt-grade5-differential-equations"],
+)
+def test_upfront_curriculum_validation_rejects_incompatible_topic_in_requested_language(
+    grade: str,
+    subject: str,
+    topic: str,
+    lang: str,
+    mascot_id: str,
+    forbidden_snippets: list[str],
+    expected_snippets: list[str],
+) -> None:
+    """Reject incompatible curriculum topic with a mascot message in the requested language.
+
+    Verifies that:
+    1. No quiz output is generated.
+    2. The incompatible topic is cleared from session state.
+    3. The mascot explanation is returned with alternative topic suggestions.
+    4. The mascot message contains zero language leakage from German or other languages.
+    """
+    session_service = InMemorySessionService()
+    session = session_service.create_session_sync(user_id="test_user", app_name="test")
+    runner = Runner(agent=root_agent, session_service=session_service, app_name="test")
+
+    payload = {
+        "grade": grade,
+        "subject": subject,
+        "topic": topic,
+        "preferred_language": lang,
+        "mascot_id": mascot_id,
+    }
+    message = types.Content(
+        role="user", parts=[types.Part.from_text(text=json.dumps(payload))]
+    )
+
+    events = list(
+        runner.run(
+            new_message=message,
+            user_id="test_user",
+            session_id=session.id,
+            run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+        )
+    )
+
+    quiz_outputs = [
+        event.output
+        for event in events
+        if event.output
+        and isinstance(event.output, dict)
+        and "questions" in event.output
+    ]
+    model_texts = [
+        part.text
+        for event in events
+        if event.content and event.content.parts
+        for part in event.content.parts
+        if part.text
+    ]
+
+    final_session = session_service.get_session_sync(
+        user_id="test_user", session_id=session.id, app_name="test"
+    )
+
+    # 1. Incompatible topic must not produce a quiz
+    assert len(quiz_outputs) == 0
+    # 2. Topic is cleared from state for the learner to choose another
+    assert final_session.state.get("topic") is None
+    # 3. Mascot response exists
+    assert len(model_texts) > 0
+    full_response = " ".join(model_texts)
+
+    # 4. Expected snippets are present
+    for expected in expected_snippets:
+        assert expected.lower() in full_response.lower(), (
+            f"Expected '{expected}' in mascot response: {full_response}"
+        )
+
+    # 5. Forbidden snippets (no German leakage in EN/PT)
+    for forbidden in forbidden_snippets:
+        assert forbidden.lower() not in full_response.lower(), (
+            f"Forbidden snippet '{forbidden}' leaked into response: {full_response}"
+        )
