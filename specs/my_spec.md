@@ -414,22 +414,22 @@ knowledge_sources:
    the preflight's authoritative `difficulty_guidance` and grade policy (Grades 1–2
    use exactly 3 options, Grades 3–12 use 3–5 options). The initial generation
    produces the complete quiz candidate.
-5. **Python post-processing & Deterministic validation.** Immediately after raw
-   generation or targeted repair, Python post-processing randomly permutes option
-   order via index tracking (`shuffle_quiz_options` and `shuffle_question_options`)
-   to eliminate option position bias. Before any LLM judge call, a pure validation
-   component checks objective structure, option counts, duplicate options,
-   correct-index bounds, and empty fields. Answer options must be neutral text
-   and contain neither Unicode emojis nor visual correctness cues. A first
-   failure returns to `quiz_generation` using privacy-safe issue codes and
-   positions. When every issue is `duplicate_option`, the generation node uses
-   an internal targeted-repair branch that returns only complete replacement
-   option lists and corrected indices for the affected questions. It must
-   preserve the title, question text, explanations, and every unaffected
-   question. Mixed or non-duplicate issues use complete quiz regeneration
-   because option replacement alone cannot safely correct them. Every repaired
-   or regenerated candidate undergoes option shuffling and passes deterministic
-   validation again; the repair is never accepted on trust.
+5. **Randomized option permutation & Deterministic validation.** Immediately after
+   raw generation or targeted repair, option order is randomly permuted via index
+   tracking (`shuffle_quiz_options` and `shuffle_question_options`) to eliminate
+   answer position bias. Before any LLM judge call, a pure validation component
+   checks objective structure, option counts, duplicate options, correct-index
+   bounds, and empty fields. Answer options must be neutral text and contain
+   neither Unicode emojis nor visual correctness cues. A first failure returns
+   to `quiz_generation` using privacy-safe issue codes and positions. When every
+   issue is `duplicate_option`, the generation node uses an internal
+   targeted-repair branch that returns only complete replacement option lists
+   and corrected indices for the affected questions. It must preserve the title,
+   question text, explanations, and every unaffected question. Mixed or
+   non-duplicate issues use complete quiz regeneration because option replacement
+   alone cannot safely correct them. Every repaired or regenerated candidate
+   undergoes randomized option permutation and passes deterministic validation
+   again; the repair is never accepted on trust.
 6. **Semantic quality check.** A separate judge verifies factual correctness,
    exact topic fit, grade-level scope, and whether an emoji in a question names,
    depicts, or otherwise reveals the correct answer. Decorative question emojis

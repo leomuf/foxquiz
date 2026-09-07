@@ -250,8 +250,8 @@ flowchart TD
             GenerationEntry["Invocation entry"] --> RepairDecision{"Retry with only<br/>duplicate-option issues?"}
             RepairDecision -- "Yes" --> TargetedRepair["◆ LLM<br/>Targeted repair<br/>replace affected option lists and indices"]
             RepairDecision -- "No" --> FullGeneration["◆ LLM<br/>Generate complete quiz<br/>initial generation or full retry"]
-            TargetedRepair --> ShuffleRepair["Python post-processing<br/>shuffle_question_options<br/>index permutation"]
-            FullGeneration --> ShuffleQuiz["Python post-processing<br/>shuffle_quiz_options<br/>index permutation"]
+            TargetedRepair --> ShuffleRepair["Randomized option permutation<br/>shuffle_question_options"]
+            FullGeneration --> ShuffleQuiz["Randomized option permutation<br/>shuffle_quiz_options (index tracking)"]
             ShuffleRepair --> CandidateReady["Return candidate_ready event"]
             ShuffleQuiz --> CandidateReady
         end
@@ -398,22 +398,22 @@ and grade alignment, requested difficulty, and whether each
 explanation. A successful repair therefore follows this sequence:
 
 ```text
-full quiz generation
-  -> Python post-processing (randomized option permutation)
+full quiz generation (◆ LLM)
+  -> randomized option permutation
   -> deterministic validation
-  -> targeted duplicate-option repair
-  -> Python post-processing (targeted question option permutation)
+  -> targeted duplicate-option repair (◆ LLM)
+  -> targeted question option permutation
   -> deterministic validation again
-  -> LLM-as-a-Judge
-  -> optional full academic regeneration
-  -> Python post-processing (randomized option permutation)
+  -> LLM-as-a-Judge (◆ LLM)
+  -> optional full academic regeneration (◆ LLM)
+  -> randomized option permutation
   -> deterministic validation and LLM-as-a-Judge again
   -> final invariant check and learner output, or fail closed
 ```
 
 #### Randomized option permutation (Zero position bias)
 
-To prevent models from exhibiting answer-position bias (e.g. disproportionately placing the correct answer at index `0`), FoxQuiz applies deterministic index-based option permutations in Python (`shuffle_quiz_options` and `shuffle_question_options`) immediately after LLM JSON generation and targeted repairs. Correct answer indices are tracked and updated mathematically (`permutation.index(correct_idx)`), ensuring unbiased answer distributions without corrupting question metadata or relying on error-prone prompt-level model shuffling.
+To prevent models from exhibiting answer-position bias (e.g. disproportionately placing the correct answer at index `0`), FoxQuiz applies deterministic index-based option permutations (`shuffle_quiz_options` and `shuffle_question_options`) immediately after LLM JSON generation and targeted repairs. Correct answer indices are tracked and updated mathematically (`permutation.index(correct_idx)`), ensuring unbiased answer distributions without corrupting question metadata or relying on error-prone prompt-level model shuffling.
 
 The existing reinforcement-mode exception is unchanged: when
 `previous_score <= 3`, FoxQuiz reuses previously validated questions and skips
