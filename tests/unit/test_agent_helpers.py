@@ -418,7 +418,10 @@ async def test_quiz_generation_prompt_requires_normalized_unique_options() -> No
     assert "unique after Unicode normalization" in prompt
     assert "compare every pair of options" in prompt
     assert "replace repeated or equivalent choices" in prompt
-    assert "Do not use any emoji in question text for Grades 1-4" in prompt
+    assert (
+        "Question emojis are allowed only when they do not name, depict, or otherwise reveal the correct answer."
+        in prompt
+    )
     assert "every explanation must contain no more than two short sentences" in prompt
 
 

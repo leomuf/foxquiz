@@ -132,16 +132,16 @@ def test_grade_one_rejects_four_options_but_grade_three_accepts_them() -> None:
     assert grade_three.is_valid
 
 
-def test_primary_grades_reject_question_emojis_but_secondary_allows_them() -> None:
-    """Pictograms cannot accidentally reveal answers in primary-school questions."""
+def test_all_grades_allow_decorative_question_emojis() -> None:
+    """Decorative question emojis remain valid across primary and secondary grades."""
     quiz = _valid_quiz()
 
-    primary = validate_quiz_candidate(quiz, grade="Klasse 4")
+    primary_early = validate_quiz_candidate(quiz, grade="Klasse 1")
+    primary_late = validate_quiz_candidate(quiz, grade="Klasse 4")
     secondary = validate_quiz_candidate(quiz, grade="Klasse 5")
 
-    assert QuizValidationCode.EMOJI_IN_QUESTION in {
-        issue.code for issue in primary.issues
-    }
+    assert primary_early.is_valid
+    assert primary_late.is_valid
     assert secondary.is_valid
 
 

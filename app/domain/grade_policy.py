@@ -75,7 +75,7 @@ def policy_for_grade(grade: Grade) -> GradePolicy:
             maximum_options=3,
             maximum_explanation_sentences=2,
             negation_questions_allowed=False,
-            question_emojis_allowed=False,
+            question_emojis_allowed=True,
         )
     if grade <= Grade.GRADE_4:
         return GradePolicy(
@@ -87,7 +87,7 @@ def policy_for_grade(grade: Grade) -> GradePolicy:
             maximum_options=5,
             maximum_explanation_sentences=None,
             negation_questions_allowed=False,
-            question_emojis_allowed=False,
+            question_emojis_allowed=True,
         )
     if grade <= Grade.GRADE_8:
         return GradePolicy(
@@ -162,15 +162,13 @@ def build_grade_prompt_guidance(policy: GradePolicy) -> str:
             " Use very short, concrete, easily readable questions and answers. "
             "Use simple, clearly distinct distractors and familiar examples. "
             "Each explanation must contain only one or two short sentences. "
-            "Do not use negative questions or double negatives. Do not put "
-            "emojis in question text; even playful pictograms can reveal answers."
+            "Do not use negative questions or double negatives."
         )
     if policy.stage is PedagogicalStage.PRIMARY_LATE:
         return common + (
             " Use short, simple language and concrete examples while allowing "
             "slightly more detailed questions. Avoid complicated distractors. "
-            "Do not use negative questions or double negatives. Do not put "
-            "emojis in question text; even playful pictograms can reveal answers."
+            "Do not use negative questions or double negatives."
         )
     if policy.stage is PedagogicalStage.SECONDARY_LOWER:
         return common + (
