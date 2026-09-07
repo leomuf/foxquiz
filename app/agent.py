@@ -460,6 +460,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         )
         grade_policy = get_grade_policy(grade)
         grade_guidance = build_grade_prompt_guidance(grade_policy)
+        grade_label = grade_policy.localized_label(lang)
         primary_scope_guidance = ""
         if grade_policy.stage in {
             PedagogicalStage.PRIMARY_EARLY,
@@ -481,7 +482,9 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         try:
             validation_prompt = (
                 "You are a strict but supportive school curriculum scope evaluator.\n"
-                f"Grade/Year: {grade}\nSubject: {subject}\nTopic: {topic}\n\n"
+                f"Target Language: '{lang}' ('de', 'pt', or 'en').\n"
+                f"Grade Level: {grade_label} (Grade {int(grade_policy.grade)}, ages {grade_policy.minimum_age}-{grade_policy.maximum_age})\n"
+                f"Subject: {subject}\nTopic: {topic}\n\n"
                 "Additional scope supplied after a clarification question: "
                 f"{clarification_response or 'none'}\n\n"
                 f"Requested adaptive level: {expected_difficulty}.\n"
@@ -493,6 +496,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 "Use status='compatible' only when the topic has a clear interpretation at the requested grade level without silently changing the requested topic. "
                 "Except for the explicit Grades 1-4 foundational-skill rule below, a recognizable school topic is compatible even when it is broad: when no narrower scope is supplied, interpret it as a balanced general overview of the topic. "
                 "Treat an answer such as 'general information' as an explicit request for that overview. "
+                "Secondary and upper-secondary students (Grades 5-12) can explore standard school subjects, sciences, introductory economics, and humanities at an age-appropriate conceptual level. "
                 "Provide difficulty_guidance with concrete grade-level concepts, reasonable workload and task types to include, plus elementary or overly advanced concepts and repetitive task patterns to exclude. Translate the design contract into topic-specific guidance rather than weakening it.\n"
                 "Use status='needs_clarification' only when the topic is genuinely ambiguous, unintelligible, or level-dependent in a way that would produce materially different quizzes and no safe conventional school interpretation exists. "
                 "Do not request clarification merely because a valid school topic covers many facts or subtopics. "
@@ -503,7 +507,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 "Provide two or three age-appropriate alternatives.\n"
                 "Do not accept a combination merely because the topic could be simplified or made harder. First require enough scope to produce a genuinely grade-aligned quiz.\n"
                 "When additional clarification is present, interpret it together with the original topic rather than replacing the original topic.\n"
-                f"Write explanation, clarification_question, suggested_topics, and difficulty_guidance in language '{lang}' ('de', 'pt', or 'en').\n"
+                f"CRITICAL LANGUAGE RULE: Write explanation, clarification_question, suggested_topics, and difficulty_guidance entirely in language '{lang}' ('de', 'pt', or 'en'). All suggested_topics must be localized educational topic titles strictly in language '{lang}' (never suggest German topics or words when language is '{lang}').\n"
                 "Return structured JSON matching CurriculumCompatibility."
             )
             response = await client.aio.models.generate_content(
@@ -562,13 +566,14 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 mascot_prompt = (
                     f"You are {mascot_name}, a friendly, encouraging school learning companion mascot speaking directly to a child.\n"
                     f"If you introduce yourself, use exactly the name '{mascot_name}' and never claim to be another mascot.\n"
-                    f"The child asked for a quiz about '{topic}' in Grade '{grade}' and Subject '{subject}', but this topic is too complex or not appropriate (Explanation: {compatibility.explanation}).\n"
-                    f"In a playful, extremely encouraging, and kind tone, explain in language '{lang}' that this topic is usually learned by older students, and suggest these age-appropriate alternatives: {', '.join(compatibility.suggested_topics)}.\n"
+                    f"The child asked for a quiz about '{topic}' in {grade_label} and Subject '{subject}', but this topic is too complex or not appropriate (Explanation: {compatibility.explanation}).\n"
+                    f"In a playful, extremely encouraging, and kind tone, explain entirely in language '{lang}' that this topic is usually learned by older students, and suggest these age-appropriate alternatives: {', '.join(compatibility.suggested_topics)}.\n"
+                    f"CRITICAL LANGUAGE RULE: Speak exclusively in language '{lang}'. Never mix in German or other language words, grade labels, or topic terms when language is '{lang}'.\n"
                     f"Ask them which of these cool topics they would like to do instead, or if they want to choose a different grade/topic. Keep the response short, clear, and full of positive energy!"
                 )
                 mascot_resp = await client.aio.models.generate_content(
                     model="gemini-2.5-flash",
-                    contents=f"Playful mascot explanation to child why '{topic}' is not suitable for grade '{grade}' and suggest: {', '.join(compatibility.suggested_topics)}",
+                    contents=f"Playful mascot explanation in language '{lang}' to child why '{topic}' is not suitable for {grade_label} and suggest: {', '.join(compatibility.suggested_topics)}",
                     config=types.GenerateContentConfig(
                         system_instruction=mascot_prompt,
                         temperature=0.7,
@@ -746,7 +751,7 @@ def _build_judge_prompt(
     return (
         "You are a strict, professional school academic reviewer (LLM-as-a-judge).\n"
         "Assess if the following generated quiz JSON satisfies all standards:\n"
-        f"1. Is the difficulty and content exactly aligned with school standards for Grade '{grade}'?\n"
+        f"1. Is the difficulty and content exactly aligned with school standards for Grade {int(grade_policy.grade)}?\n"
         f"2. Does it cover the subject '{subject}' and topic '{topic}' accurately?\n"
         "3. Does the quiz contain exactly 10 questions?\n"
         f"4. Does each question contain {grade_policy.option_count_instruction}, with exactly ONE correct choice?\n"
@@ -945,9 +950,10 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             logger.error("Quiz option repair failed (%s).", type(e).__name__)
             raise
 
+    grade_label = grade_policy.localized_label(lang)
     prompt = (
         f"Create an interactive multiple-choice quiz with exactly 10 questions.\n"
-        f"Target Audience: School students in Grade/Year {grade}.\n"
+        f"Target Audience: School students in {grade_label} (Grade {int(grade_policy.grade)}).\n"
         f"Subject: {subject}\n"
         f"Topic: {topic}\n"
         f"Preferred Language: Entire quiz MUST be written in '{lang}' (Deutsch, Português, or English).\n"
@@ -1036,14 +1042,14 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
                 adaptation_instructions = (
                     f"\n--- ADAPTIVE PROGRESSION MODE (CHALLENGE) ---\n"
                     f"The student scored {previous_score}/10 on the previous quiz and selected the DIFFICULT (Advanced) level.\n"
-                    f"You must significantly SCALE UP the cognitive depth of this new quiz while staying inside Grade {grade}. Use varied reasoning, application, strategy, estimation, comparison, or error-analysis tasks when they fit the topic. Do not create difficulty mainly through larger numbers, calculator-like manual work, or tightly clustered answer choices.\n"
+                    f"You must significantly SCALE UP the cognitive depth of this new quiz while staying inside Grade {int(grade_policy.grade)}. Use varied reasoning, application, strategy, estimation, comparison, or error-analysis tasks when they fit the topic. Do not create difficulty mainly through larger numbers, calculator-like manual work, or tightly clustered answer choices.\n"
                     f"Set the 'difficulty' field to exactly: '🚀 Hard'.\n"
                 )
             else:
                 adaptation_instructions = (
                     f"\n--- ADAPTIVE PROGRESSION MODE (NEXT LEVEL) ---\n"
                     f"The student scored {previous_score}/10 on the previous quiz and selected the MEDIUM (Standard) level.\n"
-                    f"Maintain standard Grade {grade} difficulty, but generate a completely fresh set of questions.\n"
+                    f"Maintain standard Grade {int(grade_policy.grade)} difficulty, but generate a completely fresh set of questions.\n"
                     f"Set the 'difficulty' field to exactly: '⭐ Medium'.\n"
                 )
 
@@ -1065,7 +1071,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             adaptation_instructions = (
                 f"\n--- STANDARD PRACTICE MODE ---\n"
                 f"The student scored {previous_score}/10 on the previous quiz.\n"
-                f"Keep standard difficulty for Grade {grade}. Generate a new set of questions to continue practice on the topic.\n"
+                f"Keep standard difficulty for Grade {int(grade_policy.grade)}. Generate a new set of questions to continue practice on the topic.\n"
                 f"Set the 'difficulty' field to exactly: '⭐ Medium'.\n"
                 f"Note: It is fine to reuse some questions or concepts if they are central, as duplication avoidance is not strictly enforced for scores below 8/10.\n"
             )

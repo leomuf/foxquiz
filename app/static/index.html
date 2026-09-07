@@ -1321,6 +1321,7 @@
                 not_found: "Teilen-Link ist ungültig oder abgelaufen.",
                 storage_unavailable: "Der Speicher ist vorübergehend nicht verfügbar. Bitte versuche es später erneut.",
                 share_failed: "Das Quiz konnte nicht geteilt werden. Bitte versuche es erneut.",
+                share_copied: "Quiz-Link in die Zwischenablage kopiert! 📋",
                 loading_title: "Lernstoff wird zusammengestellt...",
                 loading_subtitle: "Ich suche gerade auf Wikipedia und in Lehrplänen nach passenden Inhalten, um dir das perfekte Quiz zu bauen!",
                 correct_encouragement: {
@@ -1335,7 +1336,7 @@
                 },
                 export_question: "Frage",
                 export_correct: "Korrekt",
-                export_solution: "Lösung und Erklärung anzeigen ",
+                export_solution: "Lösung und Erklärung anzeigen 💡",
                 export_correct_option: "Richtige Option",
                 export_print: "Drucken / Als PDF speichern",
                 export_level: "Altersgruppe",
@@ -1384,6 +1385,7 @@
                 not_found: "Share link is invalid or expired.",
                 storage_unavailable: "Persistent storage is temporarily unavailable. Please try again later.",
                 share_failed: "The quiz could not be shared. Please try again.",
+                share_copied: "Quiz link copied to clipboard! 📋",
                 loading_title: "Preparing study materials...",
                 loading_subtitle: "I'm searching Wikipedia and curricula to build the perfect quiz for you!",
                 correct_encouragement: {
@@ -1398,7 +1400,7 @@
                 },
                 export_question: "Question",
                 export_correct: "Correct",
-                export_solution: "Show solution and explanation ",
+                export_solution: "Show solution and explanation 💡",
                 export_correct_option: "Correct Option",
                 export_print: "Print / Save as PDF",
                 export_level: "Age Group",
@@ -1447,6 +1449,7 @@
                 not_found: "O link de compartilhamento é inválido ou expirou.",
                 storage_unavailable: "O armazenamento está temporariamente indisponível. Tente novamente mais tarde.",
                 share_failed: "Não foi possível compartilhar o quiz. Tente novamente.",
+                share_copied: "Link do quiz copiado para a área de transferência! 📋",
                 loading_title: "Preparando o conteúdo de estudo...",
                 loading_subtitle: "Estou pesquisando na Wikipédia e em currículos escolares para criar o quiz perfeito para você!",
                 correct_encouragement: {
@@ -2452,7 +2455,7 @@
         function copyShareLink(quizId) {
             const shareUrl = `${window.location.origin}/?quiz_id=${quizId}`;
             navigator.clipboard.writeText(shareUrl).then(() => {
-                showToast(currentLanguage === "de" ? "Einladungs-Link in die Zwischenablage kopiert! " : "Shareable invitation link copied to clipboard!");
+                showToast(translations[currentLanguage].share_copied);
             });
         }
 
