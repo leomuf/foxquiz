@@ -216,15 +216,15 @@ def read_root(request: Request):
     meta_data = {
         "de": {
             "title": "FoxQuiz — Dein spielerischer Lernbegleiter!",
-            "description": "Intelligente, maskottchengeführte Prüfungsvorbereitung für die Klassen 5-12. Kostenlos, sicher, werbefrei und perfekt auf den Lehrplan abgestimmt!",
+            "description": "Intelligente, maskottchengeführte Prüfungsvorbereitung für die Klassen 1-12. Kostenlos, sicher, werbefrei und perfekt auf den Lehrplan abgestimmt!",
         },
         "pt": {
             "title": "FoxQuiz — Seu companheiro de estudos divertido!",
-            "description": "Preparação inteligente para avaliações guiada por mascotes da 5º série até o 3º ano do ensino médio. Gratuito, seguro, sem anúncios e alinhado ao currículo escolar!",
+            "description": "Preparação inteligente para avaliações guiada por mascotes do 1º ano do ensino fundamental ao 3º ano do ensino médio. Gratuito, seguro, sem anúncios e alinhado ao currículo escolar!",
         },
         "en": {
             "title": "FoxQuiz — Your Playful Exam Prep Companion!",
-            "description": "Intelligent, mascot-guided exam preparation for grades 5-12. Free, safe, ad-free, and perfectly aligned with school curriculums!",
+            "description": "Intelligent, mascot-guided exam preparation for grades 1-12. Free, safe, ad-free, and perfectly aligned with school curriculums!",
         },
     }
 

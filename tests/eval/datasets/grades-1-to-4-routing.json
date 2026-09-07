@@ -1,0 +1,12 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "grade_1_rejects_differential_equations",
+      "prompt": {"role": "user", "parts": [{"text": "{\"grade\":\"Klasse 1\",\"subject\":\"Mathematik\",\"topic\":\"Differentialgleichungen\",\"preferred_language\":\"de\"}"}]}
+    },
+    {
+      "eval_case_id": "grade_1_clarifies_broad_arithmetic",
+      "prompt": {"role": "user", "parts": [{"text": "{\"grade\":\"Klasse 1\",\"subject\":\"Mathematik\",\"topic\":\"Rechnen\",\"preferred_language\":\"de\"}"}]}
+    }
+  ]
+}

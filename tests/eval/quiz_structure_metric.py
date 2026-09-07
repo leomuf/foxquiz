@@ -34,7 +34,33 @@ def _normalize_option(value: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", value).split())
 
 
-def _structural_issue_codes(candidate: Any) -> set[str]:
+def _requested_grade(instance: dict[str, Any]) -> int | None:
+    """Extract a canonical grade number from the structured user prompt."""
+    prompt = instance.get("prompt")
+    if not isinstance(prompt, dict) or not isinstance(prompt.get("parts"), list):
+        return None
+    for part in prompt["parts"]:
+        if not isinstance(part, dict) or not isinstance(part.get("text"), str):
+            continue
+        try:
+            request = json.loads(part["text"])
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(request, dict):
+            continue
+        grade = request.get("grade")
+        if not isinstance(grade, str):
+            continue
+        words = grade.replace("º", " ").split()
+        for word in words:
+            if word.isdigit() and 1 <= int(word) <= 12:
+                return int(word)
+    return None
+
+
+def _structural_issue_codes(
+    candidate: Any, *, required_option_count: int | None = None
+) -> set[str]:
     """Return privacy-safe issue codes for violations of the quiz contract."""
     if not isinstance(candidate, dict):
         return {"invalid_quiz"}
@@ -64,7 +90,11 @@ def _structural_issue_codes(candidate: Any) -> set[str]:
         if not isinstance(options, list):
             issues.add("invalid_option_count")
             continue
-        if not 3 <= len(options) <= 5:
+        if required_option_count is not None:
+            valid_option_count = len(options) == required_option_count
+        else:
+            valid_option_count = 3 <= len(options) <= 5
+        if not valid_option_count:
             issues.add("invalid_option_count")
 
         correct_index = question.get("correct_option_index")
@@ -103,7 +133,11 @@ def evaluate(instance: dict[str, Any]) -> dict[str, float | str]:
     except (TypeError, json.JSONDecodeError):
         return {"score": 0.0, "explanation": "The final response was not valid JSON."}
 
-    issue_codes = sorted(_structural_issue_codes(candidate))
+    grade = _requested_grade(instance)
+    required_option_count = 3 if grade in {1, 2} else None
+    issue_codes = sorted(
+        _structural_issue_codes(candidate, required_option_count=required_option_count)
+    )
     if not issue_codes:
         return {
             "score": 1.0,

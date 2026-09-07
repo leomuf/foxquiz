@@ -17,8 +17,8 @@
 
 ## 1. Overview
 
-**Goal:** A web application that helps school students (ages 10–18, grades
-5–12) prepare
+**Goal:** A web application that helps school students (approximately ages
+6–18, grades 1–12) prepare
 for exams by generating an interactive multiple-choice quiz based on grade,
 subject, and topic.
 
@@ -88,9 +88,12 @@ Tailwind) plus a component library.
 # design-tokens.yaml
 theme:
   name: "Animal Adventure"
-  # Two variants for the wide 10-16 age range:
+  # Variants cover the full 6-18 age range:
   variants:
-    playful:        # younger children (10-13)
+    primary:        # younger children (6-9), initially with adult guidance
+      mascots_visible: true
+      decorative_icon_density: high
+    playful:        # students (10-13)
       mascots_visible: true
       decorative_icon_density: high
     cool:           # older students (14-18); feels more grown-up
@@ -276,6 +279,14 @@ fields receive a fixed localized `INVALID_REQUEST` response before the
 semantic security classifier or workflow can consume LLM tokens. Missing
 optional language values fall back to English.
 
+Supported grade labels resolve deterministically to a central Python policy
+and are normalized to `Klasse 1` through `Klasse 12` in request state. The
+policy uses an integer enum for the grade, a pedagogical-stage enum, and an
+immutable data class for age, option-count, explanation, and negation rules.
+The browser renders the same twelve canonical values from one immutable
+JavaScript constant; translations affect only visible labels. The backend
+policy remains authoritative and rejects unsupported grades before an LLM call.
+
 ```gherkin
 Feature: Information gathering before quiz creation
 
@@ -315,6 +326,7 @@ quiz:
   answer_options:
     min: 3
     max: 5
+    grade_1_to_2: 3
   correct_answers_per_question: 1
   selection: "single_click"
 
@@ -332,6 +344,27 @@ request_contract:
   unknown_fields: "reject"
   free_form_input: "unsupported"
   invalid_response: "localized_INVALID_REQUEST_before_LLM"
+
+grade_policy:
+  grade_1_to_2:
+    age_range: "6-8"
+    answer_options: 3
+    language: "very short, concrete, easily readable"
+    explanation: "one or two short sentences"
+    negative_questions: false
+    question_emojis: false
+  grade_3_to_4:
+    age_range: "8-10"
+    answer_options: "3-5"
+    language: "short, simple, concrete examples"
+    negative_questions: false
+    question_emojis: false
+  grade_5_to_8:
+    age_range: "10-14"
+    answer_options: "3-5"
+  grade_9_to_12:
+    age_range: "14-18"
+    answer_options: "3-5"
 
 judge:
   enabled: true
@@ -378,21 +411,25 @@ knowledge_sources:
 3. **Knowledge grounding.** Search localized Wikipedia and retain content only
    when the article title is relevant to every meaningful topic term.
 4. **Quiz generation.** Generate exactly ten multiple-choice questions under
-   the preflight's authoritative `difficulty_guidance`. The initial generation
+   the preflight's authoritative `difficulty_guidance` and grade policy (Grades 1–2
+   use exactly 3 options, Grades 3–12 use 3–5 options). The initial generation
    produces the complete quiz candidate.
-5. **Deterministic validation.** Before any LLM judge call, a pure validation
-   component checks objective structure, option counts, duplicate options,
-   correct-index bounds, and empty fields. Answer options must be neutral text
-   and contain neither Unicode emojis nor visual correctness cues. A first
-   failure returns to `quiz_generation` using privacy-safe issue codes and
-   positions. When every issue is `duplicate_option`, the generation node uses
-   an internal targeted-repair branch that returns only complete replacement
-   option lists and corrected indices for the affected questions. It must
-   preserve the title, question text, explanations, and every unaffected
-   question. Mixed or non-duplicate issues use complete quiz regeneration
-   because option replacement alone cannot safely correct them. Every repaired
-   or regenerated candidate passes deterministic validation again; the repair
-   is never accepted on trust.
+5. **Randomized option permutation & Deterministic validation.** Immediately after
+   raw generation or targeted repair, option order is randomly permuted via index
+   tracking (`shuffle_quiz_options` and `shuffle_question_options`) to eliminate
+   answer position bias. Before any LLM judge call, a pure validation component
+   checks objective structure, option counts, duplicate options, correct-index
+   bounds, and empty fields. Answer options must be neutral text and contain
+   neither Unicode emojis nor visual correctness cues. A first failure returns
+   to `quiz_generation` using privacy-safe issue codes and positions. When every
+   issue is `duplicate_option`, the generation node uses an internal
+   targeted-repair branch that returns only complete replacement option lists
+   and corrected indices for the affected questions. It must preserve the title,
+   question text, explanations, and every unaffected question. Mixed or
+   non-duplicate issues use complete quiz regeneration because option replacement
+   alone cannot safely correct them. Every repaired or regenerated candidate
+   undergoes randomized option permutation and passes deterministic validation
+   again; the repair is never accepted on trust.
 6. **Semantic quality check.** A separate judge verifies factual correctness,
    exact topic fit, grade-level scope, and whether an emoji in a question names,
    depicts, or otherwise reveals the correct answer. Decorative question emojis
@@ -420,7 +457,7 @@ Feature: Quiz solving and result
     Given a validated quiz of 10 questions exists
     When the user starts the quiz
     Then exactly one question is shown at a time
-    And each question has between 3 and 5 options
+    And each question has the option count required by the selected grade
     And only one option is correct
 
   Scenario: Good result
@@ -653,6 +690,17 @@ matrix, polynomial, complex-number, or another advanced interpretation; it must
 not produce elementary multiplication questions. A legitimate educational
 topic such as financial education for a graduating class may be compatible
 when the evaluator provides an appropriate scope.
+For Grades 1–4, an umbrella topic that spans materially different foundational
+skills requires clarification unless the request already supplies a concrete
+learning goal. For example, Grade 1 Mathematics plus "Rechnen" must clarify
+whether the learner wants counting, addition, subtraction, or another concrete
+scope. This stricter primary-school rule does not change the established
+general-overview behavior for recognizable topics in Grades 5–12.
+
+Children in Grades 1–4 may use the same interface and workflow as all other
+learners. This first version assumes that a parent or teacher assists younger
+children with setup; it does not add text-to-speech, images, a fixed subject
+catalog, or a separate primary-school interface.
 
 ```gherkin
 Feature: Upfront curriculum validation
@@ -686,7 +734,54 @@ Feature: Upfront curriculum validation
 
 ---
 
-### 6.4 Quality Failure Diagnostics
+### 6.4 Pedagogical Stage and Grade Policy Contracts
+
+FoxQuiz differentiates generation, deterministic validation, and judging criteria across four pedagogical stages defined in `app.domain.grade_policy`:
+
+1. **`PRIMARY_EARLY` (Grades 1–2 / Ages 6–8):**
+   - **Option count:** Exactly 3 answer choices per question (`required_option_count = 3`).
+   - **Language & readability:** Short, concrete sentences using everyday words appropriate for beginner readers.
+   - **Explanations:** Strictly limited to 1–2 short sentences.
+   - **Negation avoidance:** Negative questions (*"Which is NOT..."*, *"Welches gehört NICHT dazu?"*, *"Qual NÃO..."*) are strictly prohibited to avoid developmental confusion.
+   - **Question emojis:** Non-revealing decorative emojis are permitted in question text. Emojis in answer options remain strictly forbidden.
+
+2. **`PRIMARY_LATE` (Grades 3–4 / Ages 8–10):**
+   - **Option count:** 3 to 5 answer choices per question.
+   - **Language:** Clear concrete language introducing basic subject-specific terms.
+   - **Explanations:** Up to 3 short sentences.
+   - **Negation avoidance:** Negative questions are prohibited.
+   - **Question emojis:** Decorative question emojis permitted.
+
+3. **`LOWER_SECONDARY` (Grades 5–10 / Ages 10–16):**
+   - **Option count:** 3 to 5 answer choices.
+   - **Language:** Standard curriculum terminology with intermediate conceptual relationships.
+   - **Negation:** Allowed when pedagogically sound.
+
+4. **`UPPER_SECONDARY` (Grades 11–13 / Ages 16–19):**
+   - **Option count:** 3 to 5 answer choices.
+   - **Language:** In-depth academic rigor, abstract analytical reasoning, multi-step problem solving.
+
+```gherkin
+Feature: Pedagogical Stage Policies
+
+  Scenario: Early primary school quiz generation enforces 3 options and no negation
+    Given the user selects Grade "1" or "2"
+    When the quiz is generated
+    Then each question contains exactly 3 answer options
+    And no question uses negative phrasing
+    And explanations do not exceed 2 short sentences
+    And answer options contain no emojis or answer cues
+
+  Scenario: Deterministic validation enforces exact option count for early primary
+    Given an unreleased quiz candidate for Grade "1"
+    When a question contains 4 answer options instead of 3
+    Then deterministic validation flags the candidate with "invalid_option_count"
+    And the quiz is rejected or routed for correction
+```
+
+---
+
+### 6.5 Quality Failure Diagnostics
 
 A quiz that cannot pass review is never released to the browser. The terminal
 `quality_failure_node` removes the temporary quiz, resets the attempt counter,

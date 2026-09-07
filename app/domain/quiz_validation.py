@@ -16,6 +16,8 @@ from typing import Any
 
 import emoji
 
+from app.domain.grade_policy import Grade, get_grade_policy
+
 EXPECTED_QUESTION_COUNT = 10
 MIN_OPTION_COUNT = 3
 MAX_OPTION_COUNT = 5
@@ -39,6 +41,7 @@ class QuizValidationCode(StrEnum):
     WRONG_QUESTION_COUNT = "wrong_question_count"
     INVALID_QUESTION = "invalid_question"
     EMPTY_QUESTION = "empty_question"
+    EMOJI_IN_QUESTION = "emoji_in_question"
     INVALID_OPTION_COUNT = "invalid_option_count"
     EMPTY_OPTION = "empty_option"
     DUPLICATE_OPTION = "duplicate_option"
@@ -81,9 +84,23 @@ def find_emojis(value: str) -> tuple[str, ...]:
     return tuple(match["emoji"] for match in emoji.emoji_list(value))
 
 
-def validate_quiz_candidate(candidate: Any) -> QuizValidationResult:
-    """Validate fast, objective invariants without changing the candidate."""
+def validate_quiz_candidate(
+    candidate: Any, *, grade: str | Grade | None = None
+) -> QuizValidationResult:
+    """Validate fast, objective invariants without changing the candidate.
+
+    Grade 1 and 2 require exactly three options. The optional grade preserves
+    the historical 3-to-5 rule for callers that do not have request context.
+    """
     issues: list[QuizValidationIssue] = []
+    minimum_options = MIN_OPTION_COUNT
+    maximum_options = MAX_OPTION_COUNT
+    question_emojis_allowed = True
+    if grade is not None:
+        policy = get_grade_policy(grade)
+        minimum_options = policy.minimum_options
+        maximum_options = policy.maximum_options
+        question_emojis_allowed = policy.question_emojis_allowed
     if not isinstance(candidate, dict):
         return QuizValidationResult(
             (QuizValidationIssue(QuizValidationCode.INVALID_QUIZ),)
@@ -116,6 +133,13 @@ def validate_quiz_candidate(candidate: Any) -> QuizValidationResult:
                     question_index=question_index,
                 )
             )
+        elif not question_emojis_allowed and find_emojis(question_text):
+            issues.append(
+                QuizValidationIssue(
+                    QuizValidationCode.EMOJI_IN_QUESTION,
+                    question_index=question_index,
+                )
+            )
 
         explanation = question.get("explanation")
         if not isinstance(explanation, str) or not explanation.strip():
@@ -136,7 +160,7 @@ def validate_quiz_candidate(candidate: Any) -> QuizValidationResult:
             )
             continue
 
-        if not MIN_OPTION_COUNT <= len(options) <= MAX_OPTION_COUNT:
+        if not minimum_options <= len(options) <= maximum_options:
             issues.append(
                 QuizValidationIssue(
                     QuizValidationCode.INVALID_OPTION_COUNT,

@@ -10,13 +10,34 @@
 ---
 
 ## 🎯 Project Overview
-FoxQuiz is an intelligent, highly engaging, and child-safe exam preparation application designed to help kids in Grades 5–12 master academic topics in a playful and localized environment. Powered by **Google ADK 2.0** and `gemini-2.5-flash`, FoxQuiz features dynamic mascot pedagogy (Felix the Fox, Olivia the Owl, Dino the Dragon), smart curriculum checks, academic peer-review nodes, and state-of-the-art security guardrails to keep students safe.
+FoxQuiz is an intelligent, highly engaging, and child-safe exam preparation application designed to help kids in Grades 1–12 (approximately ages 6–18) master academic topics in a playful and localized environment. Powered by **Google ADK 2.0** and `gemini-2.5-flash`, FoxQuiz features dynamic mascot pedagogy (Felix the Fox, Olivia the Owl, Dino the Dragon), smart curriculum checks, academic peer-review nodes, and state-of-the-art security guardrails to keep students safe. For younger children, the first release is designed for shared use with a parent or teacher, while every generated quiz remains age-appropriate for the selected grade.
 
 ## 🎥 Project Walkthrough & Demo
 
 Discover why we built FoxQuiz, see a full feature demo, and explore the technical deep-dive:
 
 📺 **Watch the Presentation on YouTube:** [FoxQuiz Explainer Video](https://youtu.be/5zt7EqS9uvg)
+
+---
+
+## 🎓 Age-Appropriate Pedagogy & Grade Policies (Grades 1–12)
+
+FoxQuiz adapts its question structure, language complexity, and cognitive requirements to match the developmental stage of learners from early primary through secondary school:
+
+| Grade Level | Pedagogical Stage | Option Count | Explanation Length | Negative Questions (*"Which is NOT..."*) | Question Emojis | Pedagogical Focus |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Grades 1–2** | `PRIMARY_EARLY` (Ages 6–8) | **Exactly 3** | Max 2 short sentences | ❌ **Strictly Forbidden** | ✅ Allowed (decorative) | Concrete everyday vocabulary, beginner-reader friendly |
+| **Grades 3–4** | `PRIMARY_LATE` (Ages 8–10) | 3 to 5 | Max 3 short sentences | ❌ **Forbidden** | ✅ Allowed (decorative) | Basic academic concepts, simple cause-and-effect |
+| **Grades 5–10** | `LOWER_SECONDARY` (Ages 10–16) | 3 to 5 | Standard (detailed) | ✅ Allowed | ✅ Allowed (decorative) | Domain-specific terminology, logical relations |
+| **Grades 11–13** | `UPPER_SECONDARY` (Ages 16–19) | 3 to 5 | Comprehensive academic | ✅ Allowed | ✅ Allowed (decorative) | Abstract analytical reasoning, high-school exam rigor |
+
+### Key Pedagogical Principles for Primary Grades (1–4):
+1. **Cognitive Load & Reading Accessibility (3 Options for Grades 1–2):** Presenting 4–5 choices overwhelms early readers. Exactly 3 choices provides the optimal balance between guessing probability and reading effort.
+2. **Negation Avoidance:** Young children struggle with double negation and inverted logic (*"Which animal does NOT have fur?"*). FoxQuiz strictly bans negative questions in Grades 1–4 to prevent unintended confusion.
+3. **Bite-Sized Explanations:** Explanations for early grades are limited to 1–2 encouraging, easily digestible sentences.
+4. **Answer-Safe Decorative Emojis:** Friendly emojis are permitted in question titles and text to make learning engaging for young kids, but are strictly prohibited from appearing in answer choices or giving away correct answers.
+
+---
 
 
 ## Project Structure
@@ -229,8 +250,10 @@ flowchart TD
             GenerationEntry["Invocation entry"] --> RepairDecision{"Retry with only<br/>duplicate-option issues?"}
             RepairDecision -- "Yes" --> TargetedRepair["◆ LLM<br/>Targeted repair<br/>replace affected option lists and indices"]
             RepairDecision -- "No" --> FullGeneration["◆ LLM<br/>Generate complete quiz<br/>initial generation or full retry"]
-            TargetedRepair --> CandidateReady["Return candidate_ready event"]
-            FullGeneration --> CandidateReady
+            TargetedRepair --> ShuffleRepair["Randomized option permutation<br/>shuffle_question_options"]
+            FullGeneration --> ShuffleQuiz["Randomized option permutation<br/>shuffle_quiz_options (index tracking)"]
+            ShuffleRepair --> CandidateReady["Return candidate_ready event"]
+            ShuffleQuiz --> CandidateReady
         end
 
         Search --> GenerationEntry
@@ -265,7 +288,7 @@ flowchart TD
     class User,SSE,Middleware,Context,Runner bestCase
     class Before,Config,Ban,Budget,LocalScan,Payload,Classifier,ValidDecision,SafeDecision,NoBlock bestCase
     class Start,Gate,Gather,Search bestCase
-    class GenerationEntry,RepairDecision,FullGeneration,CandidateReady bestCase
+    class GenerationEntry,RepairDecision,FullGeneration,ShuffleQuiz,CandidateReady bestCase
     class Validate,Judge,QuizOutput,FrontendQuiz bestCase
     class Classifier,Gather,TargetedRepair,FullGeneration,Judge llmCall
 ```
@@ -321,6 +344,10 @@ API clients must submit equivalent JSON text:
 
 `grade`, `subject`, and `topic` are required. `preferred_language` accepts
 `de`, `pt`, or `en`; `mascot_id` accepts `fox`, `owl`, or `dragon`. Structured
+grade labels from 1 through 12 are normalized to canonical `Klasse N` values;
+the contract accepts the labels shown by the German, English, and Portuguese
+interfaces. Grades 1–2 always receive exactly three options per question,
+whereas Grades 3–12 receive three to five. Structured
 clarification and adaptive follow-ups may additionally provide
 `clarification_response`, `previous_score`, `previous_questions`,
 `previous_quiz_json`, and `selected_difficulty`. Unknown fields, missing
@@ -371,15 +398,22 @@ and grade alignment, requested difficulty, and whether each
 explanation. A successful repair therefore follows this sequence:
 
 ```text
-full quiz generation
+full quiz generation (◆ LLM)
+  -> randomized option permutation
   -> deterministic validation
-  -> targeted duplicate-option repair
+  -> targeted duplicate-option repair (◆ LLM)
+  -> targeted question option permutation
   -> deterministic validation again
-  -> LLM-as-a-Judge
-  -> optional full academic regeneration
+  -> LLM-as-a-Judge (◆ LLM)
+  -> optional full academic regeneration (◆ LLM)
+  -> randomized option permutation
   -> deterministic validation and LLM-as-a-Judge again
   -> final invariant check and learner output, or fail closed
 ```
+
+#### Randomized option permutation (Zero position bias)
+
+To prevent models from exhibiting answer-position bias (e.g. disproportionately placing the correct answer at index `0`), FoxQuiz applies deterministic index-based option permutations (`shuffle_quiz_options` and `shuffle_question_options`) immediately after LLM JSON generation and targeted repairs. Correct answer indices are tracked and updated mathematically (`permutation.index(correct_idx)`), ensuring unbiased answer distributions without corrupting question metadata or relying on error-prone prompt-level model shuffling.
 
 The existing reinforcement-mode exception is unchanged: when
 `previous_score <= 3`, FoxQuiz reuses previously validated questions and skips
