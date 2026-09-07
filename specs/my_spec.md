@@ -734,7 +734,54 @@ Feature: Upfront curriculum validation
 
 ---
 
-### 6.4 Quality Failure Diagnostics
+### 6.4 Pedagogical Stage and Grade Policy Contracts
+
+FoxQuiz differentiates generation, deterministic validation, and judging criteria across four pedagogical stages defined in `app.domain.grade_policy`:
+
+1. **`PRIMARY_EARLY` (Grades 1–2 / Ages 6–8):**
+   - **Option count:** Exactly 3 answer choices per question (`required_option_count = 3`).
+   - **Language & readability:** Short, concrete sentences using everyday words appropriate for beginner readers.
+   - **Explanations:** Strictly limited to 1–2 short sentences.
+   - **Negation avoidance:** Negative questions (*"Which is NOT..."*, *"Welches gehört NICHT dazu?"*, *"Qual NÃO..."*) are strictly prohibited to avoid developmental confusion.
+   - **Question emojis:** Non-revealing decorative emojis are permitted in question text. Emojis in answer options remain strictly forbidden.
+
+2. **`PRIMARY_LATE` (Grades 3–4 / Ages 8–10):**
+   - **Option count:** 3 to 5 answer choices per question.
+   - **Language:** Clear concrete language introducing basic subject-specific terms.
+   - **Explanations:** Up to 3 short sentences.
+   - **Negation avoidance:** Negative questions are prohibited.
+   - **Question emojis:** Decorative question emojis permitted.
+
+3. **`LOWER_SECONDARY` (Grades 5–10 / Ages 10–16):**
+   - **Option count:** 3 to 5 answer choices.
+   - **Language:** Standard curriculum terminology with intermediate conceptual relationships.
+   - **Negation:** Allowed when pedagogically sound.
+
+4. **`UPPER_SECONDARY` (Grades 11–13 / Ages 16–19):**
+   - **Option count:** 3 to 5 answer choices.
+   - **Language:** In-depth academic rigor, abstract analytical reasoning, multi-step problem solving.
+
+```gherkin
+Feature: Pedagogical Stage Policies
+
+  Scenario: Early primary school quiz generation enforces 3 options and no negation
+    Given the user selects Grade "1" or "2"
+    When the quiz is generated
+    Then each question contains exactly 3 answer options
+    And no question uses negative phrasing
+    And explanations do not exceed 2 short sentences
+    And answer options contain no emojis or answer cues
+
+  Scenario: Deterministic validation enforces exact option count for early primary
+    Given an unreleased quiz candidate for Grade "1"
+    When a question contains 4 answer options instead of 3
+    Then deterministic validation flags the candidate with "invalid_option_count"
+    And the quiz is rejected or routed for correction
+```
+
+---
+
+### 6.5 Quality Failure Diagnostics
 
 A quiz that cannot pass review is never released to the browser. The terminal
 `quality_failure_node` removes the temporary quiz, resets the attempt counter,

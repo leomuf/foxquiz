@@ -18,6 +18,27 @@ Discover why we built FoxQuiz, see a full feature demo, and explore the technica
 
 📺 **Watch the Presentation on YouTube:** [FoxQuiz Explainer Video](https://youtu.be/5zt7EqS9uvg)
 
+---
+
+## 🎓 Age-Appropriate Pedagogy & Grade Policies (Grades 1–12)
+
+FoxQuiz adapts its question structure, language complexity, and cognitive requirements to match the developmental stage of learners from early primary through secondary school:
+
+| Grade Level | Pedagogical Stage | Option Count | Explanation Length | Negative Questions (*"Which is NOT..."*) | Question Emojis | Pedagogical Focus |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Grades 1–2** | `PRIMARY_EARLY` (Ages 6–8) | **Exactly 3** | Max 2 short sentences | ❌ **Strictly Forbidden** | ✅ Allowed (decorative) | Concrete everyday vocabulary, beginner-reader friendly |
+| **Grades 3–4** | `PRIMARY_LATE` (Ages 8–10) | 3 to 5 | Max 3 short sentences | ❌ **Forbidden** | ✅ Allowed (decorative) | Basic academic concepts, simple cause-and-effect |
+| **Grades 5–10** | `LOWER_SECONDARY` (Ages 10–16) | 3 to 5 | Standard (detailed) | ✅ Allowed | ✅ Allowed (decorative) | Domain-specific terminology, logical relations |
+| **Grades 11–13** | `UPPER_SECONDARY` (Ages 16–19) | 3 to 5 | Comprehensive academic | ✅ Allowed | ✅ Allowed (decorative) | Abstract analytical reasoning, high-school exam rigor |
+
+### Key Pedagogical Principles for Primary Grades (1–4):
+1. **Cognitive Load & Reading Accessibility (3 Options for Grades 1–2):** Presenting 4–5 choices overwhelms early readers. Exactly 3 choices provides the optimal balance between guessing probability and reading effort.
+2. **Negation Avoidance:** Young children struggle with double negation and inverted logic (*"Which animal does NOT have fur?"*). FoxQuiz strictly bans negative questions in Grades 1–4 to prevent unintended confusion.
+3. **Bite-Sized Explanations:** Explanations for early grades are limited to 1–2 encouraging, easily digestible sentences.
+4. **Answer-Safe Decorative Emojis:** Friendly emojis are permitted in question titles and text to make learning engaging for young kids, but are strictly prohibited from appearing in answer choices or giving away correct answers.
+
+---
+
 
 ## Project Structure
 
