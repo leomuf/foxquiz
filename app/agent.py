@@ -482,7 +482,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
         try:
             validation_prompt = (
                 "You are a strict but supportive school curriculum scope evaluator.\n"
-                f"Target Language: '{lang}' ('de', 'pt', or 'en').\n"
+                f"Target Language: '{lang}'.\n"
                 f"Grade Level: {grade_label} (Grade {int(grade_policy.grade)}, ages {grade_policy.minimum_age}-{grade_policy.maximum_age})\n"
                 f"Subject: {subject}\nTopic: {topic}\n\n"
                 "Additional scope supplied after a clarification question: "
@@ -507,7 +507,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
                 "Provide two or three age-appropriate alternatives.\n"
                 "Do not accept a combination merely because the topic could be simplified or made harder. First require enough scope to produce a genuinely grade-aligned quiz.\n"
                 "When additional clarification is present, interpret it together with the original topic rather than replacing the original topic.\n"
-                f"CRITICAL LANGUAGE RULE: Write explanation, clarification_question, suggested_topics, and difficulty_guidance entirely in language '{lang}' ('de', 'pt', or 'en'). All suggested_topics must be localized educational topic titles strictly in language '{lang}' (never suggest German topics or words when language is '{lang}').\n"
+                f"CRITICAL LANGUAGE RULE: Write explanation, clarification_question, suggested_topics, and difficulty_guidance entirely in language '{lang}'. All suggested_topics must be localized educational topic titles strictly in language '{lang}' (never suggest German topics or words when language is '{lang}').\n"
                 "Return structured JSON matching CurriculumCompatibility."
             )
             response = await client.aio.models.generate_content(
@@ -951,12 +951,17 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             raise
 
     grade_label = grade_policy.localized_label(lang)
+    lang_name = {
+        "de": "Deutsch",
+        "pt": "Português",
+        "en": "English",
+    }.get(lang, "English")
     prompt = (
         f"Create an interactive multiple-choice quiz with exactly 10 questions.\n"
         f"Target Audience: School students in {grade_label} (Grade {int(grade_policy.grade)}).\n"
         f"Subject: {subject}\n"
         f"Topic: {topic}\n"
-        f"Preferred Language: Entire quiz MUST be written in '{lang}' (Deutsch, Português, or English).\n"
+        f"Preferred Language: Entire quiz MUST be written strictly in {lang_name} ('{lang}').\n"
         "\n--- AUTHORITATIVE AGE-APPROPRIATE DESIGN CONTRACT ---\n"
         f"{grade_guidance}\n"
         f"{emoji_guidance}\n"
