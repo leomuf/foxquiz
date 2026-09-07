@@ -1498,7 +1498,7 @@
         let hasSubmittedFeedback = false;
         let progressionDifficultyChosen = null;
 
-        const PROGRESS_TARGET_DURATION_MS = 30000;
+        const PROGRESS_TARGET_DURATION_MS = 45000;
         const PROGRESS_TICK_MS = 200;
         const PROGRESS_CEILING = 98;
         const PROGRESS_AT_TARGET = 95;
@@ -2800,7 +2800,7 @@
             if (progressInterval) {
                 clearInterval(progressInterval);
             }
-            // Reach about 95% after 30 seconds, then approach 98% asymptotically.
+            // Reach about 95% after 45 seconds, then approach 98% asymptotically.
             const growthFactor = 1 - Math.pow(
                 (PROGRESS_CEILING - PROGRESS_AT_TARGET) / PROGRESS_CEILING,
                 PROGRESS_TICK_MS / PROGRESS_TARGET_DURATION_MS

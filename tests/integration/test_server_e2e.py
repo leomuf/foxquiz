@@ -316,7 +316,7 @@ def test_deployed_version_metadata(server_fixture: subprocess.Popen[str]) -> Non
     assert "FoxQuiz vintegration-test" in root_response.text
     assert ">0123456</a>" in root_response.text
     assert root_response.headers["X-FoxQuiz-Version"] == ("integration-test (0123456)")
-    assert "const PROGRESS_TARGET_DURATION_MS = 30000;" in root_response.text
+    assert "const PROGRESS_TARGET_DURATION_MS = 45000;" in root_response.text
     assert "const userPrompt = JSON.stringify(payload);" in root_response.text
 
 
