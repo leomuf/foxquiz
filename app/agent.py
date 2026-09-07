@@ -904,7 +904,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         "but never in answer options and never when they reveal the correct answer."
     )
     question_emoji_rule = (
-        "Do not use any emoji in question text for Grades 1-4."
+        "Do not use any emoji in question text."
         if not grade_policy.question_emojis_allowed
         else "Question emojis are allowed only when they do not name, depict, "
         "or otherwise reveal the correct answer."
