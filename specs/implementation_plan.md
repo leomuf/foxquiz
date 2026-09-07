@@ -19,17 +19,19 @@ graph TD
     %% Agent Layer
     subgraph Agent ["Agent Layer (Google ADK 2.0)"]
         FastAPI["FastAPI Backend App<br>(fast_api_app.py)"]
-        BeforeCB["BeforeAgentCallback<br>(Security Guardrail Check)"]
-        AfterCB["AfterAgentCallback<br>(Token Budget Logging)"]
+        BeforeCB["FoxQuizSecurityPlugin.before_run_callback<br>(Security Guardrail & Budget Check)"]
+        AfterCB["FoxQuizSecurityPlugin.after_run_callback<br>(Token Budget Logging)"]
         Workflow["ADK 2.0 Workflow Graph<br>(agent.py)"]
         
         %% Workflow sub-graph
         Workflow_Start["START"]
-        Workflow_Router["gather_and_route Node<br>(Extract Params & Check Compatibility)"]
+        Workflow_Router["gather_and_route Node<br>(Preflight Curriculum Check)"]
         Workflow_AskMore["ask_more_node Node<br>(Mascot Dialogue & Suggest Topics)"]
-        Workflow_Gather["decision_and_search Node<br>(Decision: Search / Wikipedia / Pure LLM)"]
-        Workflow_Gen["quiz_generation Node<br>(LlmAgent with Output Schema)"]
-        Workflow_Judge["llm_as_a_judge Node<br>(Strict Quality review, max 3x retries)"]
+        Workflow_Gather["decision_and_search Node<br>(Grounding: Wikipedia / LLM)"]
+        Workflow_Gen["quiz_generation Node<br>(Full Generation / Targeted Repair)"]
+        Workflow_Shuffle["Python Post-Processing<br>(Random Index Permutation Shuffling)"]
+        Workflow_Validate["deterministic_quiz_validation Node<br>(Structure, Unique Options, Emoji Invariants)"]
+        Workflow_Judge["llm_as_a_judge Node<br>(Academic Quality Review)"]
         Workflow_Output["quiz_output_node Node<br>(Release Validated Quiz JSON)"]
     end
 
@@ -57,8 +59,10 @@ graph TD
     Workflow_Start --> Workflow_Router
     Workflow_Router -->|Route: ask_more - Missing or Incompatible| Workflow_AskMore
     Workflow_Router -->|Route: generate_quiz - Complete and Compatible| Workflow_Gather
-    Workflow_Gather --> Workflow_Gen --> Workflow_Judge
-    Workflow_Judge -.->|Route: retry - On Fail: Loop up to 3x| Workflow_Gen
+    Workflow_Gather --> Workflow_Gen --> Workflow_Shuffle --> Workflow_Validate
+    Workflow_Validate -->|Route: valid| Workflow_Judge
+    Workflow_Validate -.->|Route: retry - Targeted Repair / Regenerate| Workflow_Gen
+    Workflow_Judge -.->|Route: retry - Academic Defect| Workflow_Gen
     Workflow_Judge -->|Route: success| Workflow_Output
     
     FastAPI <-->|Save/Fetch Quizzes| FS_Quizzes
@@ -125,7 +129,7 @@ graph TD
   - **Knowledge Gathering Node**: Dynamically decides whether to use internal LLM knowledge or execute the "Curriculum Search Skill" (web search or Wikipedia tools).
   - **Quiz Generation Node**: `LlmAgent` with `Quiz` output schema.
   - **LLM-as-a-Judge Node**: Evaluates the generated quiz. If checks fail, loops back to the generator (up to 5 iterations).
-- [ ] Implement **Upfront Curriculum Validation & Mascot Age-Appropriateness Guidance**:
+- [x] Implement **Upfront Curriculum Validation & Mascot Age-Appropriateness Guidance**:
   - Define `CurriculumCompatibility` Pydantic model for structured safety evaluation (compatibility status, pedagogical rationale, and 2-3 alternative topics suitable for that grade).
   - Insert a fast `gemini-2.5-flash` check with `temperature=0.0` in `gather_and_route` once the user submits grade, subject, and topic.
   - If incompatible: Clear the topic from state, generate a helpful, encouraging mascot message explaining the grade mismatch in the user's preferred language, offer 2-3 age-appropriate topic alternatives, and return a `route="ask_more"` event.
@@ -144,11 +148,23 @@ graph TD
   - **Anti-Spam & Localized User Feedback**: Locks rating buttons after 1 click via `pointer-events: none` and state tracking. Toasts are fully translated (DE/EN/PT) with a constructive continuous-improvement notice for Thumbs Down.
   - **Dynamic Translations Only**: All user-facing text, alerts, correctness/incorrectness messages, exports, difficulty levels (with dynamic language-specific prefixes such as "Level: ", "Nível: ", "Stufe: "), and footer labels must be driven dynamically via i18n lookup structures (no hardcoded/static UI text in general markup).
   - **Interactive Difficulty Hover Tooltips**: Display clean popover tooltips above `#quiz-difficulty` and `#summary-difficulty` on mouse hover, explaining how the difficulty levels scale (🌱 Easy for score <= 3, ⭐ Medium for score 4-7, and user-choice for score >= 8 choosing between Medium or Hard). The explanations are dynamic and fully localized via `tooltip_easy`, `tooltip_medium`, and `tooltip_hard` keys.
-- [ ] **User-Choice Difficulty Modal**:
+- [x] **User-Choice Difficulty Modal**:
   - Implement a premium, beautifully styled modal that triggers when the user scores $\ge 8/10$ and selects "Let's go for more questions".
   - Provide two visually distinct, hover-animated, and accessible buttons for "Medium (Standard)" and "Difficult (Advanced)", dynamically localized across German, Portuguese, and English.
   - Upon selecting an option, transition state seamlessly and request the backend to generate 10 completely fresh questions on the same topic using the selected difficulty, enforcing 100% duplication-prevention logic.
 - [x] Update `app/fast_api_app.py` to serve the static frontend, handle custom routes (`/feedback`, `/quiz/{quiz_id}`, `/share`), and mount the ADK app.
+
+### Phase 4: Primary-School Expansion & Unbiased Option Permutation (v1.3.0)
+- [x] **Primary School Grades 1–4 Integration:**
+  - Added `PedagogicalStage.PRIMARY_EARLY` (Grades 1–2: exactly 3 choices, simplified language, max 2 sentences explanation, no negative questions).
+  - Added `PedagogicalStage.PRIMARY_LATE` (Grades 3–4: 3–5 choices, simple concrete language, no negative questions).
+  - Localized grade parsing across German (`Klasse 1-4`), English (`Grade 1-4`), and Portuguese (`1º-4º ano do ensino fundamental`).
+  - Organized UI grade dropdown by `<optgroup>` stages across DE, EN, and PT.
+- [x] **Python Post-Processing Option Shuffling:**
+  - Implemented `shuffle_quiz_options` and `shuffle_question_options` using deterministic index permutation.
+  - Applied immediately after full generation and targeted duplicate repair before candidate validation and Academic Judge review.
+- [x] **Decorative Question Emojis for Primary Grades:**
+  - Enabled non-revealing decorative question emojis for Grades 1–4 while preventing answer leakage and keeping options strictly emoji-free.
 
 ---
 
