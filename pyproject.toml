@@ -1,6 +1,6 @@
 [project]
 name = "foxquiz"
-version = "1.3.1"
+version = "1.3.2"
 description = "FoxQuiz - Adaptive, Curriculum-Aware, and Guardrailed Multi-Agent Quiz Generator"
 authors = [
     {name = "Leonardo Muffato", email = "info@autosoft-engineering.de"},
