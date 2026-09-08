@@ -972,6 +972,17 @@
             color: var(--active-theme);
         }
 
+        .footer-company-link {
+            text-decoration: none;
+            transition: opacity 0.2s ease, text-decoration-color 0.2s ease;
+        }
+
+        .footer-company-link:hover {
+            text-decoration: underline;
+            text-decoration-color: #3b82f6;
+            text-underline-offset: 4px;
+        }
+
         @media (max-width: 600px) {
             header {
                 padding: 1.25rem 1rem;
@@ -1254,7 +1265,7 @@
     <footer>
         <div class="footer-logo">FoxQuiz</div>
         <div>
-            <span>© 2026 </span><span style="color: #3b82f6; font-weight: 700; letter-spacing: 0.02em;">AUTOSOFT</span> <span style="color: #ffffff; font-weight: 500; letter-spacing: 0.02em;">Engineering</span>. <span data-translate="footer_copyright">Alle Rechte vorbehalten.</span>
+            <span>© 2026 </span><a id="footer-company-link" href="https://www.autosoft-engineering.de/" target="_blank" rel="noopener noreferrer" class="footer-company-link"><span style="color: #3b82f6; font-weight: 700; letter-spacing: 0.02em;">AUTOSOFT</span> <span id="footer-company-suffix" style="color: #ffffff; font-weight: 500; letter-spacing: 0.02em;">Engineering</span></a>. <span data-translate="footer_copyright">Alle Rechte vorbehalten.</span>
         </div>
         <div style="font-size: 0.82rem; max-width: 600px; line-height: 1.4;">
             <span data-translate="footer_opensource">Open source · Software: Apache License 2.0 · Documentation: CC BY 4.0 · Artwork: CC0 1.0</span>
@@ -1269,9 +1280,6 @@
         <div class="footer-links">
             <a href="https://github.com/leomuf/foxquiz" target="_blank" rel="noopener noreferrer" class="footer-link">
                 <span>💻</span> <span data-translate="footer_github">GitHub Repository</span>
-            </a>
-            <a href="https://www.autosoft-engineering.de/impressum-1/" target="_blank" rel="noopener noreferrer" class="footer-link">
-                <span>⚖️</span> <span data-translate="footer_imprint">Imprint / Impressum</span>
             </a>
         </div>
     </footer>
@@ -1344,7 +1352,6 @@
                 footer_copyright: "Alle Rechte vorbehalten.",
                 footer_opensource: "Open Source · Software: Apache License 2.0 · Dokumentation: CC BY 4.0 · Grafiken: CC0 1.0",
                 footer_github: "GitHub Repository",
-                footer_imprint: "Impressum",
                 footer_donation: "Gefällt dir die App? Wir freuen uns über eine Spende! 100% der Einnahmen fließen direkt in den Kauf von KI-Tokens, damit FoxQuiz langfristig für viele Kinder kostenlos bleiben kann. ❤️",
                 btn_donate: "Projekt unterstützen"
             },
@@ -1408,7 +1415,6 @@
                 footer_copyright: "All rights reserved.",
                 footer_opensource: "Open source · Software: Apache License 2.0 · Documentation: CC BY 4.0 · Artwork: CC0 1.0",
                 footer_github: "GitHub Repository",
-                footer_imprint: "Imprint",
                 footer_donation: "Do you like the app? We would love your support! 100% of donations go directly toward purchasing AI tokens so FoxQuiz can remain free for children in the long term. ❤️",
                 btn_donate: "Support the project"
             },
@@ -1472,7 +1478,6 @@
                 footer_copyright: "Todos os direitos reservados.",
                 footer_opensource: "Código aberto · Software: Apache License 2.0 · Documentação: CC BY 4.0 · Artes: CC0 1.0",
                 footer_github: "Repositório GitHub",
-                footer_imprint: "Termos Legais (Impressum)",
                 footer_donation: "Gostou do aplicativo? Adoraríamos seu apoio! 100% das doações vão direto para a compra de tokens de IA para que o FoxQuiz continue gratuito para as crianças a longo prazo. ❤️",
                 btn_donate: "Apoiar o projeto"
             }
@@ -1821,6 +1826,22 @@
                 document.getElementById("choice-btn-medium-desc").innerText = t.choice_btn_medium_desc;
                 document.getElementById("choice-btn-hard-title").innerText = t.choice_btn_hard;
                 document.getElementById("choice-btn-hard-desc").innerText = t.choice_btn_hard_desc;
+            }
+
+            // Update company footer link & name based on language
+            const companyLink = document.getElementById("footer-company-link");
+            const companySuffix = document.getElementById("footer-company-suffix");
+            if (companyLink && companySuffix) {
+                if (lang === "pt") {
+                    companyLink.href = "https://autosoft-engenharia.com.br/";
+                    companySuffix.innerText = "Engenharia";
+                } else if (lang === "de") {
+                    companyLink.href = "https://www.autosoft-engineering.de/";
+                    companySuffix.innerText = "Engineering";
+                } else {
+                    companyLink.href = "https://autosoft-engineering.com/";
+                    companySuffix.innerText = "Engineering";
+                }
             }
         }
 
