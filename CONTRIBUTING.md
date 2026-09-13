@@ -33,7 +33,7 @@ environment.
 
 Install Agents CLI with `uv` when it is not already available:
 ```bash
-uv tool install google-agents-cli
+uv tool install --with 'emoji>=2.15.0,<3.0.0' google-agents-cli
 ```
 
 Upgrade an existing Agents CLI installation and verify the installed version:
@@ -321,11 +321,18 @@ gcloud firestore fields ttls update expires_at \
   --database='(default)' \
   --enable-ttl \
   --project="${GCLOUD_PROJECT_ID}"
+
+gcloud firestore fields ttls update expires_at \
+  --collection-group=validated_quizzes \
+  --database='(default)' \
+  --enable-ttl \
+  --project="${GCLOUD_PROJECT_ID}"
 ```
 
 The application sets `expires_at` to seven days for transient budgets and
-30 days for shared quizzes. Firestore TTL performs the eventual physical
-deletion.
+30 days for shared quizzes, and one day for validated-quiz provenance.
+Firestore TTL performs the eventual physical deletion. The application also
+checks expiration on every provenance read.
 
 ##### Step 4.3: Firestore Failure Counter
 

@@ -1,0 +1,224 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "grade2-language-emojis-01",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 2\",\"subject\":\"Deutsch\",\"topic\":\"Nomen und Verben\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade2-language-emojis-02",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 2\",\"subject\":\"Deutsch\",\"topic\":\"Nomen und Verben\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade2-language-emojis-03",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 2\",\"subject\":\"Deutsch\",\"topic\":\"Nomen und Verben\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade2-language-emojis-04",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 2\",\"subject\":\"Deutsch\",\"topic\":\"Nomen und Verben\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade2-language-emojis-05",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 2\",\"subject\":\"Deutsch\",\"topic\":\"Nomen und Verben\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade2-language-emojis-06",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 2\",\"subject\":\"Deutsch\",\"topic\":\"Nomen und Verben\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade2-language-emojis-07",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 2\",\"subject\":\"Deutsch\",\"topic\":\"Nomen und Verben\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade2-language-emojis-08",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 2\",\"subject\":\"Deutsch\",\"topic\":\"Nomen und Verben\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade2-language-emojis-09",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 2\",\"subject\":\"Deutsch\",\"topic\":\"Nomen und Verben\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade2-language-emojis-10",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 2\",\"subject\":\"Deutsch\",\"topic\":\"Nomen und Verben\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade7-sequence-index-01",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Mathematik\",\"topic\":\"Zahlenfolgen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade7-sequence-index-02",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Mathematik\",\"topic\":\"Zahlenfolgen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade7-sequence-index-03",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Mathematik\",\"topic\":\"Zahlenfolgen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade7-sequence-index-04",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Mathematik\",\"topic\":\"Zahlenfolgen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade7-sequence-index-05",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Mathematik\",\"topic\":\"Zahlenfolgen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade7-sequence-index-06",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Mathematik\",\"topic\":\"Zahlenfolgen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade7-sequence-index-07",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Mathematik\",\"topic\":\"Zahlenfolgen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade7-sequence-index-08",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Mathematik\",\"topic\":\"Zahlenfolgen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade7-sequence-index-09",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Mathematik\",\"topic\":\"Zahlenfolgen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    },
+    {
+      "eval_case_id": "grade7-sequence-index-10",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "{\"grade\":\"Klasse 7\",\"subject\":\"Mathematik\",\"topic\":\"Zahlenfolgen\",\"preferred_language\":\"de\"}"
+          }
+        ]
+      }
+    }
+  ]
+}

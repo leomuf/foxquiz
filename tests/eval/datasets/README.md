@@ -4,6 +4,14 @@ This directory contains evaluation datasets for testing agent behavior.
 
 ## Running Evaluations
 
+The standalone `quiz_structure` metric uses the same `emoji` package as the
+application. When installing the CLI as an isolated uv tool, include this
+dependency in its environment:
+
+```bash
+uv tool install --with 'emoji>=2.15.0,<3.0.0' google-agents-cli
+```
+
 ### Default Dataset
 ```bash
 # Generate traces using the default dataset
@@ -72,6 +80,33 @@ agents-cli eval grade \
 
 These evaluations call live Vertex AI models but execute the application
 locally; generated artifacts remain ignored and must not be committed.
+
+### Answer normalization and targeted repair
+
+This regression dataset contains two production-derived scenarios: a Grade 2
+language quiz that historically exposed negative-question and question-emoji
+defects, and a Grade 7 number-sequence quiz that historically exposed an
+answer/explanation/index mismatch. Each scenario appears ten times so the live
+quality gate measures the required repetition count.
+
+Run locally with live Vertex AI credentials:
+
+```bash
+agents-cli eval generate \
+  --dataset tests/eval/datasets/quiz-answer-normalization-targeted-repair.json \
+  --output artifacts/traces/quiz-answer-normalization-targeted-repair \
+  --concurrency 2
+
+agents-cli eval grade \
+  --traces artifacts/traces/quiz-answer-normalization-targeted-repair \
+  --config tests/eval/quiz-answer-normalization-targeted-repair_eval_config.yaml \
+  --output artifacts/grade_results/quiz-answer-normalization-targeted-repair
+```
+
+The release gate is at least 9 successful completions out of 10 for each
+scenario, with no released quiz containing an incorrect answer or index.
+Compare token and latency medians against the full-regeneration baseline when
+targeted-repair traces are available.
 
 ### Multilingual Curriculum Routing & Language Purity
 

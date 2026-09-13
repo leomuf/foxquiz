@@ -6,6 +6,7 @@ import datetime
 import hashlib
 import logging
 import re
+import time
 from typing import Any
 
 from google.adk.agents.callback_context import CallbackContext
@@ -62,6 +63,7 @@ _local_banned_cache: dict[str, datetime.datetime] = {}
 _TOKEN_USAGE_STATE_KEY = "temp:foxquiz_token_usage"
 _TOKEN_USAGE_FLUSHED_STATE_KEY = "temp:foxquiz_token_usage_flushed"
 _TERMINAL_OUTCOME_STATE_KEY = "temp:foxquiz_terminal_outcome"
+_INVOCATION_START_STATE_KEY = "temp:foxquiz_invocation_started_at"
 SECURITY_BLOCK_STATE_KEY = "temp:foxquiz_security_block"
 _PII_CLASSIFICATION_RULE = """\
 Additional mandatory privacy category:
@@ -464,6 +466,7 @@ class FoxQuizSecurityPlugin(BasePlugin):
         self, *, invocation_context: InvocationContext
     ) -> genai_types.Content | None:
         callback_context = Context(invocation_context)
+        callback_context.state[_INVOCATION_START_STATE_KEY] = time.perf_counter()
         callback_context.state[_TOKEN_USAGE_STATE_KEY] = (
             InvocationTokenUsage().as_state()
         )

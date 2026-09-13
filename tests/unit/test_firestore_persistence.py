@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.app_utils.typing import QuizContext
 from app.database.firestore_repo import (
     FirestorePersistenceError,
     FirestoreRepository,
@@ -109,6 +110,75 @@ def test_shared_quiz_failure_is_not_reported_as_saved(real_repo):
     assert exc_info.value.phase == "quiz_persistence"
 
     assert repo.use_mock is False
+
+
+def test_validated_quiz_provenance_has_bounded_ttl_and_fingerprints():
+    repo = FirestoreRepository(force_mock=True)
+    quiz = {
+        "title": "Cells",
+        "difficulty": "⭐ Medium",
+        "questions": [
+            {
+                "question": f"Question {index}?",
+                "options": ["A", "B", "C"],
+                "correct_option_index": 0,
+                "explanation": "A is correct.",
+            }
+            for index in range(10)
+        ],
+    }
+    context = QuizContext(
+        grade="Klasse 7",
+        subject="Biology",
+        topic="Cells",
+        preferred_language="en",
+    )
+
+    validated_id = repo.save_validated_quiz(
+        quiz,
+        context,
+        validation_contract_version="quiz-validation-v2",
+        service_version="test",
+    )
+
+    record = repo.get_validated_quiz(validated_id)
+    assert record is not None
+    assert record["validated_quiz_id"] == validated_id
+    assert record["quiz"] == quiz
+    assert len(record["quiz_fingerprint"]) == 64
+    assert len(record["context_fingerprint"]) == 64
+    remaining = datetime.datetime.fromisoformat(
+        record["expires_at"]
+    ) - datetime.datetime.now(datetime.UTC)
+    assert datetime.timedelta(hours=23) < remaining <= datetime.timedelta(days=1)
+
+
+def test_expired_validated_quiz_provenance_is_not_returned():
+    repo = FirestoreRepository(force_mock=True)
+    validated_id = repo.save_validated_quiz(
+        {"title": "Expired", "questions": []},
+        QuizContext(grade="Klasse 7", subject="Biology", topic="Cells"),
+        validation_contract_version="quiz-validation-v2",
+        service_version="test",
+        ttl_days=-1,
+    )
+
+    assert repo.get_validated_quiz(validated_id) is None
+
+
+def test_malformed_validated_quiz_expiration_is_not_trusted():
+    repo = FirestoreRepository(force_mock=True)
+    validated_id = repo.save_validated_quiz(
+        {"title": "Malformed", "questions": []},
+        QuizContext(grade="Klasse 7", subject="Biology", topic="Cells"),
+        validation_contract_version="quiz-validation-v2",
+        service_version="test",
+    )
+    repo._get_mock_doc("validated_quizzes", validated_id)["expires_at"] = (
+        "not-a-timestamp"
+    )
+
+    assert repo.get_validated_quiz(validated_id) is None
 
 
 def test_feedback_failure_is_not_reported_as_saved(real_repo):

@@ -1489,6 +1489,7 @@
         let mascotColor = "#ff6b35";
         let currentSessionId = "";
         let currentQuizData = null;
+        let currentValidatedQuizId = "";
         let currentQuizContext = {
             grade: null,
             subject: null,
@@ -1906,6 +1907,7 @@
                 const data = await response.json();
                 if (data.status === "success" && data.quiz_data) {
                     currentQuizData = data.quiz_data;
+                    currentValidatedQuizId = "";
                     currentQuizId = quizId;
                     startQuizWizard();
                 } else {
@@ -2120,14 +2122,13 @@
             };
 
             if (isAdaptation) {
-                const previousQuestions = currentQuizData ? currentQuizData.questions.map(q => q.question) : [];
-                const previousQuizJson = currentQuizData ? JSON.stringify(currentQuizData) : "";
                 Object.assign(payload, {
                     previous_score: score,
-                    previous_questions: previousQuestions,
-                    previous_quiz_json: previousQuizJson,
                     selected_difficulty: progressionDifficultyChosen
                 });
+                if (currentValidatedQuizId) {
+                    payload.validated_quiz_id = currentValidatedQuizId;
+                }
 
                 // Reset the choice variable for future runs
                 progressionDifficultyChosen = null;
@@ -2225,6 +2226,10 @@
                 }
 
                 if (quiz && quiz.questions && quiz.questions.length === 10) {
+                    currentValidatedQuizId = typeof quiz.validated_quiz_id === "string"
+                        ? quiz.validated_quiz_id
+                        : "";
+                    delete quiz.validated_quiz_id;
                     currentQuizData = quiz;
                     pendingClarificationContext = null;
                     // A share ID identifies one frozen quiz snapshot. A newly
@@ -2762,6 +2767,7 @@
             window.history.pushState({ path: cleanUrl }, '', cleanUrl);
 
             currentQuizData = null;
+            currentValidatedQuizId = "";
             currentQuizId = "";
             currentSessionId = "";
             pendingClarificationContext = null;

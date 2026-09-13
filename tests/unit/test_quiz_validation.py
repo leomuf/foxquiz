@@ -43,9 +43,34 @@ def _codes(candidate: dict) -> set[QuizValidationCode]:
     return {issue.code for issue in validate_quiz_candidate(candidate).issues}
 
 
-def test_allows_non_answer_revealing_emoji_in_question() -> None:
-    """A decorative thinking emoji in a question must remain supported."""
-    assert validate_quiz_candidate(_valid_quiz()).is_valid
+def test_rejects_any_emoji_in_question() -> None:
+    """Question text is emoji-free at every grade and difficulty."""
+    assert QuizValidationCode.EMOJI_IN_QUESTION in _codes(_valid_quiz())
+
+
+@pytest.mark.parametrize("emoji_sequence", ["😀", "🇩🇪", "👍🏽", "👨‍👩‍👧‍👦"])
+def test_rejects_all_emoji_sequence_shapes_in_questions_and_options(
+    emoji_sequence: str,
+) -> None:
+    """Single, flag, skin-tone, and joined emoji sequences are rejected."""
+    quiz = _valid_quiz()
+    quiz["questions"][0]["question"] = f"What is {emoji_sequence}?"
+    quiz["questions"][0]["options"][0] = f"Answer {emoji_sequence}"
+
+    issues = validate_quiz_candidate(quiz, grade="Klasse 7").issues
+
+    assert any(issue.code is QuizValidationCode.EMOJI_IN_QUESTION for issue in issues)
+    assert any(issue.code is QuizValidationCode.EMOJI_IN_OPTION for issue in issues)
+
+
+def test_titles_and_explanations_may_contain_emojis() -> None:
+    quiz = _valid_quiz()
+    for question in quiz["questions"]:
+        question["question"] = question["question"].replace("💡", "")
+        question["explanation"] = f"Helpful explanation 🦊: {question['explanation']}"
+    quiz["title"] = "Fun quiz 🦊"
+
+    assert validate_quiz_candidate(quiz, grade="Klasse 7").is_valid
 
 
 @pytest.mark.parametrize(
@@ -113,6 +138,9 @@ def test_preserves_case_sensitive_genotype_options() -> None:
     quiz["questions"][0]["options"] = ["PP", "Pp", "pp"]
     quiz["questions"][1]["options"] = ["Todos BB", "Todos Bb", "Todos bb"]
 
+    for question in quiz["questions"]:
+        question["question"] = question["question"].replace("💡", "")
+
     assert validate_quiz_candidate(quiz).is_valid
 
 
@@ -132,17 +160,18 @@ def test_grade_one_rejects_four_options_but_grade_three_accepts_them() -> None:
     assert grade_three.is_valid
 
 
-def test_all_grades_allow_decorative_question_emojis() -> None:
-    """Decorative question emojis remain valid across primary and secondary grades."""
+def test_all_grades_reject_question_emojis() -> None:
+    """Question emojis are prohibited across primary and secondary grades."""
     quiz = _valid_quiz()
 
     primary_early = validate_quiz_candidate(quiz, grade="Klasse 1")
     primary_late = validate_quiz_candidate(quiz, grade="Klasse 4")
     secondary = validate_quiz_candidate(quiz, grade="Klasse 5")
 
-    assert primary_early.is_valid
-    assert primary_late.is_valid
-    assert secondary.is_valid
+    assert all(
+        QuizValidationCode.EMOJI_IN_QUESTION in {issue.code for issue in result.issues}
+        for result in (primary_early, primary_late, secondary)
+    )
 
 
 def test_rejects_unicode_equivalent_duplicate_options() -> None:

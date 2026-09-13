@@ -30,18 +30,24 @@ from pydantic import ValidationError
 from app.agent import (
     _ALLOWED_INPUT_STATE_KEY,
     CurriculumCompatibility,
+    JudgeAssessment,
+    _append_judge_history,
+    _append_repair_history,
     _build_difficulty_design_guidance,
     _build_judge_prompt,
     _candidate_ready_event,
     _duplicate_option_question_indices,
     _expected_quiz_difficulty,
     _is_wikipedia_title_relevant,
+    _judge_route,
+    _load_authoritative_previous_quiz,
     _quality_failure_event,
     _resolve_mascot,
     _route_after_failed_deterministic_validation,
     _route_after_failed_judge,
     _save_quality_failure_best_effort,
     _validated_quiz_event,
+    _validated_record_matches_context,
     _workflow_event,
     ask_more_node,
     deterministic_quiz_validation,
@@ -56,8 +62,51 @@ from app.agent import (
     shuffle_quiz_options,
 )
 from app.app_utils.token_usage import TerminalOutcome
-from app.app_utils.typing import QuizContext, QuizQualityFailure
+from app.app_utils.typing import QuizContext, QuizQualityFailure, UsageSummary
 from app.database.firestore_repo import FirestorePersistenceError
+from app.domain.quiz_provenance import (
+    VALIDATION_CONTRACT_VERSION,
+    context_fingerprint,
+    quiz_fingerprint,
+)
+from app.domain.quiz_validation import validate_quiz_candidate
+
+
+def _valid_public_quiz() -> dict:
+    """Build a deterministic public quiz fixture for workflow boundary tests."""
+    return {
+        "title": "Cells",
+        "difficulty": "⭐ Medium",
+        "questions": [
+            {
+                "question": f"Question {index}?",
+                "options": [
+                    f"Q{index} correct",
+                    f"Q{index} distractor A",
+                    f"Q{index} distractor B",
+                ],
+                "correct_option_index": 0,
+                "explanation": f"Explanation {index}.",
+            }
+            for index in range(10)
+        ],
+    }
+
+
+def _validated_quiz_record(quiz: dict, validated_quiz_id: str) -> dict:
+    """Build a provenance record matching the production trust contract."""
+    return {
+        "validated_quiz_id": validated_quiz_id,
+        "quiz": quiz,
+        "quiz_fingerprint": quiz_fingerprint(quiz),
+        "context_fingerprint": context_fingerprint(
+            grade="Klasse 10",
+            subject="Biology",
+            topic="Cells",
+            preferred_language="en",
+        ),
+        "validation_contract_version": VALIDATION_CONTRACT_VERSION,
+    }
 
 
 @pytest.mark.parametrize(
@@ -255,6 +304,182 @@ def test_validated_quiz_event_is_available_to_frontend_and_eval() -> None:
     assert json.loads(event.content.parts[0].text) == quiz
 
 
+def test_validated_provenance_requires_matching_server_record_and_context() -> None:
+    """A client-supplied ID cannot authorize a different stored quiz or context."""
+    quiz = _valid_public_quiz()
+    validated_quiz_id = "validated-quiz-id-with-more-than-forty-characters-123"
+    record = _validated_quiz_record(quiz, validated_quiz_id)
+
+    assert (
+        _validated_record_matches_context(
+            record,
+            validated_quiz_id=validated_quiz_id,
+            grade="Klasse 10",
+            subject="Biology",
+            topic="Cells",
+            preferred_language="en",
+        )
+        == quiz
+    )
+    assert (
+        _validated_record_matches_context(
+            record,
+            validated_quiz_id="another-validated-quiz-id-with-more-than-forty-characters-123",
+            grade="Klasse 10",
+            subject="Biology",
+            topic="Cells",
+            preferred_language="en",
+        )
+        is None
+    )
+    assert (
+        _validated_record_matches_context(
+            record,
+            validated_quiz_id=validated_quiz_id,
+            grade="Klasse 10",
+            subject="Chemistry",
+            topic="Cells",
+            preferred_language="en",
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_reinforcement_reuses_only_currently_validated_server_quiz() -> None:
+    """A valid Firestore source is shuffled and skips generation and Judge calls."""
+    quiz = _valid_public_quiz()
+    validated_quiz_id = "validated-quiz-id-with-more-than-forty-characters-123"
+    context = MagicMock()
+    context.state = {
+        "grade": "Klasse 10",
+        "subject": "Biology",
+        "topic": "Cells",
+        "preferred_language": "en",
+        "previous_score": 2,
+        "judge_attempts": 0,
+        "validated_quiz_id": validated_quiz_id,
+        "previous_quiz_json": {"title": "Client-controlled quiz"},
+        "previous_questions": ["Client-controlled question"],
+    }
+
+    with patch("app.agent.FirestoreRepository") as repository_class:
+        repository_class.return_value.get_validated_quiz.return_value = (
+            _validated_quiz_record(quiz, validated_quiz_id)
+        )
+        _load_authoritative_previous_quiz(context)
+
+    assert context.state["validated_quiz_bypass_allowed"] is True
+    assert context.state["authoritative_previous_quiz"] == quiz
+    assert context.state["previous_quiz_json"] is None
+    assert context.state["previous_questions"] == [
+        question["question"] for question in quiz["questions"]
+    ]
+
+    with patch("app.agent.Client") as client_class:
+        events = [
+            event
+            async for event in quiz_generation._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
+        judge_events = [
+            event
+            async for event in llm_as_a_judge._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
+
+    assert events[0].output == {"status": "candidate_ready"}
+    assert judge_events[0].actions.route == "success"
+    client_class.assert_not_called()
+    reinforced_quiz = context.state["temp_quiz"]
+    assert {question["question"] for question in reinforced_quiz["questions"]} == {
+        question["question"] for question in quiz["questions"]
+    }
+    assert reinforced_quiz["difficulty"] == "🌱 Easy"
+    assert validate_quiz_candidate(reinforced_quiz, grade="Klasse 10").is_valid
+    assert context.state["judge_attempts"] == 0
+
+
+def test_invalid_server_provenance_clears_client_reinforcement_data() -> None:
+    """Missing or incompatible provenance forces the normal generation path."""
+    context = MagicMock()
+    context.state = {
+        "grade": "Klasse 10",
+        "subject": "Biology",
+        "topic": "Cells",
+        "preferred_language": "en",
+        "previous_score": 2,
+        "validated_quiz_id": "validated-quiz-id-with-more-than-forty-characters-123",
+        "previous_quiz_json": {"title": "Client-controlled quiz"},
+        "previous_questions": ["Client-controlled question"],
+    }
+
+    with patch("app.agent.FirestoreRepository") as repository_class:
+        repository_class.return_value.get_validated_quiz.return_value = None
+        _load_authoritative_previous_quiz(context)
+
+    assert context.state["validated_quiz_bypass_allowed"] is False
+    assert context.state["authoritative_previous_quiz"] is None
+    assert context.state["previous_quiz_json"] is None
+    assert context.state["previous_questions"] is None
+
+
+@pytest.mark.asyncio
+async def test_generation_does_not_send_untrusted_previous_questions_to_model() -> None:
+    """Client-provided previous question text is ignored without provenance."""
+    response = MagicMock(
+        text=json.dumps(
+            {
+                "title": "New quiz",
+                "questions": [
+                    {
+                        "question": f"Question {index}?",
+                        "options": ["A", "B", "C"],
+                        "correct_answer": "A",
+                        "explanation": "Explanation.",
+                    }
+                    for index in range(10)
+                ],
+            }
+        )
+    )
+    context = MagicMock()
+    context.state = {
+        "grade": "Klasse 10",
+        "subject": "Biology",
+        "topic": "Cells",
+        "preferred_language": "en",
+        "previous_score": 9,
+        "selected_difficulty": "hard",
+        "previous_questions": ["client-only-private-question-marker"],
+        "previous_quiz_json": {"title": "Client-controlled quiz"},
+    }
+
+    with (
+        patch("app.agent.Client") as client_class,
+        patch("app.agent.record_token_usage"),
+    ):
+        client_class.return_value.aio.models.generate_content = AsyncMock(
+            return_value=response
+        )
+        _ = [
+            event
+            async for event in quiz_generation._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
+
+    prompt = client_class.return_value.aio.models.generate_content.await_args.kwargs[
+        "contents"
+    ]
+    assert "client-only-private-question-marker" not in prompt
+
+
 def test_each_quiz_repair_kind_retries_once_then_fails_closed() -> None:
     """Deterministic and academic corrections have independent one-use budgets."""
     assert _route_after_failed_deterministic_validation(0) == "retry"
@@ -329,6 +554,32 @@ def test_judge_prompt_treats_hard_as_relative_to_grade() -> None:
     assert "within the authoritative curriculum scope" in prompt
 
 
+def test_judge_prompt_scopes_emoji_and_task_variety_reviews() -> None:
+    """Presentation emojis and narrow-topic variety are not rejection triggers."""
+    prompt = _build_judge_prompt(
+        quiz_dict={"title": "Quiz 🦊", "questions": []},
+        grade="Klasse 7",
+        subject="Mathematik",
+        topic="Zahlenfolgen",
+        curriculum_guidance="Stay within the Grade 7 sequence scope.",
+        previous_score=None,
+        selected_difficulty=None,
+    )
+
+    assert (
+        "Ignore emojis in the quiz title, explanations, and difficulty presentation"
+        in prompt
+    )
+    assert "The quiz title is presentation-only and is intentionally omitted" in prompt
+    assert '"title": "Quiz 🦊"' not in prompt
+    assert "must not produce an emoji_in_question issue" in prompt
+    assert "Task variety is not a rigid numeric minimum" in prompt
+    assert (
+        "Do not reject a narrow topic solely because it has fewer than four forms"
+        in prompt
+    )
+
+
 def test_judge_prompt_includes_prior_structural_repair_history() -> None:
     """The Judge receives compact provenance for defects repaired earlier."""
     prompt = _build_judge_prompt(
@@ -348,7 +599,7 @@ def test_judge_prompt_includes_prior_structural_repair_history() -> None:
         ],
     )
 
-    assert "PRIOR STRUCTURAL REPAIR HISTORY" in prompt
+    assert "PRIOR REPAIR HISTORY" in prompt
     assert '"issue_codes": ["duplicate_option"]' in prompt
     assert '"question_indices": [2]' in prompt
     assert "Review the complete current quiz" in prompt
@@ -373,6 +624,79 @@ def test_judge_prompt_applies_early_primary_contract() -> None:
     assert "Do not use negative questions or double negatives" in prompt
 
 
+def _judge_assessment(code: str, question_indices: list[int]) -> JudgeAssessment:
+    return JudgeAssessment(
+        passed=False,
+        summary="The quiz needs correction.",
+        issues=[
+            {
+                "code": code,
+                "question_indices": question_indices,
+                "explanation": "A bounded issue was found.",
+                "repair_instruction": "Correct the issue.",
+            }
+        ],
+    )
+
+
+def test_judge_routes_only_addressable_local_issues_to_targeted_repair() -> None:
+    assert _judge_route(_judge_assessment("factual_error", [2])) == "targeted"
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "factual_error",
+        "correct_answer_mismatch",
+        "negative_question",
+        "emoji_in_question",
+        "explanation_error",
+    ],
+)
+def test_every_local_judge_issue_code_supports_targeted_repair(code: str) -> None:
+    assert _judge_route(_judge_assessment(code, [2])) == "targeted"
+
+
+@pytest.mark.parametrize(
+    "assessment",
+    [
+        _judge_assessment("grade_scope_violation", []),
+        _judge_assessment("other", [2]),
+        _judge_assessment("factual_error", []),
+        _judge_assessment("factual_error", [10]),
+        JudgeAssessment(
+            passed=False,
+            summary="Mixed issues.",
+            issues=[
+                {
+                    "code": "factual_error",
+                    "question_indices": [2],
+                    "explanation": "Local.",
+                    "repair_instruction": "Fix it.",
+                },
+                {
+                    "code": "language_mismatch",
+                    "question_indices": [],
+                    "explanation": "Global.",
+                    "repair_instruction": "Regenerate it.",
+                },
+            ],
+        ),
+    ],
+)
+def test_judge_routes_global_or_unaddressable_issues_to_full_regeneration(
+    assessment: JudgeAssessment,
+) -> None:
+    assert _judge_route(assessment) == "full_regeneration"
+
+
+def test_judge_assessment_invariants_fail_closed() -> None:
+    with pytest.raises(ValidationError):
+        JudgeAssessment(passed=True, summary="Passed", issues=[{}])
+    with pytest.raises(ValidationError):
+        JudgeAssessment(passed=False, summary="Rejected", issues=[])
+
+
 @pytest.mark.asyncio
 async def test_quiz_generation_prompt_requires_normalized_unique_options() -> None:
     """Every generation attempt must receive the option-uniqueness contract."""
@@ -389,7 +713,7 @@ async def test_quiz_generation_prompt_requires_normalized_unique_options() -> No
             {
                 "question": f"Question {number}?",
                 "options": ["Option A", "Option B", "Option C"],
-                "correct_option_index": 0,
+                "correct_answer": "Option A",
                 "explanation": "An explanation.",
             }
             for number in range(10)
@@ -418,10 +742,8 @@ async def test_quiz_generation_prompt_requires_normalized_unique_options() -> No
     assert "unique after Unicode normalization" in prompt
     assert "compare every pair of options" in prompt
     assert "replace repeated or equivalent choices" in prompt
-    assert (
-        "Question emojis are allowed only when they do not name, depict, or otherwise reveal the correct answer."
-        in prompt
-    )
+    assert "Do not use any emoji in question text." in prompt
+    assert "correct_answer" in prompt
     assert "every explanation must contain no more than two short sentences" in prompt
 
 
@@ -451,8 +773,10 @@ async def test_quiz_generation_repairs_only_questions_with_duplicate_options() -
                 "repairs": [
                     {
                         "question_index": 0,
+                        "question": "Question 0?",
                         "options": ["First option", "Second option", "Third option"],
-                        "correct_option_index": 0,
+                        "correct_answer": "First option",
+                        "explanation": "Explanation 0.",
                     }
                 ]
             }
@@ -514,7 +838,7 @@ async def test_quiz_generation_repairs_only_questions_with_duplicate_options() -
     assert context.state["academic_repair_attempts"] == 0
     assert context.state["pending_quiz_repair_kind"] is None
     config = generate_content.await_args.kwargs["config"]
-    assert config.response_schema.__name__ == "QuizOptionRepairResponse"
+    assert config.response_schema.__name__ == "GeneratedQuestionRepairResponse"
     assert config.temperature == 0.2
 
 
@@ -533,20 +857,23 @@ async def test_academic_repair_uses_full_generation_after_deterministic_repair()
     None
 ):
     """A Judge retry remains available after a targeted deterministic repair."""
-    quiz = {
-        "title": "Corrected quiz",
-        "questions": [
+    response = MagicMock(
+        text=json.dumps(
             {
-                "question": f"Question {number}?",
-                "options": ["Option A", "Option B", "Option C"],
-                "correct_option_index": 0,
-                "explanation": "An explanation.",
+                "title": "Corrected quiz",
+                "questions": [
+                    {
+                        "question": f"Question {number}?",
+                        "options": ["Option A", "Option B", "Option C"],
+                        "correct_answer": "Option A",
+                        "explanation": "An explanation.",
+                    }
+                    for number in range(10)
+                ],
+                "difficulty": "⭐ Medium",
             }
-            for number in range(10)
-        ],
-        "difficulty": "⭐ Medium",
-    }
-    response = MagicMock(text=json.dumps(quiz))
+        )
+    )
     context = MagicMock()
     context.state = {
         "grade": "Klasse 10",
@@ -557,12 +884,22 @@ async def test_academic_repair_uses_full_generation_after_deterministic_repair()
         "deterministic_repair_attempts": 1,
         "academic_repair_attempts": 0,
         "pending_quiz_repair_kind": "academic",
-        "judge_reasons": ["Two answer options are factually correct."],
-        "quiz_repair_history": [
+        "judge_summary": "A factual issue was found.",
+        "judge_issues": [
             {
-                "repair_kind": "structural",
+                "code": "factual_error",
+                "question_indices": [0],
+                "explanation": "Two answer options are factually correct.",
+                "repair_instruction": "Correct question 0.",
+            }
+        ],
+        "repair_history": [
+            {
+                "attempt": 2,
+                "kind": "targeted",
                 "issue_codes": ["duplicate_option"],
                 "question_indices": [0],
+                "result": "applied",
             }
         ],
         "deterministic_validation_issues": [
@@ -594,17 +931,135 @@ async def test_academic_repair_uses_full_generation_after_deterministic_repair()
     assert context.state["academic_repair_attempts"] == 1
     assert context.state["pending_quiz_repair_kind"] is None
     config = generate_content.await_args.kwargs["config"]
-    assert config.response_schema.__name__ == "Quiz"
+    assert config.response_schema.__name__ == "GeneratedQuiz"
     prompt = generate_content.await_args.kwargs["contents"]
+    assert "A factual issue was found." in prompt
     assert "Two answer options are factually correct." in prompt
-    assert "PRIOR STRUCTURAL REPAIR HISTORY" in prompt
+    assert "PRIOR REPAIR HISTORY" in prompt
     assert '"question_indices": [0]' in prompt
+
+
+@pytest.mark.asyncio
+async def test_academic_targeted_repair_preserves_unaffected_questions() -> None:
+    """Local academic repair sends only unaffected texts and replaces one question."""
+    quiz = _valid_public_quiz()
+    repaired_response = MagicMock(
+        text=json.dumps(
+            {
+                "repairs": [
+                    {
+                        "question_index": 2,
+                        "question": "Repaired question 2?",
+                        "options": ["New correct", "New wrong A", "New wrong B"],
+                        "correct_answer": "New correct",
+                        "explanation": "A corrected explanation.",
+                    }
+                ]
+            }
+        )
+    )
+    context = MagicMock()
+    context.state = {
+        "grade": "Klasse 10",
+        "subject": "Biology",
+        "topic": "Cells",
+        "preferred_language": "en",
+        "generation_attempts": 1,
+        "academic_repair_attempts": 0,
+        "pending_quiz_repair_kind": "academic_targeted",
+        "temp_quiz": quiz,
+        "judge_issues": [
+            {
+                "code": "factual_error",
+                "question_indices": [2],
+                "explanation": "The fact is incorrect.",
+                "repair_instruction": "Correct question 2.",
+            }
+        ],
+    }
+
+    with (
+        patch("app.agent.Client") as client_class,
+        patch("app.agent.record_token_usage"),
+    ):
+        client_class.return_value.aio.models.generate_content = AsyncMock(
+            return_value=repaired_response
+        )
+        events = [
+            event
+            async for event in quiz_generation._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
+
+    assert events[0].output == {"status": "candidate_ready"}
+    repaired_quiz = context.state["temp_quiz"]
+    assert repaired_quiz["questions"][0] == quiz["questions"][0]
+    assert repaired_quiz["questions"][1] == quiz["questions"][1]
+    assert repaired_quiz["questions"][3:] == quiz["questions"][3:]
+    assert repaired_quiz["questions"][2]["question"] == "Repaired question 2?"
+    assert (
+        repaired_quiz["questions"][2]["options"][
+            repaired_quiz["questions"][2]["correct_option_index"]
+        ]
+        == "New correct"
+    )
+    prompt = client_class.return_value.aio.models.generate_content.await_args.kwargs[
+        "contents"
+    ]
+    assert "Question 0?" in prompt
+    assert "Q0 correct" not in prompt
+    assert "Q2 correct" in prompt
+
+
+@pytest.mark.asyncio
+async def test_malformed_judge_response_fails_closed() -> None:
+    """Malformed structured review output must never reach the learner."""
+    context = MagicMock()
+    context.state = {
+        "temp_quiz": _valid_public_quiz(),
+        "grade": "Klasse 10",
+        "subject": "Biology",
+        "topic": "Cells",
+        "preferred_language": "en",
+        "judge_attempts": 0,
+        "academic_repair_attempts": 0,
+    }
+    response = MagicMock(text="{ malformed judge response")
+
+    with (
+        patch("app.agent.Client") as client_class,
+        patch("app.agent.record_token_usage"),
+    ):
+        client_class.return_value.aio.models.generate_content = AsyncMock(
+            return_value=response
+        )
+        events = [
+            event
+            async for event in llm_as_a_judge._run_impl(
+                ctx=context,
+                node_input=None,
+            )
+        ]
+
+    assert events[0].actions.route == "quality_failure"
+    assert context.state["quality_failure_type"] == "judge_exception"
+    assert context.state["judge_history"] == [
+        {
+            "attempt": 1,
+            "passed": False,
+            "issue_codes": ["judge_exception"],
+            "question_indices": [],
+            "selected_route": "quality_failure",
+        }
+    ]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("academic_repair_attempts", "expected_route", "expected_pending_kind"),
-    [(0, "retry", "academic"), (1, "quality_failure", None)],
+    [(0, "retry", "academic_targeted"), (1, "quality_failure", None)],
 )
 async def test_judge_routes_against_its_independent_repair_budget(
     academic_repair_attempts: int,
@@ -626,7 +1081,15 @@ async def test_judge_routes_against_its_independent_repair_budget(
         text=json.dumps(
             {
                 "passed": False,
-                "reason": "Two answer options are factually correct.",
+                "summary": "A factual issue was found.",
+                "issues": [
+                    {
+                        "code": "factual_error",
+                        "question_indices": [0],
+                        "explanation": "Two answer options are factually correct.",
+                        "repair_instruction": "Correct question 0.",
+                    }
+                ],
             }
         )
     )
@@ -684,13 +1147,7 @@ async def test_deterministic_validation_routes_answer_cue_to_retry() -> None:
     assert context.state["pending_quiz_repair_kind"] == "deterministic"
     assert context.state["quality_failure_type"] == "deterministic_validation_failed"
     assert "Correct" not in context.state["deterministic_retry_guidance"]
-    assert context.state["quiz_repair_history"] == [
-        {
-            "repair_kind": "structural",
-            "issue_codes": ["answer_cue_in_option"],
-            "question_indices": list(range(10)),
-        }
-    ]
+    assert context.state.get("repair_history", []) == []
     assert emit_event.call_args.kwargs["event"] == "quiz_validation_failed"
     assert emit_event.call_args.kwargs["generation_attempt"] == 1
 
@@ -754,8 +1211,21 @@ def test_quality_failure_persistence_is_best_effort() -> None:
             preferred_language="pt",
         ),
         failure_type="judge_exception",
+        generation_attempts=1,
         judge_attempts=1,
-        judge_reasons=["Judge unavailable: TimeoutError"],
+        academic_repair_attempts=0,
+        deterministic_repair_attempts=0,
+        usage_summary=UsageSummary(
+            model_call_count=0,
+            prompt_token_count=0,
+            candidate_token_count=0,
+            thoughts_token_count=0,
+            total_token_count=0,
+            stage_total_token_counts={},
+        ),
+        duration_ms=0,
+        service_version="dev",
+        deployment_revision="dev",
         grounding_discarded=True,
     )
 
@@ -766,6 +1236,114 @@ def test_quality_failure_persistence_is_best_effort() -> None:
             )
         )
         _save_quality_failure_best_effort(failure)
+
+
+def test_invalid_judge_indices_do_not_break_failure_diagnostics() -> None:
+    assessment = _judge_assessment("factual_error", list(range(-1, 12)))
+    context = MagicMock()
+    context.state = {"preferred_language": "de", "temp_quiz": _valid_public_quiz()}
+
+    assert _judge_route(assessment) == "full_regeneration"
+    _append_judge_history(
+        context, assessment=assessment, attempt=1, selected_route="full_regeneration"
+    )
+    _append_repair_history(
+        context,
+        attempt=2,
+        kind="full_regeneration",
+        issue_codes=["factual_error"],
+        question_indices=assessment.issues[0].question_indices,
+        result="applied",
+    )
+    with patch("app.agent._save_quality_failure_best_effort") as save_failure:
+        event = _quality_failure_event(context)
+
+    failure = save_failure.call_args.args[0]
+    assert failure.judge_history[0].question_indices == list(range(10))
+    assert failure.repair_history[0].question_indices == list(range(10))
+    assert "Ich konnte" in event.content.parts[0].text
+    assert context.state["temp_quiz"] is None
+
+
+@pytest.mark.parametrize("failure_stage", ["construction", "persistence"])
+def test_diagnostic_errors_preserve_failure_response_and_privacy(
+    failure_stage: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    context = MagicMock()
+    context.state = {"preferred_language": "de", "temp_quiz": _valid_public_quiz()}
+    if failure_stage == "construction":
+        context.state["judge_history"] = [{"unexpected": "PRIVATE_DIAGNOSTIC"}]
+
+    with patch("app.agent._save_quality_failure_best_effort") as save_failure:
+        if failure_stage == "persistence":
+            save_failure.side_effect = RuntimeError("PRIVATE_DIAGNOSTIC")
+        event = _quality_failure_event(context)
+
+    assert "Ich konnte" in event.content.parts[0].text
+    assert context.state["temp_quiz"] is None
+    assert context.state["judge_history"] == []
+    assert "PRIVATE_DIAGNOSTIC" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_normalization_guidance_reaches_the_retry_generator() -> None:
+    generated = _valid_public_quiz()
+    for question in generated["questions"]:
+        question["correct_answer"] = question["options"][
+            question.pop("correct_option_index")
+        ]
+    valid_response = json.dumps(generated)
+    generated["questions"][3]["correct_answer"] = "Missing answer"
+    context = MagicMock()
+    context.state = {"grade": "Klasse 7", "preferred_language": "en"}
+    with (
+        patch("app.agent.Client") as client_class,
+        patch("app.agent.record_token_usage"),
+        patch("app.agent.emit_quiz_validation_event"),
+    ):
+        generate = AsyncMock(
+            side_effect=[
+                MagicMock(text=json.dumps(generated)),
+                MagicMock(text=valid_response),
+            ]
+        )
+        client_class.return_value.aio.models.generate_content = generate
+        for workflow_node in (
+            quiz_generation,
+            deterministic_quiz_validation,
+            quiz_generation,
+            deterministic_quiz_validation,
+        ):
+            events = [
+                event
+                async for event in workflow_node._run_impl(ctx=context, node_input=None)
+            ]
+
+    retry_prompt = generate.call_args_list[1].kwargs["contents"]
+    assert "Question 4: correct answer not in options" in retry_prompt
+    assert context.state["deterministic_repair_attempts"] == 1
+    assert context.state["deterministic_retry_guidance"] == ""
+    assert events[0].actions.route == "valid"
+
+
+@pytest.mark.asyncio
+async def test_approved_quiz_is_released_when_provenance_save_fails() -> None:
+    quiz = _valid_public_quiz()
+    context = MagicMock()
+    context.state = {"temp_quiz": quiz, "preferred_language": "en"}
+    with patch("app.agent.FirestoreRepository") as repository_class:
+        repository_class.return_value.save_validated_quiz.side_effect = (
+            FirestorePersistenceError(
+                "save_validated_quiz", "validated_quiz_provenance"
+            )
+        )
+        events = [
+            event
+            async for event in quiz_output_node._run_impl(ctx=context, node_input=None)
+        ]
+
+    assert events[-1].output == quiz
+    assert "validated_quiz_id" not in events[-1].output
 
 
 @pytest.mark.asyncio
@@ -790,7 +1368,13 @@ async def test_terminal_nodes_record_precise_invocation_outcomes() -> None:
         "judge_attempts": 1,
     }
 
-    with patch("app.agent.set_invocation_outcome") as set_outcome:
+    with (
+        patch("app.agent.set_invocation_outcome") as set_outcome,
+        patch("app.agent.FirestoreRepository") as repository_class,
+    ):
+        repository_class.return_value.save_validated_quiz.return_value = (
+            "test-validated-quiz-id"
+        )
         quiz_events = [
             event
             async for event in quiz_output_node._run_impl(
@@ -799,6 +1383,8 @@ async def test_terminal_nodes_record_precise_invocation_outcomes() -> None:
             )
         ]
 
+    assert quiz_events[-1].output
+    assert quiz_events[-1].output.pop("validated_quiz_id", None)
     assert quiz_events[-1].output == valid_quiz
     set_outcome.assert_called_once_with(context, TerminalOutcome.SUCCESS)
 

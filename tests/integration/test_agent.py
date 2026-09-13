@@ -46,6 +46,9 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from app.agent import root_agent
+from app.app_utils.typing import QuizContext
+from app.database.firestore_repo import FirestoreRepository
+from app.domain.quiz_provenance import VALIDATION_CONTRACT_VERSION
 
 pytestmark = pytest.mark.google_cloud
 
@@ -140,6 +143,18 @@ def test_adaptive_quiz_generation() -> None:
         ]
         * 10,
     }
+    provenance_repo = FirestoreRepository(force_mock=True)
+    validated_quiz_id = provenance_repo.save_validated_quiz(
+        mock_previous_quiz,
+        QuizContext(
+            grade="Klasse 5",
+            subject="Math",
+            topic="Fractions",
+            preferred_language="en",
+        ),
+        validation_contract_version=VALIDATION_CONTRACT_VERSION,
+        service_version="integration-test",
+    )
 
     # 1. Test Reinforcement Mode (score <= 4)
     payload_reinforce = {
@@ -148,22 +163,22 @@ def test_adaptive_quiz_generation() -> None:
         "topic": "Fractions",
         "preferred_language": "en",
         "previous_score": 3,
-        "previous_questions": ["What is 1/2 of 10?"],
-        "previous_quiz_json": json.dumps(mock_previous_quiz),
+        "validated_quiz_id": validated_quiz_id,
     }
 
     message = types.Content(
         role="user", parts=[types.Part.from_text(text=json.dumps(payload_reinforce))]
     )
 
-    events = list(
-        runner.run(
-            new_message=message,
-            user_id="test_user",
-            session_id=session.id,
-            run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+    with patch("app.agent.FirestoreRepository", return_value=provenance_repo):
+        events = list(
+            runner.run(
+                new_message=message,
+                user_id="test_user",
+                session_id=session.id,
+                run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+            )
         )
-    )
 
     quiz_outputs = [
         event.output
@@ -180,6 +195,9 @@ def test_adaptive_quiz_generation() -> None:
     assert quiz_output.get("difficulty") == "🌱 Easy", (
         f"Expected '🌱 Easy', got {quiz_output.get('difficulty')}"
     )
+    assert {question["question"] for question in quiz_output["questions"]} == {
+        "What is 1/2 of 10?"
+    }
 
 
 @pytest.mark.parametrize(

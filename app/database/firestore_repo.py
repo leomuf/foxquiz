@@ -6,6 +6,8 @@ import datetime
 import logging
 import os
 import re
+import secrets
+from copy import deepcopy
 from typing import Any, NoReturn
 
 from google.cloud import firestore
@@ -13,12 +15,43 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 
 from app.app_utils.operational_logging import emit_operational_event
 from app.app_utils.typing import QuizContext, QuizQualityFailure
+from app.domain.quiz_provenance import context_fingerprint, quiz_fingerprint
 
 logger = logging.getLogger(__name__)
 
 SHARED_QUIZ_TTL_DAYS = 30
+VALIDATED_QUIZ_TTL_DAYS = 1
 TRANSIENT_BUDGET_TTL_DAYS = 7
 DEFAULT_FIRESTORE_DATABASE_ID = "(default)"
+_VALIDATED_QUIZ_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{40,200}$")
+
+
+def _validated_quiz_expiration(value: Any) -> datetime.datetime | None:
+    """Parse a provenance expiration timestamp, rejecting malformed records."""
+    if isinstance(value, str):
+        try:
+            value = datetime.datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime.datetime):
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=datetime.UTC)
+    return value
+
+
+def _public_quiz_copy(quiz_data: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Copy quiz data while removing the internal answer construction field."""
+    if quiz_data is None:
+        return None
+    public_quiz = deepcopy(quiz_data)
+    questions = public_quiz.get("questions")
+    if isinstance(questions, list):
+        for question in questions:
+            if isinstance(question, dict):
+                question.pop("correct_answer", None)
+    return public_quiz
+
 
 REQUIRED_SECURITY_RESPONSE_KEYS = frozenset(
     f"{response}_{locale}"
@@ -100,6 +133,7 @@ class FirestorePersistenceError(RuntimeError):
 # Fallback in-memory database for testing and local runs without Google Cloud credentials
 _mock_db: dict[str, dict[str, Any]] = {
     "quizzes": {},
+    "validated_quizzes": {},
     "budgets": {
         "global": {
             "tokens_used": 0,
@@ -219,7 +253,7 @@ class FirestoreRepository:
                         # Expired, clean up and return None
                         _mock_db["quizzes"].pop(quiz_id, None)
                         return None
-                return quiz.get("quiz_data")
+                return _public_quiz_copy(quiz.get("quiz_data"))
             return None
 
         try:
@@ -233,7 +267,7 @@ class FirestoreRepository:
                     expires_at = expires_at.replace(tzinfo=datetime.UTC)
                 if expires_at and datetime.datetime.now(datetime.UTC) > expires_at:
                     return None
-                return data.get("quiz_data")
+                return _public_quiz_copy(data.get("quiz_data"))
             return None
         except Exception as e:
             self._raise_persistence_error("read_shared_quiz", "quiz_persistence", e)
@@ -247,9 +281,10 @@ class FirestoreRepository:
         """Store a frozen quiz object in Firestore with an expiration timestamp."""
         now = datetime.datetime.now(datetime.UTC)
         expires_at = now + datetime.timedelta(days=ttl_days)
+        stored_quiz_data = _public_quiz_copy(quiz_data)
         data = {
             "quiz_id": quiz_id,
-            "quiz_data": quiz_data,
+            "quiz_data": stored_quiz_data,
             "created_at": now.isoformat() if self.use_mock else now,
             "expires_at": expires_at.isoformat() if self.use_mock else expires_at,
         }
@@ -264,6 +299,90 @@ class FirestoreRepository:
             return True
         except Exception as e:
             self._raise_persistence_error("save_shared_quiz", "quiz_persistence", e)
+
+    # --- 1b. Validated quiz provenance ---
+    def save_validated_quiz(
+        self,
+        quiz_data: dict[str, Any],
+        quiz_context: QuizContext,
+        *,
+        validation_contract_version: str,
+        service_version: str,
+        ttl_days: int = VALIDATED_QUIZ_TTL_DAYS,
+    ) -> str:
+        """Persist a short-lived, server-created source for safe reinforcement."""
+        validated_quiz_id = secrets.token_urlsafe(32)
+        now = datetime.datetime.now(datetime.UTC)
+        expires_at = now + datetime.timedelta(days=ttl_days)
+        stored_quiz = _public_quiz_copy(quiz_data) or {}
+        data = {
+            "validated_quiz_id": validated_quiz_id,
+            "quiz": stored_quiz,
+            "quiz_fingerprint": quiz_fingerprint(stored_quiz),
+            "context_fingerprint": context_fingerprint(
+                grade=quiz_context.grade,
+                subject=quiz_context.subject,
+                topic=quiz_context.topic,
+                preferred_language=quiz_context.preferred_language,
+            ),
+            "validation_contract_version": validation_contract_version,
+            "service_version": service_version,
+            "created_at": now.isoformat() if self.use_mock else now,
+            # Firestore TTL can be configured on this field. The read path also
+            # enforces expiration so cleanup configuration is not a trust boundary.
+            "expires_at": expires_at.isoformat() if self.use_mock else expires_at,
+        }
+
+        if self.use_mock:
+            self._set_mock_doc(
+                "validated_quizzes", validated_quiz_id, data, merge=False
+            )
+            return validated_quiz_id
+
+        try:
+            doc_ref = self.client.collection("validated_quizzes").document(
+                validated_quiz_id
+            )
+            doc_ref.set(data)
+            return validated_quiz_id
+        except Exception as e:
+            self._raise_persistence_error(
+                "save_validated_quiz", "validated_quiz_provenance", e
+            )
+
+    def get_validated_quiz(self, validated_quiz_id: str) -> dict[str, Any] | None:
+        """Load an unexpired server-created quiz provenance record."""
+        if not isinstance(
+            validated_quiz_id, str
+        ) or not _VALIDATED_QUIZ_ID_PATTERN.fullmatch(validated_quiz_id):
+            return None
+
+        if self.use_mock:
+            record = self._get_mock_doc("validated_quizzes", validated_quiz_id)
+            if record is None:
+                return None
+            expires_at = _validated_quiz_expiration(record.get("expires_at"))
+            if expires_at is None or datetime.datetime.now(datetime.UTC) >= expires_at:
+                _mock_db["validated_quizzes"].pop(validated_quiz_id, None)
+                return None
+            return record
+
+        try:
+            doc_ref = self.client.collection("validated_quizzes").document(
+                validated_quiz_id
+            )
+            doc = doc_ref.get()
+            if not doc.exists:
+                return None
+            record = doc.to_dict() or {}
+            expires_at = _validated_quiz_expiration(record.get("expires_at"))
+            if expires_at is None or datetime.datetime.now(datetime.UTC) >= expires_at:
+                return None
+            return record
+        except Exception as e:
+            self._raise_persistence_error(
+                "get_validated_quiz", "validated_quiz_provenance", e
+            )
 
     # --- 2. Token Budgets ---
     def get_token_budget(self, budget_id: str) -> dict[str, Any]:
@@ -357,6 +476,7 @@ class FirestoreRepository:
         """Save feedback log following spec: positive feedback only increments global stats, negative stores quiz data."""
         log_id = f"fb_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}"
         now = datetime.datetime.now(datetime.UTC)
+        stored_quiz_data = _public_quiz_copy(quiz_data)
 
         # 1. Thumbs-Up (Positive): Do NOT store individual logs/quiz info, only increment counter
         if score > 0:
@@ -387,7 +507,7 @@ class FirestoreRepository:
             "session_id": session_id,
             "anonymous_id": anonymous_id,
             "timestamp": now.isoformat() if self.use_mock else now,
-            "quiz_data": quiz_data,
+            "quiz_data": stored_quiz_data,
             "grade": quiz_context.grade if quiz_context else None,
             "subject": quiz_context.subject if quiz_context else None,
             "topic": quiz_context.topic if quiz_context else None,

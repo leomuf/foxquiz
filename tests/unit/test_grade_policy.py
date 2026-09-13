@@ -45,7 +45,7 @@ def test_early_primary_policy_requires_exactly_three_options() -> None:
     assert (policy.minimum_options, policy.maximum_options) == (3, 3)
     assert policy.maximum_explanation_sentences == 2
     assert not policy.negation_questions_allowed
-    assert policy.question_emojis_allowed
+    assert not policy.question_emojis_allowed
     assert "one or two short sentences" in build_grade_prompt_guidance(policy)
 
 
@@ -55,7 +55,7 @@ def test_existing_secondary_policy_keeps_three_to_five_options() -> None:
 
     assert policy.stage is PedagogicalStage.SECONDARY_LOWER
     assert (policy.minimum_options, policy.maximum_options) == (3, 5)
-    assert policy.question_emojis_allowed
+    assert not policy.question_emojis_allowed
 
 
 @pytest.mark.parametrize(

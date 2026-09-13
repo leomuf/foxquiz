@@ -90,7 +90,7 @@ def _quiz_fixture(
         "difficulty": difficulty,
         "questions": [
             {
-                "question": f"{subject} question {index}? \U0001f4a1",
+                "question": f"{subject} question {index}?",
                 "options": [
                     "Correct <strong>answer</strong>",
                     "Incorrect A",
@@ -271,7 +271,7 @@ def test_complete_quiz_and_negative_feedback_flow(
 
     for question_number in range(1, 11):
         expect(page.locator("#question-text")).to_have_text(
-            f"Biology question {question_number}? \U0001f4a1"
+            f"Biology question {question_number}?"
         )
         indicators = page.locator(".option-indicator")
         expect(indicators).to_have_count(4)

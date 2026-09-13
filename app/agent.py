@@ -26,11 +26,20 @@ import logging
 import os
 import random
 import re
+import time
 import unicodedata
 from difflib import SequenceMatcher
+from enum import StrEnum
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    model_validator,
+)
 
 import google.auth
 from google.genai import Client, types
@@ -43,14 +52,17 @@ from google.adk.apps import App
 
 from app.app_utils.callbacks import (
     FoxQuizSecurityPlugin,
+    _INVOCATION_START_STATE_KEY,
     SECURITY_BLOCK_STATE_KEY,
+    _TOKEN_USAGE_STATE_KEY,
     record_token_usage,
     set_invocation_outcome,
 )
+from app.app_utils.build_info import get_build_info
 from app.app_utils.operational_logging import emit_quiz_validation_event
 from app.app_utils.request_context import get_client_locale
-from app.app_utils.token_usage import CallStage, TerminalOutcome
-from app.app_utils.typing import QuizContext, QuizQualityFailure
+from app.app_utils.token_usage import CallStage, InvocationTokenUsage, TerminalOutcome
+from app.app_utils.typing import QuizContext, QuizQualityFailure, UsageSummary
 from app.database.firestore_repo import FirestorePersistenceError, FirestoreRepository
 from app.domain.quiz_request import (
     QuizRequestValidationError,
@@ -65,6 +77,19 @@ from app.domain.grade_policy import (
 from app.domain.quiz_validation import (
     build_retry_guidance,
     validate_quiz_candidate,
+)
+from app.domain.quiz_generation import (
+    GeneratedQuiz,
+    GeneratedQuizQuestion,
+    QuizNormalizationCode,
+    QuizNormalizationError,
+    normalize_generated_question,
+    normalize_generated_quiz,
+)
+from app.domain.quiz_provenance import (
+    VALIDATION_CONTRACT_VERSION,
+    context_fingerprint,
+    quiz_fingerprint,
 )
 
 # Setup project configuration
@@ -110,14 +135,21 @@ def _workflow_event(*, route: str | None = None, output: Any = None) -> Event:
     return Event(**kwargs)
 
 
-def _validated_quiz_event(quiz: dict[str, Any]) -> Event:
+def _validated_quiz_event(
+    quiz: dict[str, Any], *, validated_quiz_id: str | None = None
+) -> Event:
     """Publish a validated quiz through both workflow and content contracts."""
+    public_output = dict(quiz)
+    if validated_quiz_id:
+        public_output["validated_quiz_id"] = validated_quiz_id
     return Event(
         content=types.Content(
             role="model",
-            parts=[types.Part.from_text(text=json.dumps(quiz, ensure_ascii=False))],
+            parts=[
+                types.Part.from_text(text=json.dumps(public_output, ensure_ascii=False))
+            ],
         ),
-        output=quiz,
+        output=public_output,
     )
 
 
@@ -130,6 +162,91 @@ def _resolve_mascot(mascot_id: Any, language: str) -> tuple[str, str]:
     )
     normalized_language = language if language in {"de", "pt", "en"} else "en"
     return normalized_id, MASCOT_NAMES[normalized_id][normalized_language]
+
+
+def _validated_record_matches_context(
+    record: Any,
+    *,
+    validated_quiz_id: str,
+    grade: Any,
+    subject: Any,
+    topic: Any,
+    preferred_language: Any,
+) -> dict[str, Any] | None:
+    """Return a trusted public quiz only when every provenance invariant holds."""
+    if not isinstance(record, dict):
+        return None
+    quiz = record.get("quiz")
+    if not isinstance(quiz, dict):
+        return None
+    questions = quiz.get("questions")
+    if not isinstance(questions, list):
+        return None
+    if record.get("validated_quiz_id") != validated_quiz_id:
+        return None
+    if record.get("validation_contract_version") != VALIDATION_CONTRACT_VERSION:
+        return None
+    if record.get("quiz_fingerprint") != quiz_fingerprint(quiz):
+        return None
+    if record.get("context_fingerprint") != context_fingerprint(
+        grade=grade,
+        subject=subject,
+        topic=topic,
+        preferred_language=preferred_language,
+    ):
+        return None
+    if any(
+        isinstance(question, dict) and "correct_answer" in question
+        for question in questions
+    ):
+        return None
+    if not validate_quiz_candidate(quiz, grade=grade).is_valid:
+        return None
+    return quiz
+
+
+def _load_authoritative_previous_quiz(ctx: Context) -> None:
+    """Load adaptive source data from Firestore without trusting client quiz JSON."""
+    ctx.state["authoritative_previous_quiz"] = None
+    ctx.state["validated_quiz_bypass_allowed"] = False
+    ctx.state["validated_quiz_source_id"] = None
+    # Client-provided quiz JSON is never used as provenance or sent to the model.
+    ctx.state["previous_quiz_json"] = None
+    ctx.state["previous_questions"] = None
+
+    validated_quiz_id = ctx.state.get("validated_quiz_id")
+    if not isinstance(validated_quiz_id, str) or not validated_quiz_id:
+        return
+
+    try:
+        record = FirestoreRepository().get_validated_quiz(validated_quiz_id)
+    except FirestorePersistenceError:
+        logger.warning("Validated quiz provenance lookup was unavailable.")
+        return
+
+    quiz = _validated_record_matches_context(
+        record,
+        validated_quiz_id=validated_quiz_id,
+        grade=ctx.state.get("grade"),
+        subject=ctx.state.get("subject"),
+        topic=ctx.state.get("topic"),
+        preferred_language=ctx.state.get("preferred_language") or "en",
+    )
+    if quiz is None:
+        logger.info("Validated quiz provenance was missing or incompatible.")
+        return
+
+    ctx.state["authoritative_previous_quiz"] = json.loads(json.dumps(quiz))
+    ctx.state["validated_quiz_source_id"] = validated_quiz_id
+    ctx.state["previous_questions"] = [
+        question.get("question")
+        for question in quiz.get("questions", [])
+        if isinstance(question, dict) and isinstance(question.get("question"), str)
+    ]
+    if (ctx.state.get("previous_score") is not None) and int(
+        ctx.state.get("previous_score")
+    ) <= 3:
+        ctx.state["validated_quiz_bypass_allowed"] = True
 
 
 def shuffle_question_options(
@@ -169,13 +286,24 @@ def shuffle_quiz_options(
     return quiz_dict
 
 
+def shuffle_quiz_questions(
+    quiz_dict: dict[str, Any], *, rng: random.Random | None = None
+) -> dict[str, Any]:
+    """Shuffle question order while preserving each question's option index."""
+    questions = quiz_dict.get("questions")
+    if isinstance(questions, list):
+        if rng is not None:
+            rng.shuffle(questions)
+        else:
+            random.shuffle(questions)
+    return quiz_dict
+
+
 # --- Pydantic Models for Quiz and Safety Structures ---
 
 
 class QuizQuestion(BaseModel):
-    question: str = Field(
-        description="The question text. Decorative emojis are allowed only when they do not reveal the answer."
-    )
+    question: str = Field(description="The question text without emojis.")
     options: List[str] = Field(
         description="List of 3 to 5 neutral text-only choices without emojis or answer cues."
     )
@@ -196,31 +324,76 @@ class Quiz(BaseModel):
     )
 
 
-class QuizQuestionOptionRepair(BaseModel):
-    """Replacement options for one question rejected as containing duplicates."""
+class JudgeIssueCode(StrEnum):
+    """Allowlisted academic-review issue categories."""
 
-    question_index: int = Field(description="0-based question index to repair.")
-    options: List[str] = Field(
-        description="Complete list of 3 to 5 unique, neutral replacement options."
-    )
-    correct_option_index: int = Field(
-        description="0-based index of the factually correct replacement option."
-    )
+    FACTUAL_ERROR = "factual_error"
+    CORRECT_ANSWER_MISMATCH = "correct_answer_mismatch"
+    NEGATIVE_QUESTION = "negative_question"
+    EMOJI_IN_QUESTION = "emoji_in_question"
+    GRADE_SCOPE_VIOLATION = "grade_scope_violation"
+    DIFFICULTY_MISMATCH = "difficulty_mismatch"
+    LANGUAGE_MISMATCH = "language_mismatch"
+    TASK_VARIETY_FAILURE = "task_variety_failure"
+    EXPLANATION_ERROR = "explanation_error"
+    OTHER = "other"
 
 
-class QuizOptionRepairResponse(BaseModel):
-    """Minimal structured response for targeted duplicate-option repair."""
+class JudgeIssue(BaseModel):
+    """One structured academic-review issue."""
 
-    repairs: List[QuizQuestionOptionRepair] = Field(
-        description="One repair for every requested question index and no others."
+    model_config = ConfigDict(extra="forbid")
+
+    code: JudgeIssueCode
+    # Missing indices are represented as an empty list so routing can safely
+    # choose full regeneration rather than attempting a local repair.
+    question_indices: list[StrictInt] = Field(default_factory=list)
+    explanation: str = Field(description="Readable explanation of the issue.")
+    repair_instruction: str = Field(
+        description="Concrete instruction for correcting this issue."
     )
 
 
 class JudgeAssessment(BaseModel):
-    passed: bool = Field(
+    """Structured academic Judge result with fail-closed invariants."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    passed: StrictBool = Field(
         description="True if the quiz meets all criteria: 10 questions, appropriate grade difficulty, exactly one correct option per question, and factually accurate."
     )
-    reason: str = Field(description="Detailed review comments/feedback.")
+    summary: str = Field(description="Readable overall review summary.")
+    issues: list[JudgeIssue] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_result_invariants(self) -> "JudgeAssessment":
+        if self.passed and self.issues:
+            raise ValueError("A passed Judge assessment cannot contain issues.")
+        if not self.passed and not self.issues:
+            raise ValueError("A rejected Judge assessment must contain issues.")
+        return self
+
+
+class GeneratedQuestionRepair(BaseModel):
+    """One complete generated question returned by targeted repair."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    question_index: int = Field(description="0-based question index to repair.")
+    question: str
+    options: list[str]
+    correct_answer: str
+    explanation: str
+
+
+class GeneratedQuestionRepairResponse(BaseModel):
+    """Complete internal questions returned by a targeted repair call."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    repairs: list[GeneratedQuestionRepair] = Field(
+        description="Exactly one complete repair for every requested question index."
+    )
 
 
 class CurriculumCompatibility(BaseModel):
@@ -429,19 +602,27 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
 
     # Reset quality diagnostics on any fresh start or new turn.
     ctx.state["judge_attempts"] = 0
-    ctx.state["judge_reasons"] = []
+    ctx.state["judge_history"] = []
+    ctx.state["judge_issues"] = []
+    ctx.state["judge_summary"] = ""
     ctx.state["generation_attempts"] = 0
     ctx.state["deterministic_repair_attempts"] = 0
     ctx.state["academic_repair_attempts"] = 0
     ctx.state["pending_quiz_repair_kind"] = None
+    ctx.state[_REPAIR_FAILURE_STATE_KEY] = None
     ctx.state["deterministic_retry_guidance"] = ""
     ctx.state["deterministic_validation_issues"] = []
-    ctx.state["quiz_repair_history"] = []
+    ctx.state["repair_history"] = []
+    ctx.state["normalization_failures"] = []
+    ctx.state["authoritative_previous_quiz"] = None
+    ctx.state["validated_quiz_bypass_allowed"] = False
+    ctx.state["validated_quiz_source_id"] = None
     ctx.state["curriculum_status"] = None
     ctx.state["curriculum_guidance"] = ""
     ctx.state["quality_failure_type"] = None
     ctx.state["grounding_title"] = None
     ctx.state["grounding_discarded"] = False
+    _load_authoritative_previous_quiz(ctx)
 
     grade = ctx.state.get("grade")
     subject = ctx.state.get("subject")
@@ -648,6 +829,111 @@ MAX_ACADEMIC_REPAIR_ATTEMPTS = 1
 _HARD_DIFFICULTY_SELECTION = "hard"
 _DETERMINISTIC_REPAIR_KIND = "deterministic"
 _ACADEMIC_REPAIR_KIND = "academic"
+_ACADEMIC_TARGETED_REPAIR_KIND = "academic_targeted"
+_REPAIR_FAILURE_STATE_KEY = "repair_failure"
+
+_LOCAL_JUDGE_ISSUE_CODES = frozenset(
+    {
+        JudgeIssueCode.FACTUAL_ERROR,
+        JudgeIssueCode.CORRECT_ANSWER_MISMATCH,
+        JudgeIssueCode.NEGATIVE_QUESTION,
+        JudgeIssueCode.EMOJI_IN_QUESTION,
+        JudgeIssueCode.EXPLANATION_ERROR,
+    }
+)
+_GLOBAL_JUDGE_ISSUE_CODES = frozenset(
+    {
+        JudgeIssueCode.GRADE_SCOPE_VIOLATION,
+        JudgeIssueCode.DIFFICULTY_MISMATCH,
+        JudgeIssueCode.LANGUAGE_MISMATCH,
+        JudgeIssueCode.TASK_VARIETY_FAILURE,
+    }
+)
+
+
+def _judge_route(assessment: JudgeAssessment) -> str:
+    """Select a repair route without interpreting free text."""
+    if assessment.passed:
+        return "success"
+
+    for issue in assessment.issues:
+        if issue.code in _GLOBAL_JUDGE_ISSUE_CODES:
+            return "full_regeneration"
+        if issue.code not in _LOCAL_JUDGE_ISSUE_CODES:
+            return "full_regeneration"
+        if (
+            not issue.question_indices
+            or len(issue.question_indices) != len(set(issue.question_indices))
+            or any(index < 0 or index >= 10 for index in issue.question_indices)
+        ):
+            return "full_regeneration"
+    return "targeted"
+
+
+def _judge_issue_history_entry(
+    *, assessment: JudgeAssessment, attempt: int, selected_route: str
+) -> dict[str, Any]:
+    """Build a privacy-safe Judge history entry."""
+    return {
+        "attempt": attempt,
+        "passed": assessment.passed,
+        "issue_codes": sorted({issue.code.value for issue in assessment.issues}),
+        "question_indices": sorted(
+            {
+                index
+                for issue in assessment.issues
+                for index in issue.question_indices
+                if isinstance(index, int)
+                and not isinstance(index, bool)
+                and 0 <= index < 10
+            }
+        ),
+        "selected_route": selected_route,
+    }
+
+
+def _append_judge_history(
+    ctx: Context, *, assessment: JudgeAssessment, attempt: int, selected_route: str
+) -> None:
+    history = list(ctx.state.get("judge_history") or [])
+    history.append(
+        _judge_issue_history_entry(
+            assessment=assessment,
+            attempt=attempt,
+            selected_route=selected_route,
+        )
+    )
+    ctx.state["judge_history"] = history
+
+
+def _append_repair_history(
+    ctx: Context,
+    *,
+    attempt: int,
+    kind: str,
+    issue_codes: list[str],
+    question_indices: list[int],
+    result: str,
+) -> None:
+    history = list(ctx.state.get("repair_history") or [])
+    history.append(
+        {
+            "attempt": attempt,
+            "kind": kind,
+            "issue_codes": sorted(set(issue_codes)),
+            "question_indices": sorted(
+                {
+                    index
+                    for index in question_indices
+                    if isinstance(index, int)
+                    and not isinstance(index, bool)
+                    and 0 <= index < 10
+                }
+            ),
+            "result": result,
+        }
+    )
+    ctx.state["repair_history"] = history
 
 
 def _expected_quiz_difficulty(
@@ -702,7 +988,8 @@ def _build_difficulty_design_guidance(expected_difficulty: str) -> str:
             "calculations when conceptual alternatives exist. Do not open with an "
             "unusually laborious calculation, require calculator-like busywork, "
             "move into a higher-grade curriculum, or simulate difficulty merely "
-            "with larger operands and tightly clustered numeric distractors."
+            "with larger operands and tightly clustered numeric distractors. Do not "
+            "manufacture task forms that do not naturally fit a narrow topic."
         )
     return common + (
         "Provide a balanced standard-grade mix of recall, understanding, application, "
@@ -710,7 +997,8 @@ def _build_difficulty_design_guidance(expected_difficulty: str) -> str:
         "different task forms across the ten questions. For mathematics or other "
         "quantitative topics, balance computation with estimation, strategy, and "
         "short applications, and keep manual calculation proportionate to the "
-        "learning objective."
+        "learning objective. For a narrow topic, use the strongest natural variety "
+        "available rather than forcing artificial task forms."
     )
 
 
@@ -729,16 +1017,16 @@ def _build_judge_prompt(
     expected_difficulty = _expected_quiz_difficulty(previous_score, selected_difficulty)
     difficulty_design_guidance = _build_difficulty_design_guidance(expected_difficulty)
     grade_policy = get_grade_policy(grade)
+    judge_quiz_dict = {key: value for key, value in quiz_dict.items() if key != "title"}
     grade_guidance = build_grade_prompt_guidance(grade_policy)
     repair_history_guidance = ""
     if repair_history:
         repair_history_guidance = (
-            "\n--- PRIOR STRUCTURAL REPAIR HISTORY ---\n"
-            "Deterministic validation found these defects in an earlier candidate; "
-            "the current candidate has since passed deterministic validation:\n"
+            "\n--- PRIOR REPAIR HISTORY ---\n"
+            "Earlier candidates required these bounded corrections; review the "
+            "complete current quiz and do not reintroduce them. Review the complete "
+            "current quiz before deciding:\n"
             f"{json.dumps(repair_history, ensure_ascii=False, sort_keys=True)}\n"
-            "Review the complete current quiz, and pay particular attention to the "
-            "listed question indices and defect types.\n"
         )
     exact_primary_constraints = ""
     if grade_policy.stage is PedagogicalStage.PRIMARY_EARLY:
@@ -758,7 +1046,9 @@ def _build_judge_prompt(
         "5. Is the 'correct_option_index' mathematically and factually correct? "
         "CRITICAL: For each question, you MUST independently determine the factually correct answer (whether it is a mathematical calculation, a historical date, a biological definition, etc.). Then, verify that the 'correct_option_index' points EXACTLY to that correct answer inside the 0-based options array. "
         "If there is any mismatch between the factually correct answer, the option at 'correct_option_index', or the correct answer described in your explanation, you MUST set passed to false.\n"
-        "6. Are all answer options neutral and free of emojis or visual correctness cues, and do any emojis in a question avoid depicting, naming, or otherwise revealing its correct answer? If not, you MUST set passed to false.\n\n"
+        "6. Are all answer options neutral and free of emojis or visual correctness cues, and are question texts completely emoji-free? If not, you MUST set passed to false. Ignore emojis in the quiz title, explanations, and difficulty presentation; those fields are allowed and must not produce an emoji_in_question issue.\n"
+        "For every rejected quiz, return one structured issue for each material defect. Use a valid 0-based question_indices list for local defects when possible. Use an empty list for quiz-wide defects. Never rely on the summary or issue explanations to communicate routing metadata.\n"
+        "Return structured JSON matching JudgeAssessment with passed, summary, and issues.\n\n"
         "--- AUTHORITATIVE AGE-APPROPRIATE DESIGN CONTRACT ---\n"
         f"{grade_guidance}\n"
         f"{exact_primary_constraints}"
@@ -772,12 +1062,14 @@ def _build_judge_prompt(
         "Do not reject a quiz merely because '🚀 Hard' is used for a younger grade when that is the expected user-selected label. "
         "Instead, verify that its content is meaningfully challenging while remaining age-appropriate and inside the supplied grade-level scope. "
         "Reject when the label differs from the expected label, when the content is too easy for the selected mode, or when it exceeds or contradicts the grade-level scope.\n\n"
-        "Apply the following task-design contract as a required quality criterion. Reject a quiz that materially violates it:\n"
+        "Apply the following task-design contract as a required quality criterion, but reject a quiz that materially violates it only when the topic naturally supports additional distinct cognitive forms:\n"
         f"{difficulty_design_guidance}\n\n"
+        "Task variety is not a rigid numeric minimum. Only report task_variety_failure when the topic naturally supports additional distinct cognitive forms and the quiz materially repeats one form. Do not reject a narrow topic solely because it has fewer than four forms, and do not require artificial questions outside the requested scope.\n\n"
         "The upfront curriculum evaluator supplied this authoritative grade-level scope. The quiz must comply with it:\n"
         f"{curriculum_guidance or 'No additional scope guidance was available.'}\n\n"
         f"{repair_history_guidance}"
-        f"Quiz JSON:\n{json.dumps(quiz_dict)}\n"
+        "The quiz title is presentation-only and is intentionally omitted from this review payload.\n"
+        f"Quiz JSON (questions and reviewable metadata only):\n{json.dumps(judge_quiz_dict)}\n"
     )
 
 
@@ -797,38 +1089,82 @@ def _duplicate_option_question_indices(issues: Any) -> tuple[int, ...]:
     return tuple(sorted(question_indices))
 
 
-async def _repair_duplicate_options(
+class TargetedRepairError(ValueError):
+    """Raised when a targeted repair response cannot be safely assembled."""
+
+
+async def _repair_targeted_questions(
     *,
     ctx: Context,
     quiz_dict: dict[str, Any],
     question_indices: tuple[int, ...],
+    issue_records: list[dict[str, Any]],
     generation_attempt: int,
 ) -> dict[str, Any]:
-    """Regenerate only duplicated option lists while preserving quiz content."""
+    """Regenerate and normalize only the requested complete questions."""
     questions = quiz_dict.get("questions")
     if not isinstance(questions, list) or any(
         index < 0 or index >= len(questions) for index in question_indices
     ):
-        return quiz_dict
+        raise TargetedRepairError(
+            "Targeted repair requested an invalid question index."
+        )
 
     repair_input = [
-        {"question_index": index, "question": questions[index]}
+        {
+            "question_index": index,
+            "question": questions[index],
+            "issues": [
+                issue
+                for issue in issue_records
+                if index
+                in (issue.get("question_indices") or [issue.get("question_index")])
+            ],
+        }
         for index in question_indices
     ]
+    unaffected_questions = [
+        {"question_index": index, "question": question.get("question")}
+        for index, question in enumerate(questions)
+        if index not in question_indices
+        and isinstance(question, dict)
+        and isinstance(question.get("question"), str)
+    ]
     grade_policy = get_grade_policy(ctx.state.get("grade"))
+    lang = ctx.state.get("preferred_language") or "en"
+    expected_difficulty = _expected_quiz_difficulty(
+        ctx.state.get("previous_score"), ctx.state.get("selected_difficulty")
+    )
+    issue_json = json.dumps(issue_records, ensure_ascii=False, sort_keys=True)
     prompt = (
-        "Repair duplicate answer options in the supplied quiz questions. Return "
-        "one repair for every supplied 0-based question_index and no other indices. "
-        "For each repair, provide a complete list with "
+        "Repair only the supplied quiz questions. Return one complete generated "
+        "question for every supplied 0-based question_index and no other indices. "
+        "Each response question must contain question, options, correct_answer, "
+        "and explanation. The correct_answer must exactly identify one option "
+        "after Unicode normalization and whitespace collapsing; application code "
+        "will derive the public shuffled index. Use "
         f"{grade_policy.option_count_instruction}. Every "
         "option must be meaningfully distinct after Unicode normalization, trimming "
-        "or collapsing whitespace. Preserve capitalization when it carries scientific "
-        "meaning, such as genotype notation. Keep options neutral "
-        "and free of emojis or correctness cues. Preserve the question's language, "
-        "grade level, factual meaning, and the correct answer described by its "
-        "explanation. Set correct_option_index to the exact 0-based position of that "
-        "correct answer. Do not rewrite questions or explanations.\n\n"
-        f"Questions to repair:\n{json.dumps(repair_input)}"
+        "or collapsing whitespace while preserving meaningful capitalization, "
+        "such as genotype notation. Never use emojis in question text or answer "
+        "options. Preserve the requested language, grade level, subject, topic, "
+        "and expected difficulty. Correct every supplied issue and do not make "
+        "unrequested changes to the unaffected questions.\n\n"
+        f"Target language: {lang}\n"
+        f"Grade: {ctx.state.get('grade')}\n"
+        f"Subject: {ctx.state.get('subject')}\n"
+        f"Topic: {ctx.state.get('topic')}\n"
+        f"Expected difficulty: {expected_difficulty}\n"
+        f"Previous score: {ctx.state.get('previous_score', 'not available')}\n"
+        f"Selected progression difficulty: {ctx.state.get('selected_difficulty') or 'not selected'}\n"
+        f"Curriculum guidance:\n{ctx.state.get('curriculum_guidance') or 'None available.'}\n"
+        f"Relevant grounding context:\n{ctx.state.get('search_context') or 'None available.'}\n"
+        f"General generation rules:\n{build_grade_prompt_guidance(grade_policy)}\n"
+        f"{_build_difficulty_design_guidance(expected_difficulty)}\n"
+        f"Structured issues:\n{issue_json}\n"
+        f"Questions to repair:\n{json.dumps(repair_input, ensure_ascii=False)}\n"
+        f"Unaffected question texts for duplicate prevention only:\n"
+        f"{json.dumps(unaffected_questions, ensure_ascii=False)}"
     )
 
     response = await Client().aio.models.generate_content(
@@ -836,7 +1172,7 @@ async def _repair_duplicate_options(
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=QuizOptionRepairResponse,
+            response_schema=GeneratedQuestionRepairResponse,
             temperature=0.2,
         ),
     )
@@ -846,30 +1182,48 @@ async def _repair_duplicate_options(
         call_stage=CallStage.QUIZ_GENERATOR,
         generation_attempt=generation_attempt,
     )
-    repairs = QuizOptionRepairResponse.model_validate_json(response.text.strip())
-    repaired_quiz = json.loads(json.dumps(quiz_dict))
+    repairs = GeneratedQuestionRepairResponse.model_validate_json(response.text.strip())
+    returned_indices = [repair.question_index for repair in repairs.repairs]
     requested_indices = set(question_indices)
-    applied_indices: set[int] = set()
+    if (
+        len(returned_indices) != len(question_indices)
+        or len(set(returned_indices)) != len(returned_indices)
+        or set(returned_indices) != requested_indices
+    ):
+        raise TargetedRepairError(
+            "Targeted repair response did not contain exactly the requested indices."
+        )
+
+    repaired_quiz = json.loads(json.dumps(quiz_dict))
     for repair in repairs.repairs:
         index = repair.question_index
-        if index not in requested_indices or index in applied_indices:
-            continue
-        repaired_question = {
-            "options": list(repair.options),
-            "correct_option_index": repair.correct_option_index,
-        }
-        shuffle_question_options(repaired_question)
-        repaired_quiz["questions"][index]["options"] = repaired_question["options"]
-        repaired_quiz["questions"][index]["correct_option_index"] = repaired_question[
-            "correct_option_index"
-        ]
-        applied_indices.add(index)
+        repaired_question = normalize_generated_question(
+            repair.model_dump(exclude={"question_index"}),
+            grade=ctx.state.get("grade"),
+            question_index=index,
+        )
+        repaired_quiz["questions"][index] = repaired_question
     logger.info(
-        "Applied targeted duplicate-option repairs to %s of %s question(s).",
-        len(applied_indices),
-        len(question_indices),
+        "Applied targeted question repairs to %s question(s).",
+        len(repairs.repairs),
     )
     return repaired_quiz
+
+
+def _normalization_retry_guidance(error: QuizNormalizationError) -> str:
+    """Build privacy-safe retry guidance for an internal answer failure."""
+    location = (
+        f"Question {error.question_index + 1}: "
+        if error.question_index is not None
+        else ""
+    )
+    return (
+        "The previous generated candidate failed answer normalization.\n"
+        f"- {location}{error.code.value.replace('_', ' ')}.\n"
+        "Return a correct_answer that matches exactly one option after Unicode "
+        "normalization and whitespace collapsing. Do not return a correct option "
+        "index. Regenerate the complete quiz."
+    )
 
 
 @node
@@ -887,33 +1241,31 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         ctx.state["deterministic_repair_attempts"] = (
             int(ctx.state.get("deterministic_repair_attempts") or 0) + 1
         )
-    elif repair_kind == _ACADEMIC_REPAIR_KIND:
+    elif repair_kind in {_ACADEMIC_REPAIR_KIND, _ACADEMIC_TARGETED_REPAIR_KIND}:
         ctx.state["academic_repair_attempts"] = (
             int(ctx.state.get("academic_repair_attempts") or 0) + 1
         )
     ctx.state["pending_quiz_repair_kind"] = None
 
     previous_score = ctx.state.get("previous_score")
-    previous_questions = ctx.state.get("previous_questions")
-    previous_quiz_json = ctx.state.get("previous_quiz_json")
+    # Only server-loaded question text may be used for duplicate prevention.
+    # Gather-and-route clears client-provided values, and this guard keeps the
+    # generation node safe when exercised independently in tests or tools.
+    previous_questions = (
+        ctx.state.get("previous_questions")
+        if isinstance(ctx.state.get("validated_quiz_source_id"), str)
+        else None
+    )
     selected_difficulty = ctx.state.get("selected_difficulty")
     expected_difficulty = _expected_quiz_difficulty(previous_score, selected_difficulty)
     difficulty_design_guidance = _build_difficulty_design_guidance(expected_difficulty)
     grade_policy = get_grade_policy(grade)
     grade_guidance = build_grade_prompt_guidance(grade_policy)
     emoji_guidance = (
-        "Decorative emojis may appear in titles or explanations, but do not put "
-        "emojis in question text or answer options."
-        if not grade_policy.question_emojis_allowed
-        else "Decorative emojis may appear in titles, questions, or explanations, "
-        "but never in answer options and never when they reveal the correct answer."
+        "Decorative emojis may appear in titles or explanations, but never in "
+        "question text or answer options."
     )
-    question_emoji_rule = (
-        "Do not use any emoji in question text."
-        if not grade_policy.question_emojis_allowed
-        else "Question emojis are allowed only when they do not name, depict, "
-        "or otherwise reveal the correct answer."
-    )
+    question_emoji_rule = "Do not use any emoji in question text."
     explanation_length_rule = (
         "For Grades 1-2, every explanation must contain no more than two short "
         "sentences."
@@ -921,9 +1273,10 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         else "Keep each explanation concise and appropriate for the selected grade."
     )
     curriculum_guidance = ctx.state.get("curriculum_guidance", "")
-    judge_reasons = list(ctx.state.get("judge_reasons") or [])
+    judge_issues = list(ctx.state.get("judge_issues") or [])
+    judge_summary = ctx.state.get("judge_summary") or ""
     deterministic_retry_guidance = ctx.state.get("deterministic_retry_guidance", "")
-    repair_history = list(ctx.state.get("quiz_repair_history") or [])
+    repair_history = list(ctx.state.get("repair_history") or [])
 
     logger.info("Generating quiz attempt %s.", attempt)
 
@@ -931,24 +1284,126 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         ctx.state.get("deterministic_validation_issues")
     )
     previous_candidate = ctx.state.get("temp_quiz")
+
+    if (
+        repair_kind is None
+        and previous_score is not None
+        and previous_score <= 3
+        and ctx.state.get("validated_quiz_bypass_allowed")
+        and isinstance(ctx.state.get("authoritative_previous_quiz"), dict)
+    ):
+        reinforced_quiz = json.loads(
+            json.dumps(ctx.state["authoritative_previous_quiz"], ensure_ascii=False)
+        )
+        shuffle_quiz_questions(reinforced_quiz)
+        shuffle_quiz_options(reinforced_quiz)
+        reinforced_quiz["difficulty"] = expected_difficulty
+        ctx.state["temp_quiz"] = reinforced_quiz
+        logger.info("Reusing and shuffling the server-validated reinforcement quiz.")
+        return _candidate_ready_event()
+
     if (
         repair_kind == _DETERMINISTIC_REPAIR_KIND
         and duplicate_question_indices
         and isinstance(previous_candidate, dict)
     ):
         try:
-            repaired_quiz = await _repair_duplicate_options(
+            repair_issue_records = list(
+                ctx.state.get("deterministic_validation_issues") or []
+            )
+            repaired_quiz = await _repair_targeted_questions(
                 ctx=ctx,
                 quiz_dict=previous_candidate,
                 question_indices=duplicate_question_indices,
+                issue_records=repair_issue_records,
                 generation_attempt=attempt,
             )
             repaired_quiz["difficulty"] = expected_difficulty
             ctx.state["temp_quiz"] = repaired_quiz
+            _append_repair_history(
+                ctx,
+                attempt=attempt,
+                kind="targeted",
+                issue_codes=[str(issue.get("code")) for issue in repair_issue_records],
+                question_indices=list(duplicate_question_indices),
+                result="applied",
+            )
             return _candidate_ready_event()
         except Exception as e:
+            _append_repair_history(
+                ctx,
+                attempt=attempt,
+                kind="targeted",
+                issue_codes=[
+                    str(issue.get("code"))
+                    for issue in (
+                        ctx.state.get("deterministic_validation_issues") or []
+                    )
+                ],
+                question_indices=list(duplicate_question_indices),
+                result="failed",
+            )
+            ctx.state[_REPAIR_FAILURE_STATE_KEY] = "targeted_repair_failed"
+            ctx.state["quality_failure_type"] = "deterministic_validation_failed"
+            ctx.state["temp_quiz"] = None
             logger.error("Quiz option repair failed (%s).", type(e).__name__)
-            raise
+            return _candidate_ready_event()
+
+    targeted_question_indices = tuple(
+        sorted(
+            {
+                index
+                for issue in judge_issues
+                for index in (issue.get("question_indices") or [])
+                if isinstance(index, int) and not isinstance(index, bool)
+            }
+        )
+    )
+    if (
+        repair_kind == _ACADEMIC_TARGETED_REPAIR_KIND
+        and targeted_question_indices
+        and isinstance(previous_candidate, dict)
+    ):
+        try:
+            repaired_quiz = await _repair_targeted_questions(
+                ctx=ctx,
+                quiz_dict=previous_candidate,
+                question_indices=targeted_question_indices,
+                issue_records=judge_issues,
+                generation_attempt=attempt,
+            )
+            repaired_quiz["difficulty"] = expected_difficulty
+            ctx.state["temp_quiz"] = repaired_quiz
+            _append_repair_history(
+                ctx,
+                attempt=attempt,
+                kind="targeted",
+                issue_codes=[str(issue.get("code")) for issue in judge_issues],
+                question_indices=list(targeted_question_indices),
+                result="applied",
+            )
+            return _candidate_ready_event()
+        except Exception as e:
+            _append_repair_history(
+                ctx,
+                attempt=attempt,
+                kind="targeted",
+                issue_codes=[str(issue.get("code")) for issue in judge_issues],
+                question_indices=list(targeted_question_indices),
+                result="failed",
+            )
+            ctx.state[_REPAIR_FAILURE_STATE_KEY] = "targeted_repair_failed"
+            ctx.state["quality_failure_type"] = "judge_rejected"
+            ctx.state["temp_quiz"] = None
+            logger.error("Academic targeted repair failed (%s).", type(e).__name__)
+            return _candidate_ready_event()
+
+    if repair_kind == _ACADEMIC_TARGETED_REPAIR_KIND:
+        ctx.state[_REPAIR_FAILURE_STATE_KEY] = "targeted_repair_failed"
+        ctx.state["quality_failure_type"] = "judge_rejected"
+        ctx.state["temp_quiz"] = None
+        logger.error("Academic targeted repair had no usable candidate or indices.")
+        return _candidate_ready_event()
 
     grade_label = grade_policy.localized_label(lang)
     lang_name = {
@@ -980,10 +1435,11 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             "Every question must follow this grade-level scope. Do not replace it with a simpler interpretation of the topic.\n"
         )
 
-    if judge_reasons:
+    if judge_issues or judge_summary:
         prompt += (
             "\n--- REQUIRED RETRY CORRECTION ---\n"
-            f"The previous quiz attempt was rejected by the academic reviewer: {judge_reasons[-1]}\n"
+            f"The previous academic review summary was: {judge_summary}\n"
+            f"Structured academic issues:\n{json.dumps(judge_issues, ensure_ascii=False, sort_keys=True)}\n"
             "Generate a materially corrected quiz that resolves this feedback. Do not repeat the rejected difficulty, scope, or factual issue.\n"
         )
 
@@ -996,8 +1452,8 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
 
     if repair_history:
         prompt += (
-            "\n--- PRIOR STRUCTURAL REPAIR HISTORY ---\n"
-            "Earlier candidates required the following deterministic corrections:\n"
+            "\n--- PRIOR REPAIR HISTORY ---\n"
+            "Earlier candidates required the following bounded corrections:\n"
             f"{json.dumps(repair_history, ensure_ascii=False, sort_keys=True)}\n"
             "Do not reintroduce these defect types, especially at the listed "
             "0-based question indices.\n"
@@ -1016,7 +1472,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         f"2. Each question has {grade_policy.option_count_instruction}.\n"
         "3. EXACTLY one option must be correct.\n"
         "4. Every option within one question must be meaningfully distinct and unique after Unicode normalization and trimming or collapsing whitespace. Preserve capitalization when it carries scientific meaning, such as genotype notation. Before returning the JSON, compare every pair of options in each question and replace repeated or equivalent choices with genuinely different distractors.\n"
-        "5. Set 'correct_option_index' to the exact 0-based index of the correct option inside the options array. CRITICAL: Double-check that your 'correct_option_index' points exactly to the mathematically or factually correct option among the provided options, and matches the correct answer stated in your explanation.\n"
+        "5. Set 'correct_answer' to the exact text of the one correct option. Do not return a correct_option_index; application code will normalize the answer and derive the public index after shuffling.\n"
         "6. Every answer option must be neutral, text-only content. Never put emojis, check marks, crosses, stars, labels such as 'correct', or any other visual answer cue in an option. "
         f"{question_emoji_rule}\n"
         "7. Keep the explanations warm, educational, clear, and highly encouraging (explain why the correct answer is right and why others are wrong in a child-friendly mascot way). "
@@ -1039,8 +1495,11 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
                 f"- You can make slight, minor improvements or rephrasings to make the questions or explanations even clearer/simpler, but they must cover the exact same questions and concepts.\n"
                 f"- Set the 'difficulty' field to exactly: '🌱 Easy' (since we are repeating for reinforcement and practice).\n"
             )
-            if previous_quiz_json:
-                adaptation_instructions += f"Here is the exact previous quiz JSON for reference:\n{previous_quiz_json}\n"
+            adaptation_instructions += (
+                "No trusted server-side previous quiz was available for direct "
+                "reinforcement reuse. Generate a complete Easy quiz and keep the "
+                "questions clear and within the requested scope.\n"
+            )
         elif previous_score >= 8:
             # Score >= 8/10: User-Choice Progression Mode (choose between ⭐ Medium and 🚀 Hard)
             if expected_difficulty == "🚀 Hard":
@@ -1096,7 +1555,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=Quiz,
+                response_schema=GeneratedQuiz,
                 temperature=0.6,
             ),
         )
@@ -1106,16 +1565,59 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
             call_stage=CallStage.QUIZ_GENERATOR,
             generation_attempt=attempt,
         )
-        quiz_dict = json.loads(response.text.strip())
-        quiz_dict = shuffle_quiz_options(quiz_dict)
+        generated_quiz = GeneratedQuiz.model_validate_json(response.text.strip())
+        quiz_dict = normalize_generated_quiz(
+            generated_quiz,
+            grade=grade,
+        )
         # Keep user-visible metadata deterministic and consistent with the
         # adaptive mode reviewed by the academic judge.
         quiz_dict["difficulty"] = expected_difficulty
         ctx.state["temp_quiz"] = quiz_dict
+        if repair_kind in {_DETERMINISTIC_REPAIR_KIND, _ACADEMIC_REPAIR_KIND}:
+            issue_records = (
+                ctx.state.get("deterministic_validation_issues") or []
+                if repair_kind == _DETERMINISTIC_REPAIR_KIND
+                else judge_issues
+            )
+            _append_repair_history(
+                ctx,
+                attempt=attempt,
+                kind="full_regeneration",
+                issue_codes=[str(issue.get("code")) for issue in issue_records],
+                question_indices=[
+                    index
+                    for issue in issue_records
+                    for index in (
+                        issue.get("question_indices") or [issue.get("question_index")]
+                    )
+                    if isinstance(index, int) and not isinstance(index, bool)
+                ],
+                result="applied",
+            )
+        return _candidate_ready_event()
+    except QuizNormalizationError as e:
+        failures = list(ctx.state.get("normalization_failures") or [])
+        failures.append(e.as_dict())
+        ctx.state["normalization_failures"] = failures
+        ctx.state["deterministic_retry_guidance"] = _normalization_retry_guidance(e)
+        ctx.state["temp_quiz"] = None
+        if repair_kind in {_ACADEMIC_TARGETED_REPAIR_KIND}:
+            ctx.state[_REPAIR_FAILURE_STATE_KEY] = "targeted_repair_failed"
+        logger.warning("Generated quiz normalization failed (%s).", e.code.value)
         return _candidate_ready_event()
     except Exception as e:
+        failures = list(ctx.state.get("normalization_failures") or [])
+        failures.append({"code": QuizNormalizationCode.INVALID_GENERATED_QUIZ.value})
+        ctx.state["normalization_failures"] = failures
+        ctx.state["deterministic_retry_guidance"] = (
+            "The previous model response could not be normalized into the required "
+            "quiz schema. Return exactly 10 questions with a correct_answer matching "
+            "exactly one option in every question."
+        )
+        ctx.state["temp_quiz"] = None
         logger.error("Quiz generation failed (%s).", type(e).__name__)
-        raise
+        return _candidate_ready_event()
 
 
 def _candidate_ready_event() -> Event:
@@ -1148,6 +1650,18 @@ def _route_after_failed_judge(academic_repair_attempts: int) -> str:
 @node
 async def deterministic_quiz_validation(ctx: Context, node_input: Any) -> Event:
     """Reject structural defects and answer cues before the expensive LLM judge."""
+    if ctx.state.get(_REPAIR_FAILURE_STATE_KEY):
+        result = validate_quiz_candidate(None, grade=ctx.state.get("grade"))
+        ctx.state["deterministic_validation_issues"] = [
+            issue.as_dict() for issue in result.issues
+        ]
+        emit_quiz_validation_event(
+            event="quiz_validation_retry_exhausted",
+            generation_attempt=int(ctx.state.get("generation_attempts") or 0),
+            result=result,
+        )
+        return _workflow_event(route="quality_failure")
+
     result = validate_quiz_candidate(
         ctx.state.get("temp_quiz"), grade=ctx.state.get("grade")
     )
@@ -1168,7 +1682,11 @@ async def deterministic_quiz_validation(ctx: Context, node_input: Any) -> Event:
         ctx.state["deterministic_retry_guidance"] = ""
         return _workflow_event(route="valid")
 
-    guidance = build_retry_guidance(result)
+    guidance = (
+        ctx.state.get("deterministic_retry_guidance")
+        if ctx.state.get("temp_quiz") is None
+        else None
+    ) or build_retry_guidance(result)
     ctx.state["deterministic_retry_guidance"] = guidance
     ctx.state["quality_failure_type"] = "deterministic_validation_failed"
     route = _route_after_failed_deterministic_validation(
@@ -1177,23 +1695,6 @@ async def deterministic_quiz_validation(ctx: Context, node_input: Any) -> Event:
     ctx.state["pending_quiz_repair_kind"] = (
         _DETERMINISTIC_REPAIR_KIND if route == "retry" else None
     )
-    if route == "retry":
-        repair_history = list(ctx.state.get("quiz_repair_history") or [])
-        repair_history.append(
-            {
-                "repair_kind": "structural",
-                "issue_codes": sorted({issue.code.value for issue in result.issues}),
-                "question_indices": sorted(
-                    {
-                        issue.question_index
-                        for issue in result.issues
-                        if isinstance(issue.question_index, int)
-                        and not isinstance(issue.question_index, bool)
-                    }
-                ),
-            }
-        )
-        ctx.state["quiz_repair_history"] = repair_history
     emit_quiz_validation_event(
         event=(
             "quiz_validation_retry_exhausted"
@@ -1213,12 +1714,8 @@ async def deterministic_quiz_validation(ctx: Context, node_input: Any) -> Event:
 
 @node
 async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
-    """Strict Reviewer: evaluates the generated quiz structure and content accuracy. Loops back on failures."""
+    """Review the complete assembled quiz and route structured failures safely."""
     quiz_dict = ctx.state.get("temp_quiz")
-
-    # Track attempts using our state counter instead of unreliable/non-incrementing ctx.attempt_count inside manual loops
-    attempts = ctx.state.get("judge_attempts", 0) + 1
-    ctx.state["judge_attempts"] = attempts
 
     if not quiz_dict:
         failure_route = _route_after_failed_judge(
@@ -1229,14 +1726,20 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         )
         return _workflow_event(route=failure_route)
 
-    # Optimization: In Reinforcement Mode (score <= 3), we shuffle the previously validated questions.
-    # We can skip the LLM Judge review call completely to save token usage and cut latency by 1.5 - 2.5 seconds!
     previous_score = ctx.state.get("previous_score")
-    if previous_score is not None and previous_score <= 3:
+    if (
+        previous_score is not None
+        and previous_score <= 3
+        and ctx.state.get("validated_quiz_bypass_allowed")
+    ):
         logger.info(
-            "Reinforcement mode: skipping LLM-as-a-judge review on shuffled questions."
+            "Reinforcement mode: skipping Judge for current deterministic validation "
+            "of a server-validated quiz."
         )
         return _workflow_event(route="success")
+
+    attempts = int(ctx.state.get("judge_attempts") or 0) + 1
+    ctx.state["judge_attempts"] = attempts
 
     grade = ctx.state.get("grade")
     subject = ctx.state.get("subject")
@@ -1251,7 +1754,7 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         curriculum_guidance=curriculum_guidance,
         previous_score=previous_score,
         selected_difficulty=ctx.state.get("selected_difficulty"),
-        repair_history=list(ctx.state.get("quiz_repair_history") or []),
+        repair_history=list(ctx.state.get("repair_history") or []),
     )
 
     client = Client()
@@ -1279,27 +1782,60 @@ async def llm_as_a_judge(ctx: Context, node_input: Any) -> Event:
         )
 
         if assessment.passed:
+            _append_judge_history(
+                ctx,
+                assessment=assessment,
+                attempt=attempts,
+                selected_route="success",
+            )
             return _workflow_event(route="success")
-        else:
-            failure_route = _route_after_failed_judge(
-                int(ctx.state.get("academic_repair_attempts") or 0)
-            )
-            judge_reasons = list(ctx.state.get("judge_reasons") or [])
-            judge_reasons.append(assessment.reason)
-            ctx.state["judge_reasons"] = judge_reasons
-            ctx.state["quality_failure_type"] = "judge_rejected"
+
+        requested_route = _judge_route(assessment)
+        failure_route = _route_after_failed_judge(
+            int(ctx.state.get("academic_repair_attempts") or 0)
+        )
+        selected_route = (
+            requested_route if failure_route == "retry" else "quality_failure"
+        )
+        _append_judge_history(
+            ctx,
+            assessment=assessment,
+            attempt=attempts,
+            selected_route=selected_route,
+        )
+        ctx.state["judge_summary"] = assessment.summary
+        ctx.state["judge_issues"] = [
+            issue.model_dump(mode="json") for issue in assessment.issues
+        ]
+        ctx.state["quality_failure_type"] = "judge_rejected"
+        if failure_route == "retry":
             ctx.state["pending_quiz_repair_kind"] = (
-                _ACADEMIC_REPAIR_KIND if failure_route == "retry" else None
+                _ACADEMIC_TARGETED_REPAIR_KIND
+                if requested_route == "targeted"
+                else _ACADEMIC_REPAIR_KIND
             )
-            logger.warning(
-                "Judge failed validation. Routing to %s.",
-                failure_route,
-            )
-            return _workflow_event(route=failure_route)
+        else:
+            ctx.state["pending_quiz_repair_kind"] = None
+        logger.warning(
+            "Judge failed validation. Requested route=%s, selected route=%s.",
+            requested_route,
+            selected_route,
+        )
+        return _workflow_event(route=failure_route)
     except Exception as e:
-        judge_reasons = list(ctx.state.get("judge_reasons") or [])
-        judge_reasons.append(f"Judge unavailable: {type(e).__name__}")
-        ctx.state["judge_reasons"] = judge_reasons
+        history = list(ctx.state.get("judge_history") or [])
+        history.append(
+            {
+                "attempt": attempts,
+                "passed": False,
+                "issue_codes": ["judge_exception"],
+                "question_indices": [],
+                "selected_route": "quality_failure",
+            }
+        )
+        ctx.state["judge_history"] = history
+        ctx.state["judge_summary"] = ""
+        ctx.state["judge_issues"] = []
         ctx.state["quality_failure_type"] = "judge_exception"
         logger.error(
             "LLM Judge failed (%s). Blocking release of unvalidated quiz.",
@@ -1329,14 +1865,24 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
         yield _quality_failure_event(ctx)
         return
 
+    validated_quiz_id = _save_validated_quiz_best_effort(ctx, quiz_dict)
+
     ctx.state["judge_attempts"] = 0
     ctx.state["generation_attempts"] = 0
     ctx.state["deterministic_repair_attempts"] = 0
     ctx.state["academic_repair_attempts"] = 0
     ctx.state["pending_quiz_repair_kind"] = None
+    ctx.state[_REPAIR_FAILURE_STATE_KEY] = None
     ctx.state["deterministic_retry_guidance"] = ""
     ctx.state["deterministic_validation_issues"] = []
-    ctx.state["quiz_repair_history"] = []
+    ctx.state["judge_history"] = []
+    ctx.state["judge_issues"] = []
+    ctx.state["judge_summary"] = ""
+    ctx.state["repair_history"] = []
+    ctx.state["normalization_failures"] = []
+    ctx.state["authoritative_previous_quiz"] = None
+    ctx.state["validated_quiz_bypass_allowed"] = False
+    ctx.state["validated_quiz_source_id"] = validated_quiz_id
 
     logger.info("Finalizing validated quiz.")
     set_invocation_outcome(ctx, TerminalOutcome.SUCCESS)
@@ -1354,7 +1900,10 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     )
 
     # Return structured Quiz object as the workflow's terminal output
-    yield _validated_quiz_event(quiz_dict)
+    yield _validated_quiz_event(
+        quiz_dict,
+        validated_quiz_id=validated_quiz_id,
+    )
 
 
 @node
@@ -1363,6 +1912,52 @@ async def ask_more_node(ctx: Context, node_input: Any) -> Event:
     logger.info("Mascot prompt asking for more information.")
     set_invocation_outcome(ctx, TerminalOutcome.NEEDS_INPUT)
     return _workflow_event()
+
+
+def _quality_usage_summary(ctx: Context) -> UsageSummary:
+    """Build the bounded usage shape required by quality diagnostics."""
+    usage = InvocationTokenUsage.from_state(ctx.state.get(_TOKEN_USAGE_STATE_KEY))
+    summary = usage.as_summary_fields()
+    return UsageSummary(
+        model_call_count=summary["model_call_count"],
+        prompt_token_count=summary["prompt_token_count"],
+        candidate_token_count=summary["candidates_token_count"],
+        thoughts_token_count=summary["thoughts_token_count"],
+        total_token_count=summary["total_token_count"],
+        stage_total_token_counts=summary["stage_total_token_counts"],
+    )
+
+
+def _quality_duration_ms(ctx: Context) -> int:
+    """Return a bounded invocation duration for diagnostics."""
+    started_at = ctx.state.get(_INVOCATION_START_STATE_KEY)
+    if not isinstance(started_at, (int, float)):
+        return 0
+    return min(max(int((time.perf_counter() - started_at) * 1000), 0), 3_600_000)
+
+
+def _save_validated_quiz_best_effort(
+    ctx: Context, quiz_dict: dict[str, Any]
+) -> str | None:
+    """Persist approved quiz provenance without blocking approved output."""
+    source_id = ctx.state.get("validated_quiz_source_id")
+    if ctx.state.get("validated_quiz_bypass_allowed") and isinstance(source_id, str):
+        return source_id
+
+    build_info = get_build_info()
+    try:
+        return FirestoreRepository().save_validated_quiz(
+            quiz_dict,
+            QuizContext.from_state(ctx.state),
+            validation_contract_version=VALIDATION_CONTRACT_VERSION,
+            service_version=build_info["version"] or "dev",
+        )
+    except FirestorePersistenceError:
+        logger.warning(
+            "Could not persist validated quiz provenance; future reinforcement "
+            "requests will use normal generation and Judge review."
+        )
+        return None
 
 
 def _save_quality_failure_best_effort(failure: QuizQualityFailure) -> None:
@@ -1374,20 +1969,48 @@ def _save_quality_failure_best_effort(failure: QuizQualityFailure) -> None:
         logger.warning("Could not persist quiz quality failure diagnostic.")
 
 
+def _build_quality_failure(ctx: Context) -> QuizQualityFailure:
+    """Validate the bounded diagnostic record independently of error output."""
+    build_info = get_build_info()
+    failure_type = ctx.state.get("quality_failure_type")
+    if failure_type not in {
+        "deterministic_validation_failed",
+        "final_invariant_failed",
+        "judge_rejected",
+        "judge_exception",
+    }:
+        failure_type = "judge_rejected"
+    return QuizQualityFailure(
+        quiz_context=QuizContext.from_state(ctx.state),
+        failure_type=failure_type,
+        generation_attempts=int(ctx.state.get("generation_attempts") or 0),
+        judge_attempts=int(ctx.state.get("judge_attempts") or 0),
+        academic_repair_attempts=int(ctx.state.get("academic_repair_attempts") or 0),
+        deterministic_repair_attempts=int(
+            ctx.state.get("deterministic_repair_attempts") or 0
+        ),
+        judge_history=list(ctx.state.get("judge_history") or []),
+        repair_history=list(ctx.state.get("repair_history") or []),
+        normalization_failures=list(ctx.state.get("normalization_failures") or []),
+        usage_summary=_quality_usage_summary(ctx),
+        duration_ms=_quality_duration_ms(ctx),
+        service_version=build_info["version"] or "dev",
+        deployment_revision=build_info["short_commit_sha"] or "dev",
+        grounding_title=ctx.state.get("grounding_title"),
+        grounding_discarded=bool(ctx.state.get("grounding_discarded", False)),
+    )
+
+
 def _quality_failure_event(ctx: Context) -> Event:
     """Persist diagnostics and build the localized fail-closed response."""
     set_invocation_outcome(ctx, TerminalOutcome.QUALITY_FAILURE)
     lang = ctx.state.get("preferred_language") or "en"
-    failure = QuizQualityFailure(
-        quiz_context=QuizContext.from_state(ctx.state),
-        failure_type=ctx.state.get("quality_failure_type") or "judge_rejected",
-        judge_attempts=int(ctx.state.get("judge_attempts") or 0),
-        judge_reasons=list(ctx.state.get("judge_reasons") or []),
-        validation_issues=list(ctx.state.get("deterministic_validation_issues") or []),
-        grounding_title=ctx.state.get("grounding_title"),
-        grounding_discarded=bool(ctx.state.get("grounding_discarded", False)),
-    )
-    _save_quality_failure_best_effort(failure)
+    try:
+        _save_quality_failure_best_effort(_build_quality_failure(ctx))
+    except Exception:
+        # Diagnostics must never prevent the response or state cleanup. Do not
+        # log exception details: validation errors can include generated content.
+        logger.warning("Could not construct or persist quiz quality diagnostics.")
 
     ctx.state["temp_quiz"] = None
     ctx.state["judge_attempts"] = 0
@@ -1395,9 +2018,17 @@ def _quality_failure_event(ctx: Context) -> Event:
     ctx.state["deterministic_repair_attempts"] = 0
     ctx.state["academic_repair_attempts"] = 0
     ctx.state["pending_quiz_repair_kind"] = None
+    ctx.state[_REPAIR_FAILURE_STATE_KEY] = None
     ctx.state["deterministic_retry_guidance"] = ""
     ctx.state["deterministic_validation_issues"] = []
-    ctx.state["quiz_repair_history"] = []
+    ctx.state["judge_history"] = []
+    ctx.state["judge_issues"] = []
+    ctx.state["judge_summary"] = ""
+    ctx.state["repair_history"] = []
+    ctx.state["normalization_failures"] = []
+    ctx.state["authoritative_previous_quiz"] = None
+    ctx.state["validated_quiz_bypass_allowed"] = False
+    ctx.state["validated_quiz_source_id"] = None
 
     messages = {
         "de": "Ich konnte dieses Quiz diesmal nicht zuverlässig prüfen. Bitte versuche es noch einmal – ich möchte dir nur ein fachlich passendes Quiz zeigen.",

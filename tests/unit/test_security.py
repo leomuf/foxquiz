@@ -35,7 +35,7 @@ from app.app_utils.request_context import (
     client_ip_ctx,
     client_locale_ctx,
 )
-from app.app_utils.typing import QuizContext, QuizQualityFailure
+from app.app_utils.typing import QuizContext, QuizQualityFailure, UsageSummary
 from app.database.firestore_repo import (
     FirestorePersistenceError,
     FirestoreRepository,
@@ -374,6 +374,29 @@ def test_firestore_repo_quiz(mock_repo):
     assert expired is None
 
 
+def test_normal_persistence_strips_internal_correct_answer(mock_repo):
+    """Shared quiz payloads never persist the internal generation answer."""
+    quiz_data = {
+        "title": "Cells",
+        "questions": [
+            {
+                "question": "What is a cell?",
+                "options": ["A", "B", "C"],
+                "correct_option_index": 0,
+                "correct_answer": "A",
+                "explanation": "Explanation.",
+            }
+        ],
+    }
+
+    assert mock_repo.save_shared_quiz("public-quiz", quiz_data) is True
+    stored = mock_repo._get_mock_doc("quizzes", "public-quiz")
+    assert "correct_answer" not in stored["quiz_data"]["questions"][0]
+    assert (
+        "correct_answer" not in mock_repo.get_shared_quiz("public-quiz")["questions"][0]
+    )
+
+
 def test_firestore_repo_budgets(mock_repo):
     """Verify getting, incrementing, and automatic daily resets for token budgets."""
     budget_id = "test_user_budget"
@@ -441,8 +464,30 @@ def test_firestore_repo_feedback(mock_repo):
     quality_failure = QuizQualityFailure(
         quiz_context=quiz_context,
         failure_type="judge_rejected",
+        generation_attempts=2,
         judge_attempts=2,
-        judge_reasons=["Topic mismatch", "Incorrect answer index"],
+        academic_repair_attempts=1,
+        deterministic_repair_attempts=0,
+        judge_history=[
+            {
+                "attempt": 1,
+                "passed": False,
+                "issue_codes": ["factual_error"],
+                "question_indices": [0],
+                "selected_route": "full_regeneration",
+            }
+        ],
+        usage_summary=UsageSummary(
+            model_call_count=2,
+            prompt_token_count=10,
+            candidate_token_count=10,
+            thoughts_token_count=0,
+            total_token_count=20,
+            stage_total_token_counts={},
+        ),
+        duration_ms=100,
+        service_version="dev",
+        deployment_revision="dev",
         grounding_title=None,
         grounding_discarded=True,
     )
@@ -452,10 +497,8 @@ def test_firestore_repo_feedback(mock_repo):
     assert stored_failure["quiz_context"]["grade"] == "Klasse 12"
     assert stored_failure["failure_type"] == "judge_rejected"
     assert stored_failure["judge_attempts"] == 2
-    assert stored_failure["judge_reasons"] == [
-        "Topic mismatch",
-        "Incorrect answer index",
-    ]
+    assert stored_failure["judge_history"][0]["issue_codes"] == ["factual_error"]
+    assert stored_failure["schema_version"] == 2
     assert stored_failure["grounding_discarded"] is True
 
     # Fetch aggregated metrics

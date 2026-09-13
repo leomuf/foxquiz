@@ -24,18 +24,18 @@ Discover why we built FoxQuiz, see a full feature demo, and explore the technica
 
 FoxQuiz adapts its question structure, language complexity, and cognitive requirements to match the developmental stage of learners from early primary through secondary school:
 
-| Grade Level | Pedagogical Stage | Option Count | Explanation Length | Negative Questions (*"Which is NOT..."*) | Question Emojis | Pedagogical Focus |
+| Grade Level | Pedagogical Stage | Option Count | Explanation Length | Negative Questions (*"Which is NOT..."*) | Question Text / Option Emojis | Pedagogical Focus |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Grades 1–2** | `PRIMARY_EARLY` (Ages 6–8) | **Exactly 3** | Max 2 short sentences | ❌ **Strictly Forbidden** | ✅ Allowed (decorative) | Concrete everyday vocabulary, beginner-reader friendly |
-| **Grades 3–4** | `PRIMARY_LATE` (Ages 8–10) | 3 to 5 | Max 3 short sentences | ❌ **Forbidden** | ✅ Allowed (decorative) | Basic academic concepts, simple cause-and-effect |
-| **Grades 5–10** | `LOWER_SECONDARY` (Ages 10–16) | 3 to 5 | Standard (detailed) | ✅ Allowed | ✅ Allowed (decorative) | Domain-specific terminology, logical relations |
-| **Grades 11–13** | `UPPER_SECONDARY` (Ages 16–19) | 3 to 5 | Comprehensive academic | ✅ Allowed | ✅ Allowed (decorative) | Abstract analytical reasoning, high-school exam rigor |
+| **Grades 1–2** | `PRIMARY_EARLY` (Ages 6–8) | **Exactly 3** | Max 2 short sentences | ❌ **Strictly Forbidden** | ❌ **Forbidden in questions/options** | Concrete everyday vocabulary, beginner-reader friendly |
+| **Grades 3–4** | `PRIMARY_LATE` (Ages 8–10) | 3 to 5 | Max 3 short sentences | ❌ **Forbidden** | ❌ **Forbidden in questions/options** | Basic academic concepts, simple cause-and-effect |
+| **Grades 5–8** | `SECONDARY_LOWER` (Ages 10–14) | 3 to 5 | Standard (detailed) | ✅ Allowed | ❌ **Forbidden in questions/options** | Domain-specific terminology, logical relations |
+| **Grades 9–12** | `SECONDARY_UPPER` (Ages 14–18) | 3 to 5 | Comprehensive academic | ✅ Allowed | ❌ **Forbidden in questions/options** | Abstract analytical reasoning, high-school exam rigor |
 
 ### Key Pedagogical Principles for Primary Grades (1–4):
 1. **Cognitive Load & Reading Accessibility (3 Options for Grades 1–2):** Presenting 4–5 choices overwhelms early readers. Exactly 3 choices provides the optimal balance between guessing probability and reading effort.
 2. **Negation Avoidance:** Young children struggle with double negation and inverted logic (*"Which animal does NOT have fur?"*). FoxQuiz strictly bans negative questions in Grades 1–4 to prevent unintended confusion.
 3. **Bite-Sized Explanations:** Explanations for early grades are limited to 1–2 encouraging, easily digestible sentences.
-4. **Answer-Safe Decorative Emojis:** Friendly emojis are permitted in question titles and text to make learning engaging for young kids, but are strictly prohibited from appearing in answer choices or giving away correct answers.
+4. **Answer-Safe Presentation Emojis:** Friendly emojis may appear in the title, explanation, or difficulty presentation, but deterministic validation keeps question text and answer options emoji-free and rejects visual answer cues.
 
 ---
 
@@ -197,11 +197,17 @@ To allow FoxQuiz to be safely published as a **public GitHub repository** withou
 The diagram separates the surrounding **FastAPI request handling**, the
 invocation-wide **ADK plugin**, and the graph-based **Workflow**. A plugin wraps
 the whole invocation; it is not a workflow node. Nodes perform work, while
-edges connect nodes and may select a route emitted by the preceding node.
+edges connect nodes and may select a route emitted by the preceding node. The
+adaptive paths also show the Firestore-backed provenance check inside
+`gather_and_route`, before curriculum preflight. A supplied server-issued ID
+allows the server to load previous question texts for adaptive generation;
+only trusted reinforcement may reuse the stored quiz directly. Internal
+decisions are expanded for clarity, including the Judge bypass inside
+`llm_as_a_judge`; they are not additional Workflow nodes.
 
 ```mermaid
 flowchart TD
-    User["Browser: grade, subject, topic, language"] --> SSE["POST /run_sse"]
+    User["Browser: structured quiz request<br/>adaptive requests include validated_quiz_id when available"] --> SSE["POST /run_sse"]
 
     subgraph HTTP["FastAPI request layer"]
         SSE --> Middleware["Request metadata middleware"]
@@ -241,28 +247,48 @@ flowchart TD
         Gate -- "blocked edge" --> BlockNode["security_block_node"]
         BlockNode --> BlockSSE["Structured blocked response"]
 
-        Gate -- "allowed edge" --> Gather["◆ LLM<br/>gather_and_route<br/>load validated request and check curriculum"]
+        Gate -- "allowed edge" --> GatherEntry
+        subgraph GatherFlow["gather_and_route — single Workflow node with internal flow"]
+            GatherEntry["Load validated request<br/>clear client-supplied previous quiz data"] --> HasProvenance{"validated_quiz_id supplied?"}
+            HasProvenance -- "No" --> Gather["◆ LLM<br/>Curriculum preflight"]
+            HasProvenance -- "Yes: any request mode" --> ProvenanceRead["Firestore read<br/>validated_quizzes"]
+            ProvenanceRead --> ProvenanceValid{"Record exists, unexpired,<br/>ID/context/fingerprint/contract match,<br/>and current deterministic validation passes?"}
+            ProvenanceValid -- "Yes" --> PreviousSource["Load authoritative previous quiz and question texts<br/>allow direct reuse only when score ≤ 3"]
+            PreviousSource --> Gather
+            ProvenanceValid -- "No or read failure" --> Gather
+        end
         Gather -- "ask_more edge" --> AskMore["ask_more_node<br/>terminal clarification branch"]
-        Gather -- "generate_quiz edge" --> Search["decision_and_search<br/>relevant curriculum grounding"]
+        Gather -- "generate_quiz edge: all modes" --> Search["decision_and_search<br/>reuse search_context when present;<br/>otherwise query relevant Wikipedia grounding"]
 
         subgraph QuizGeneration["quiz_generation — single Workflow node with internal flow"]
             direction TB
-            GenerationEntry["Invocation entry"] --> RepairDecision{"Retry with only<br/>duplicate-option issues?"}
-            RepairDecision -- "Yes" --> TargetedRepair["◆ LLM<br/>Targeted repair<br/>replace affected option lists and indices"]
-            RepairDecision -- "No" --> FullGeneration["◆ LLM<br/>Generate complete quiz<br/>initial generation or full retry"]
-            TargetedRepair --> ShuffleRepair["Randomized option permutation<br/>shuffle_question_options"]
-            FullGeneration --> ShuffleQuiz["Randomized option permutation<br/>shuffle_quiz_options (index tracking)"]
-            ShuffleRepair --> CandidateReady["Return candidate_ready event"]
-            ShuffleQuiz --> CandidateReady
+            GenerationEntry["Invocation entry"] --> RepairDecision{"Select candidate source<br/>or repair route"}
+            RepairDecision -- "trusted reinforcement; no pending repair" --> ReuseQuiz["Reuse stored public quiz<br/>shuffle questions and options;<br/>track known index; set Easy difficulty"]
+            RepairDecision -- "targeted academic repair" --> TargetedRepair["◆ LLM<br/>Repair complete affected questions<br/>return internal correct_answer"]
+            RepairDecision -- "duplicate-only repair" --> OptionRepair["◆ LLM<br/>Repair complete affected questions<br/>return internal correct_answer"]
+            RepairDecision -- "initial or full regeneration" --> FullGeneration["◆ LLM<br/>Generate complete quiz<br/>return internal correct_answer"]
+            TargetedRepair --> NormalizeAffected["Common normalization for affected questions<br/>match answer; shuffle options; derive index;<br/>remove correct_answer; assemble with unaffected questions"]
+            OptionRepair --> NormalizeAffected
+            FullGeneration --> NormalizeQuiz["Common normalization boundary<br/>canonicalize correct_answer; shuffle options;<br/>derive public index; remove internal field"]
+            NormalizeAffected --> CandidateReady["Candidate ready"]
+            NormalizeQuiz --> CandidateReady
+            ReuseQuiz --> CandidateReady
         end
 
         Search --> GenerationEntry
-        CandidateReady --> Validate["deterministic_quiz_validation<br/>structure and answer-cue checks"]
-        Validate -- "valid edge" --> Judge["◆ LLM<br/>llm_as_a_judge<br/>semantic and factual review"]
+        CandidateReady --> Validate["deterministic_quiz_validation<br/>public structure, duplicate options,<br/>index bounds, emoji, and answer-cue checks"]
+        Validate -- "valid edge" --> JudgeGate{"Trusted reinforcement<br/>reuse?"}
+        JudgeGate -- "Yes" --> QuizOutput["quiz_output_node<br/>final invariant and validated quiz"]
+        JudgeGate -- "No" --> Judge["◆ LLM<br/>llm_as_a_judge<br/>semantic and factual review"]
         Validate -- "retry edge: structural repair budget" --> GenerationEntry
         Validate -- "quality_failure edge" --> QualityFailure["quality_failure_node<br/>safe retry message and diagnostic"]
-        Judge -- "retry edge: academic repair budget" --> GenerationEntry
-        Judge -- "success edge" --> QuizOutput["quiz_output_node<br/>final invariant and validated quiz"]
+        Judge -- "success edge" --> QuizOutput
+        Judge -- "local issue + valid indices" --> AcademicTargetGate{"Academic repair<br/>unused?"}
+        AcademicTargetGate -- "Yes: targeted" --> GenerationEntry
+        AcademicTargetGate -- "No" --> QualityFailure
+        Judge -- "global, mixed, unknown,<br/>or invalid indices" --> AcademicFullGate{"Academic repair<br/>unused?"}
+        AcademicFullGate -- "Yes: full regeneration" --> GenerationEntry
+        AcademicFullGate -- "No" --> QualityFailure
         Judge -- "quality_failure edge" --> QualityFailure
     end
     NoBlock --> Start
@@ -271,7 +297,9 @@ flowchart TD
     Gather -. "clarification SSE content" .-> FrontendSetup["Frontend setup screen"]
 
     BlockSSE -. "SSE content" .-> FrontendBlock["Frontend block screen"]
-    QuizOutput -. "SSE output" .-> FrontendQuiz["Frontend quiz wizard"]
+    QuizOutput --> ProvenanceWrite["Best-effort Firestore write/reuse<br/>validated_quizzes; return validated_quiz_id"]
+    ProvenanceWrite -- "success or write failure" --> FrontendQuiz["Frontend quiz wizard<br/>public quiz only; no correct_answer"]
+    FrontendQuiz -. "adaptive request with validated_quiz_id" .-> SSE
     QualityFailure -. "SSE content" .-> FrontendSetup
 
     BlockSSE --> After["after_run_callback"]
@@ -287,10 +315,10 @@ flowchart TD
     classDef llmCall stroke:#ffb03a,stroke-width:4px
     class User,SSE,Middleware,Context,Runner bestCase
     class Before,Config,Ban,Budget,LocalScan,Payload,Classifier,ValidDecision,SafeDecision,NoBlock bestCase
-    class Start,Gate,Gather,Search bestCase
-    class GenerationEntry,RepairDecision,FullGeneration,ShuffleQuiz,CandidateReady bestCase
-    class Validate,Judge,QuizOutput,FrontendQuiz bestCase
-    class Classifier,Gather,TargetedRepair,FullGeneration,Judge llmCall
+    class Start,Gate,GatherEntry,HasProvenance,Gather,Search bestCase
+    class GenerationEntry,RepairDecision,FullGeneration,NormalizeQuiz,CandidateReady bestCase
+    class Validate,JudgeGate,Judge,QuizOutput,ProvenanceWrite,FrontendQuiz bestCase
+    class Classifier,Gather,TargetedRepair,OptionRepair,FullGeneration,Judge llmCall
 ```
 
 **Diagram legend**
@@ -316,8 +344,9 @@ flowchart TD
 | Curriculum compatibility preflight | gather_and_route | `gemini-2.5-flash` | `0.0` | After grade, subject, and topic are known, it checks whether their combination is suitable and sufficiently clear before any quiz is generated |
 | Mascot incompatibility response | gather_and_route | `gemini-2.5-flash` | `0.7` | After the curriculum preflight finds an incompatible grade, subject, and topic combination, the mascot explains the issue and suggests suitable alternatives |
 | Complete quiz generation | Generate complete quiz | `gemini-2.5-flash` | `0.6` | Initial generation or a non-repair retry |
-| Targeted duplicate-option repair | Targeted repair | `gemini-2.5-flash` | `0.2` | When the first candidate fails deterministic validation only because of duplicate options and the structural repair allowance remains; it replaces only the affected option lists and answer indices |
-| Academic quality review | llm_as_a_judge | `gemini-2.5-flash` | `0.1` | After deterministic validation passes, it reviews factual correctness and grade, curriculum, and difficulty alignment; it is skipped when reinforcement mode repeats a previously validated quiz |
+| Targeted deterministic repair | Duplicate-only repair | `gemini-2.5-flash` | `0.2` | When deterministic validation finds only duplicate options and the repair allowance remains; it regenerates complete affected questions with `correct_answer`, then normalization replaces only those question slots |
+| Targeted academic question repair | Targeted repair | `gemini-2.5-flash` | `0.2` | When every Judge issue is local and has valid, non-contradictory 0-based indices; it regenerates complete affected questions and preserves unaffected questions |
+| Academic quality review | llm_as_a_judge | `gemini-2.5-flash` | `0.1` | After deterministic validation passes, it reviews facts, answer alignment, grade, curriculum, language, difficulty, emojis, and task variety; it is bypassed only for trusted Firestore-backed reinforcement reuse |
 
 This table is an inventory of possible LLM calls, not a sequence executed for
 every request. On the highlighted best-case path, a normal browser request
@@ -350,75 +379,89 @@ interfaces. Grades 1–2 always receive exactly three options per question,
 whereas Grades 3–12 receive three to five. Structured
 clarification and adaptive follow-ups may additionally provide
 `clarification_response`, `previous_score`, `previous_questions`,
-`previous_quiz_json`, and `selected_difficulty`. Unknown fields, missing
+`previous_quiz_json`, `validated_quiz_id`, and `selected_difficulty`. The
+server-issued `validated_quiz_id` is the only trusted provenance for
+reinforcement reuse; client-provided `previous_quiz_json` is never sufficient
+to bypass generation or the Judge. Unknown fields, missing
 required fields, malformed JSON, and free-form text receive a fixed localized
 `INVALID_REQUEST` response without parameter-extraction or mascot LLM calls.
 
-#### Duplicate-option repair and academic review
+#### Answer normalization, repair, and academic review
 
-The duplicate-option repair is an internal branch of `quiz_generation`, not a
-separate ADK workflow node. Initial generation must create the complete quiz:
-ten questions, 30–50 answer options, explanations, correct indices, curriculum
-alignment, difficulty, language, and tone. Even with an explicit uniqueness
-instruction, that larger generative task can occasionally produce equivalent
-options. An unvalidated candidate is never sent to the learner.
+The quiz-generation node keeps the model's answer representation separate from
+the browser contract. Every generated or repaired question contains an
+internal `correct_answer` string, never a model-supplied positional index. A
+common normalization boundary canonicalizes Unicode and whitespace, requires
+exactly one option to match, shuffles options in application code, derives the
+public 0-based `correct_option_index`, and removes `correct_answer` before
+output. An unvalidated candidate is never sent to the learner.
 
-`deterministic_quiz_validation` first checks objective invariants, including
-question and option counts, normalized duplicate options, valid index ranges,
-empty content, emojis, and visual correctness cues. When every reported issue
-is a duplicate option and the deterministic repair allowance remains, the
-retry edge returns to `quiz_generation`, which selects its targeted repair
-branch. That repair is performed by `gemini-2.5-flash` in a separate LLM call. The call
-receives only the affected questions and returns a small structured response
-containing replacement option lists and their corrected
-`correct_option_index` values. It cannot rewrite the title, question text,
-explanations, or unaffected questions because those fields are absent from the
-repair response schema. The repair also uses a lower generation temperature
-than full quiz generation to reduce unnecessary variation.
+`deterministic_quiz_validation` checks question and option counts, normalized
+duplicate options, index bounds, empty content, emojis, and visual answer
+cues. Question text and answer options must be emoji-free; presentation emojis
+remain allowed in titles, explanations, and difficulty badges. When every
+deterministic issue is a duplicate option, the separate deterministic repair
+allowance permits one targeted call that returns complete affected questions.
+Normalization then replaces only those question slots and the complete quiz is
+validated again. Mixed deterministic issues use full regeneration.
 
-The repaired candidate is not trusted automatically. It passes through
-`deterministic_quiz_validation` again. A malformed or incomplete repair is
-blocked when the deterministic repair allowance is exhausted. If the first
-candidate contains mixed or non-duplicate defects, FoxQuiz uses the existing
-full-regeneration branch instead because changing options alone cannot safely
-correct those problems.
+After deterministic validation succeeds, `llm_as_a_judge` performs the
+semantic and academic review. Local issues (`factual_error`,
+`correct_answer_mismatch`, `negative_question`, `emoji_in_question`, and
+`explanation_error`) use targeted repair only when all issues have valid,
+non-contradictory 0-based question indices. Quiz-wide issues
+(`grade_scope_violation`, `difficulty_mismatch`, `language_mismatch`, and
+`task_variety_failure`) use full regeneration. Mixed, unknown, missing, or
+invalid indices also use full regeneration; malformed Judge responses and
+exceptions fail closed. Task variety is not a rigid four-form requirement when
+a narrow topic cannot naturally support that many distinct forms. The academic
+budget allows at most one repair after the initial Judge rejection.
 
-Deterministic validation and academic review each have an independent,
-single-use correction allowance. One initial generation can therefore be
-followed by at most one deterministic correction and at most one full
-regeneration requested by the academic Judge. This bounds an invocation to
-three generated candidates and two Judge reviews while ensuring that a
-targeted structural repair does not remove the opportunity to correct a later
-academic defect.
+The complete generated questions sent to targeted academic repair include the
+affected questions, indices, structured issues, grade, subject, topic,
+language, curriculum guidance, expected and selected difficulty, previous
+score, relevant grounding, and general generation rules. Only unaffected
+question texts are included for duplicate prevention. The response must
+contain complete questions with `correct_answer`; the assembled quiz is then
+normalized, deterministically validated, and judged again.
 
-After deterministic validation succeeds, `llm_as_a_judge` still performs the
-semantic and academic review. The Judge checks factual correctness, curriculum
-and grade alignment, requested difficulty, and whether each
-`correct_option_index` points to the genuinely correct answer described by the
-explanation. A successful repair therefore follows this sequence:
+A successful repair therefore follows this sequence:
 
 ```text
-full quiz generation (◆ LLM)
-  -> randomized option permutation
+full quiz generation (◆ LLM; internal correct_answer)
+  -> common normalization and application shuffle
   -> deterministic validation
-  -> targeted duplicate-option repair (◆ LLM)
-  -> targeted question option permutation
-  -> deterministic validation again
+  -> optional targeted repair for duplicate options (◆ LLM)
+  -> normalization and deterministic validation again
   -> LLM-as-a-Judge (◆ LLM)
-  -> optional full academic regeneration (◆ LLM)
-  -> randomized option permutation
-  -> deterministic validation and LLM-as-a-Judge again
+  -> optional targeted academic repair or full regeneration (◆ LLM)
+  -> normalization, complete-quiz validation, and Judge again
   -> final invariant check and learner output, or fail closed
 ```
 
 #### Randomized option permutation (Zero position bias)
 
-To prevent models from exhibiting answer-position bias (e.g. disproportionately placing the correct answer at index `0`), FoxQuiz applies deterministic index-based option permutations (`shuffle_quiz_options` and `shuffle_question_options`) immediately after LLM JSON generation and targeted repairs. Correct answer indices are tracked and updated mathematically (`permutation.index(correct_idx)`), ensuring unbiased answer distributions without corrupting question metadata or relying on error-prone prompt-level model shuffling.
+To remove model-driven answer-position bias, generated quizzes pass through
+`normalize_generated_quiz`, which delegates each question to
+`normalize_generated_question`. Targeted repairs use the same question
+normalizer. It matches `correct_answer` to exactly one normalized option,
+randomly permutes the options, and deterministically derives the public index.
+The model does not supply an index. This randomizes answer positions without
+guaranteeing an equal distribution within an individual quiz.
 
-The existing reinforcement-mode exception is unchanged: when
-`previous_score <= 3`, FoxQuiz reuses previously validated questions and skips
-the academic Judge. All other repaired candidates must pass the Judge before
-release.
+For reinforcement reuse of an already validated public quiz,
+`shuffle_quiz_questions` changes question order and `shuffle_quiz_options`
+delegates to `shuffle_question_options`. These helpers move the known correct
+index with its option using `permutation.index(correct_idx)`.
+
+In reinforcement mode, when `previous_score <= 3`, FoxQuiz may reuse a stored
+quiz and skip generation and the academic Judge only after loading a matching,
+unexpired Firestore provenance record by the server-issued
+`validated_quiz_id`. The stored quiz must pass the current deterministic
+validation again. Client-supplied quiz JSON is never authoritative; missing,
+expired, incompatible, or invalid provenance falls back to normal generation
+and academic review. A successful new quiz writes a short-lived normalized
+record to Firestore and returns its ID with the public quiz.
 
 The similarly named decisions and routes have different responsibilities:
 
@@ -432,9 +475,11 @@ The similarly named decisions and routes have different responsibilities:
 | `BANNED` / `BUDGET_EXCEEDED` / `CLASSIFIER_UNAVAILABLE` | Plugin block types, not classifier decisions | Stop before quiz processing because an operational guard rejected the invocation. |
 | `blocked` | Edge from `security_checkpoint_node` | A block envelope exists, so the graph goes directly to `security_block_node`. |
 | `generate_quiz` / `ask_more` | Edges from `gather_and_route` | The curriculum check either starts quiz preparation or requests clarification. |
-| `valid` / `retry` / `quality_failure` | Edges from `deterministic_quiz_validation` | Continue to semantic review, return to `quiz_generation` for targeted duplicate repair or full regeneration within the single-use structural repair budget, or fail closed on objective defects. |
-| Duplicate-option repair | Internal retry branch of `quiz_generation` | Replace only affected option lists and indices, preserve all other quiz content, then return the candidate to deterministic validation. |
-| `retry` / `success` / `quality_failure` | Edges from `llm_as_a_judge` | Regenerate within the independent single-use academic repair budget, publish the validated quiz, or fail closed without exposing an unvalidated quiz. |
+| `valid` / `retry` / `quality_failure` | Edges from `deterministic_quiz_validation` | Continue to semantic review, return to `quiz_generation` for targeted complete-question duplicate repair or full regeneration within the single-use deterministic repair budget, or fail closed on objective defects. |
+| Duplicate-option repair | Internal retry branch of `quiz_generation` | Regenerate complete affected questions with `correct_answer`, normalize them, replace only those question slots, preserve unaffected questions, and return the complete candidate to deterministic validation. |
+| Targeted academic repair | Internal retry branch of `quiz_generation` | For local Judge issues with valid indices, regenerate complete affected questions while preserving unaffected questions; consume the academic repair budget. |
+| `retry` / `success` / `quality_failure` | Edges from `llm_as_a_judge` | Route local indexed issues to targeted repair, global or unaddressable issues to full regeneration, publish only an approved quiz, or fail closed. |
+| Reinforcement provenance | Firestore `validated_quizzes` record | Permit direct shuffle reuse and Judge bypass only for a current, context-matching, unexpired server-side record that passes current deterministic validation. |
 
 > **Why the extra security node?** The plugin performs cross-cutting checks before
 > the graph runs and records an expected block in invocation-local state. The
