@@ -28,6 +28,7 @@ import random
 import re
 import time
 import unicodedata
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import StrEnum
 from typing import Any, Dict, List, Literal, Optional
@@ -572,6 +573,30 @@ def _text_from_node_input(node_input: Any) -> str:
     return ""
 
 
+def _reset_quiz_state(ctx: Context, *, source_id: str | None = None) -> None:
+    """Reset per-invocation repair and provenance state using fresh containers.
+
+    Call after recording terminal diagnostics. Candidate output and request
+    fields remain available to their owners.
+    """
+    ctx.state["judge_attempts"] = 0
+    ctx.state["generation_attempts"] = 0
+    ctx.state["deterministic_repair_attempts"] = 0
+    ctx.state["academic_repair_attempts"] = 0
+    ctx.state["pending_quiz_repair_kind"] = None
+    ctx.state[_REPAIR_FAILURE_STATE_KEY] = None
+    ctx.state["deterministic_retry_guidance"] = ""
+    ctx.state["deterministic_validation_issues"] = []
+    ctx.state["judge_history"] = []
+    ctx.state["judge_issues"] = []
+    ctx.state["judge_summary"] = ""
+    ctx.state["repair_history"] = []
+    ctx.state["normalization_failures"] = []
+    ctx.state["authoritative_previous_quiz"] = None
+    ctx.state["validated_quiz_bypass_allowed"] = False
+    ctx.state["validated_quiz_source_id"] = source_id
+
+
 @node
 async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     """Load a validated structured request and perform curriculum routing."""
@@ -601,22 +626,7 @@ async def gather_and_route(ctx: Context, node_input: Any) -> Event:
     logger.info("Loaded validated structured quiz parameters.")
 
     # Reset quality diagnostics on any fresh start or new turn.
-    ctx.state["judge_attempts"] = 0
-    ctx.state["judge_history"] = []
-    ctx.state["judge_issues"] = []
-    ctx.state["judge_summary"] = ""
-    ctx.state["generation_attempts"] = 0
-    ctx.state["deterministic_repair_attempts"] = 0
-    ctx.state["academic_repair_attempts"] = 0
-    ctx.state["pending_quiz_repair_kind"] = None
-    ctx.state[_REPAIR_FAILURE_STATE_KEY] = None
-    ctx.state["deterministic_retry_guidance"] = ""
-    ctx.state["deterministic_validation_issues"] = []
-    ctx.state["repair_history"] = []
-    ctx.state["normalization_failures"] = []
-    ctx.state["authoritative_previous_quiz"] = None
-    ctx.state["validated_quiz_bypass_allowed"] = False
-    ctx.state["validated_quiz_source_id"] = None
+    _reset_quiz_state(ctx)
     ctx.state["curriculum_status"] = None
     ctx.state["curriculum_guidance"] = ""
     ctx.state["quality_failure_type"] = None
@@ -959,6 +969,87 @@ def _expected_quiz_difficulty(
     return "⭐ Medium"
 
 
+def _adaptive_mode(previous_score: int | None, selected_difficulty: str | None) -> str:
+    """Resolve the request's generation mode before building its prompt."""
+    if previous_score is None:
+        return "initial"
+    if previous_score <= 3:
+        return "reinforcement"
+    if previous_score < 8:
+        return "practice"
+    return (
+        "challenge"
+        if _expected_quiz_difficulty(previous_score, selected_difficulty) == "🚀 Hard"
+        else "progression"
+    )
+
+
+def _build_adaptation_instructions(
+    mode: str,
+    previous_score: int | None,
+    grade: int,
+    previous_questions: list[str] | None,
+) -> str:
+    adaptation_instructions = ""
+    if mode != "initial":
+        if mode == "reinforcement":
+            adaptation_instructions = (
+                "\n--- ADAPTIVE REINFORCEMENT MODE ---\n"
+                f"The student scored {previous_score}/10 on the previous quiz.\n"
+                "No trusted server-side previous quiz was available for direct "
+                "reinforcement reuse. Generate a complete Easy quiz and keep the "
+                "questions clear and within the requested scope.\n"
+                "Set the 'difficulty' field to exactly: '🌱 Easy'.\n"
+            )
+        elif mode in {"progression", "challenge"}:
+            # Score >= 8/10: User-Choice Progression Mode (choose between ⭐ Medium and 🚀 Hard)
+            if mode == "challenge":
+                adaptation_instructions = (
+                    f"\n--- ADAPTIVE PROGRESSION MODE (CHALLENGE) ---\n"
+                    f"The student scored {previous_score}/10 on the previous quiz and selected the DIFFICULT (Advanced) level.\n"
+                    f"You must significantly SCALE UP the cognitive depth of this new quiz while staying inside Grade {grade}. Use varied reasoning, application, strategy, estimation, comparison, or error-analysis tasks when they fit the topic. Do not create difficulty mainly through larger numbers, calculator-like manual work, or tightly clustered answer choices.\n"
+                    f"Set the 'difficulty' field to exactly: '🚀 Hard'.\n"
+                )
+            else:
+                adaptation_instructions = (
+                    f"\n--- ADAPTIVE PROGRESSION MODE (NEXT LEVEL) ---\n"
+                    f"The student scored {previous_score}/10 on the previous quiz and selected the MEDIUM (Standard) level.\n"
+                    f"Maintain standard Grade {grade} difficulty, but generate a completely fresh set of questions.\n"
+                    f"Set the 'difficulty' field to exactly: '⭐ Medium'.\n"
+                )
+
+            # Strict Avoid Duplication rules
+            adaptation_instructions += (
+                f"\nCRITICAL COMPLIANCE RULES:\n"
+                f"1. You MUST STRICTLY AVOID duplicating any previously asked questions to encourage learning progression.\n"
+                f"2. Compare your new questions with the previous questions. Do not generate questions that are similar or duplicate the old ones.\n"
+            )
+            if previous_questions:
+                adaptation_instructions += (
+                    f"Do NOT use any of these questions from the previous quiz:\n"
+                    + "\n".join(f"- {q}" for q in previous_questions)
+                    + "\n"
+                )
+        else:
+            # Score 4 to 7: Practice Mode (⭐ Medium)
+            # Keep standard difficulty, generate a new set of questions.
+            adaptation_instructions = (
+                f"\n--- STANDARD PRACTICE MODE ---\n"
+                f"The student scored {previous_score}/10 on the previous quiz.\n"
+                f"Keep standard difficulty for Grade {grade}. Generate a new set of questions to continue practice on the topic.\n"
+                f"Set the 'difficulty' field to exactly: '⭐ Medium'.\n"
+                f"Note: It is fine to reuse some questions or concepts if they are central, as duplication avoidance is not strictly enforced for scores below 8/10.\n"
+            )
+    else:
+        # First time quiz generation or no score available:
+        # Set difficulty to '⭐ Medium'
+        adaptation_instructions = (
+            f"\nSet the 'difficulty' field to exactly: '⭐ Medium'.\n"
+        )
+
+    return adaptation_instructions
+
+
 def _build_difficulty_design_guidance(expected_difficulty: str) -> str:
     """Define varied, age-appropriate challenge without rewarding busywork."""
     common = (
@@ -1210,6 +1301,84 @@ async def _repair_targeted_questions(
     return repaired_quiz
 
 
+@dataclass(frozen=True)
+class TargetedRepairPlan:
+    """A local correction with explicit source and failure attribution."""
+
+    source: str
+    question_indices: tuple[int, ...]
+    issues: list[dict[str, Any]]
+    failure_type: str
+
+
+def _targeted_repair_plan(
+    ctx: Context, repair_kind: str | None
+) -> TargetedRepairPlan | None:
+    if repair_kind == _DETERMINISTIC_REPAIR_KIND:
+        issues = list(ctx.state.get("deterministic_validation_issues") or [])
+        indices = _duplicate_option_question_indices(issues)
+        if not indices or not isinstance(ctx.state.get("temp_quiz"), dict):
+            return None  # Structural issues without a usable local repair regenerate.
+        return TargetedRepairPlan(
+            repair_kind, indices, issues, "deterministic_validation_failed"
+        )
+    if repair_kind == _ACADEMIC_TARGETED_REPAIR_KIND:
+        issues = list(ctx.state.get("judge_issues") or [])
+        indices = tuple(
+            sorted(
+                {
+                    index
+                    for issue in issues
+                    for index in (issue.get("question_indices") or [])
+                    if isinstance(index, int) and not isinstance(index, bool)
+                }
+            )
+        )
+        return TargetedRepairPlan(repair_kind, indices, issues, "judge_rejected")
+    return None
+
+
+async def _execute_targeted_repair(
+    ctx: Context,
+    repair: TargetedRepairPlan,
+    candidate: Any,
+    attempt: int,
+    difficulty: str,
+) -> Event:
+    result = "failed"
+    try:
+        if not repair.question_indices or not isinstance(candidate, dict):
+            raise TargetedRepairError(
+                "Targeted repair had no usable candidate or indices."
+            )
+        repaired = await _repair_targeted_questions(
+            ctx=ctx,
+            quiz_dict=candidate,
+            question_indices=repair.question_indices,
+            issue_records=repair.issues,
+            generation_attempt=attempt,
+        )
+        repaired["difficulty"] = difficulty
+        ctx.state["temp_quiz"] = repaired
+        result = "applied"
+    except Exception as error:
+        ctx.state[_REPAIR_FAILURE_STATE_KEY] = "targeted_repair_failed"
+        ctx.state["quality_failure_type"] = repair.failure_type
+        ctx.state["temp_quiz"] = None
+        logger.error(
+            "%s targeted repair failed (%s).", repair.source, type(error).__name__
+        )
+    _append_repair_history(
+        ctx,
+        attempt=attempt,
+        kind="targeted",
+        issue_codes=[str(issue.get("code")) for issue in repair.issues],
+        question_indices=list(repair.question_indices),
+        result=result,
+    )
+    return _candidate_ready_event()
+
+
 def _normalization_retry_guidance(error: QuizNormalizationError) -> str:
     """Build privacy-safe retry guidance for an internal answer failure."""
     location = (
@@ -1226,14 +1395,8 @@ def _normalization_retry_guidance(error: QuizNormalizationError) -> str:
     )
 
 
-@node
-async def quiz_generation(ctx: Context, node_input: Any) -> Event:
-    """Uses LLM structured generation to build a highly tailored, fun multiple-choice quiz of 10 questions."""
-    grade = ctx.state.get("grade")
-    subject = ctx.state.get("subject")
-    topic = ctx.state.get("topic")
-    lang = ctx.state.get("preferred_language") or "en"
-    search_context = ctx.state.get("search_context", "")
+def _begin_generation_attempt(ctx: Context) -> tuple[int, str | None]:
+    """Consume the pending repair allowance once, at generation entry."""
     attempt = int(ctx.state.get("generation_attempts") or 0) + 1
     ctx.state["generation_attempts"] = attempt
     repair_kind = ctx.state.get("pending_quiz_repair_kind")
@@ -1247,6 +1410,19 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         )
     ctx.state["pending_quiz_repair_kind"] = None
 
+    return attempt, repair_kind
+
+
+@node
+async def quiz_generation(ctx: Context, node_input: Any) -> Event:
+    """Uses LLM structured generation to build a highly tailored, fun multiple-choice quiz of 10 questions."""
+    grade = ctx.state.get("grade")
+    subject = ctx.state.get("subject")
+    topic = ctx.state.get("topic")
+    lang = ctx.state.get("preferred_language") or "en"
+    search_context = ctx.state.get("search_context", "")
+    attempt, repair_kind = _begin_generation_attempt(ctx)
+
     previous_score = ctx.state.get("previous_score")
     # Only server-loaded question text may be used for duplicate prevention.
     # Gather-and-route clears client-provided values, and this guard keeps the
@@ -1257,6 +1433,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         else None
     )
     selected_difficulty = ctx.state.get("selected_difficulty")
+    mode = _adaptive_mode(previous_score, selected_difficulty)
     expected_difficulty = _expected_quiz_difficulty(previous_score, selected_difficulty)
     difficulty_design_guidance = _build_difficulty_design_guidance(expected_difficulty)
     grade_policy = get_grade_policy(grade)
@@ -1280,15 +1457,11 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
 
     logger.info("Generating quiz attempt %s.", attempt)
 
-    duplicate_question_indices = _duplicate_option_question_indices(
-        ctx.state.get("deterministic_validation_issues")
-    )
     previous_candidate = ctx.state.get("temp_quiz")
 
     if (
         repair_kind is None
-        and previous_score is not None
-        and previous_score <= 3
+        and mode == "reinforcement"
         and ctx.state.get("validated_quiz_bypass_allowed")
         and isinstance(ctx.state.get("authoritative_previous_quiz"), dict)
     ):
@@ -1302,108 +1475,11 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         logger.info("Reusing and shuffling the server-validated reinforcement quiz.")
         return _candidate_ready_event()
 
-    if (
-        repair_kind == _DETERMINISTIC_REPAIR_KIND
-        and duplicate_question_indices
-        and isinstance(previous_candidate, dict)
-    ):
-        try:
-            repair_issue_records = list(
-                ctx.state.get("deterministic_validation_issues") or []
-            )
-            repaired_quiz = await _repair_targeted_questions(
-                ctx=ctx,
-                quiz_dict=previous_candidate,
-                question_indices=duplicate_question_indices,
-                issue_records=repair_issue_records,
-                generation_attempt=attempt,
-            )
-            repaired_quiz["difficulty"] = expected_difficulty
-            ctx.state["temp_quiz"] = repaired_quiz
-            _append_repair_history(
-                ctx,
-                attempt=attempt,
-                kind="targeted",
-                issue_codes=[str(issue.get("code")) for issue in repair_issue_records],
-                question_indices=list(duplicate_question_indices),
-                result="applied",
-            )
-            return _candidate_ready_event()
-        except Exception as e:
-            _append_repair_history(
-                ctx,
-                attempt=attempt,
-                kind="targeted",
-                issue_codes=[
-                    str(issue.get("code"))
-                    for issue in (
-                        ctx.state.get("deterministic_validation_issues") or []
-                    )
-                ],
-                question_indices=list(duplicate_question_indices),
-                result="failed",
-            )
-            ctx.state[_REPAIR_FAILURE_STATE_KEY] = "targeted_repair_failed"
-            ctx.state["quality_failure_type"] = "deterministic_validation_failed"
-            ctx.state["temp_quiz"] = None
-            logger.error("Quiz option repair failed (%s).", type(e).__name__)
-            return _candidate_ready_event()
-
-    targeted_question_indices = tuple(
-        sorted(
-            {
-                index
-                for issue in judge_issues
-                for index in (issue.get("question_indices") or [])
-                if isinstance(index, int) and not isinstance(index, bool)
-            }
+    repair = _targeted_repair_plan(ctx, repair_kind)
+    if repair is not None:
+        return await _execute_targeted_repair(
+            ctx, repair, previous_candidate, attempt, expected_difficulty
         )
-    )
-    if (
-        repair_kind == _ACADEMIC_TARGETED_REPAIR_KIND
-        and targeted_question_indices
-        and isinstance(previous_candidate, dict)
-    ):
-        try:
-            repaired_quiz = await _repair_targeted_questions(
-                ctx=ctx,
-                quiz_dict=previous_candidate,
-                question_indices=targeted_question_indices,
-                issue_records=judge_issues,
-                generation_attempt=attempt,
-            )
-            repaired_quiz["difficulty"] = expected_difficulty
-            ctx.state["temp_quiz"] = repaired_quiz
-            _append_repair_history(
-                ctx,
-                attempt=attempt,
-                kind="targeted",
-                issue_codes=[str(issue.get("code")) for issue in judge_issues],
-                question_indices=list(targeted_question_indices),
-                result="applied",
-            )
-            return _candidate_ready_event()
-        except Exception as e:
-            _append_repair_history(
-                ctx,
-                attempt=attempt,
-                kind="targeted",
-                issue_codes=[str(issue.get("code")) for issue in judge_issues],
-                question_indices=list(targeted_question_indices),
-                result="failed",
-            )
-            ctx.state[_REPAIR_FAILURE_STATE_KEY] = "targeted_repair_failed"
-            ctx.state["quality_failure_type"] = "judge_rejected"
-            ctx.state["temp_quiz"] = None
-            logger.error("Academic targeted repair failed (%s).", type(e).__name__)
-            return _candidate_ready_event()
-
-    if repair_kind == _ACADEMIC_TARGETED_REPAIR_KIND:
-        ctx.state[_REPAIR_FAILURE_STATE_KEY] = "targeted_repair_failed"
-        ctx.state["quality_failure_type"] = "judge_rejected"
-        ctx.state["temp_quiz"] = None
-        logger.error("Academic targeted repair had no usable candidate or indices.")
-        return _candidate_ready_event()
 
     grade_label = grade_policy.localized_label(lang)
     lang_name = {
@@ -1479,72 +1555,9 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         f"{explanation_length_rule} CRITICAL: Do NOT start explanations with affirmative or congratulatory words like 'Parabéns!', 'Isso mesmo!', 'Congratulations!', 'Exactly!', 'Herzlichen Glückwunsch!', or 'Richtig!', because these explanations are shown even when the student chooses the wrong answer. Start directly with the factual explanation (e.g. 'Células-tronco são...' instead of 'Isso mesmo! Células-tronco são...').\n"
     )
 
-    adaptation_instructions = ""
-    if previous_score is not None:
-        logger.info("Applying adaptive progression.")
-        if previous_score <= 3:
-            # Score <= 3/10: Reinforcement Mode (🌱 Easy)
-            # No duplicate-prevention, reuse previous questions but shuffle.
-            adaptation_instructions = (
-                f"\n--- ADAPTIVE REINFORCEMENT MODE ---\n"
-                f"The student scored {previous_score}/10 on the previous quiz, which indicates they struggled with the material.\n"
-                f"The current quiz content is difficult enough. Your goal is to REPEAT the previous quiz questions so that the student can understand and learn them properly.\n"
-                f"Do NOT generate new or different questions. Do NOT avoid duplication.\n"
-                f"Instead, do the following:\n"
-                f"- Shuffle the order of the 10 questions compared to the previous quiz.\n"
-                f"- You can make slight, minor improvements or rephrasings to make the questions or explanations even clearer/simpler, but they must cover the exact same questions and concepts.\n"
-                f"- Set the 'difficulty' field to exactly: '🌱 Easy' (since we are repeating for reinforcement and practice).\n"
-            )
-            adaptation_instructions += (
-                "No trusted server-side previous quiz was available for direct "
-                "reinforcement reuse. Generate a complete Easy quiz and keep the "
-                "questions clear and within the requested scope.\n"
-            )
-        elif previous_score >= 8:
-            # Score >= 8/10: User-Choice Progression Mode (choose between ⭐ Medium and 🚀 Hard)
-            if expected_difficulty == "🚀 Hard":
-                adaptation_instructions = (
-                    f"\n--- ADAPTIVE PROGRESSION MODE (CHALLENGE) ---\n"
-                    f"The student scored {previous_score}/10 on the previous quiz and selected the DIFFICULT (Advanced) level.\n"
-                    f"You must significantly SCALE UP the cognitive depth of this new quiz while staying inside Grade {int(grade_policy.grade)}. Use varied reasoning, application, strategy, estimation, comparison, or error-analysis tasks when they fit the topic. Do not create difficulty mainly through larger numbers, calculator-like manual work, or tightly clustered answer choices.\n"
-                    f"Set the 'difficulty' field to exactly: '🚀 Hard'.\n"
-                )
-            else:
-                adaptation_instructions = (
-                    f"\n--- ADAPTIVE PROGRESSION MODE (NEXT LEVEL) ---\n"
-                    f"The student scored {previous_score}/10 on the previous quiz and selected the MEDIUM (Standard) level.\n"
-                    f"Maintain standard Grade {int(grade_policy.grade)} difficulty, but generate a completely fresh set of questions.\n"
-                    f"Set the 'difficulty' field to exactly: '⭐ Medium'.\n"
-                )
-
-            # Strict Avoid Duplication rules
-            adaptation_instructions += (
-                f"\nCRITICAL COMPLIANCE RULES:\n"
-                f"1. You MUST STRICTLY AVOID duplicating any previously asked questions to encourage learning progression.\n"
-                f"2. Compare your new questions with the previous questions. Do not generate questions that are similar or duplicate the old ones.\n"
-            )
-            if previous_questions:
-                adaptation_instructions += (
-                    f"Do NOT use any of these questions from the previous quiz:\n"
-                    + "\n".join(f"- {q}" for q in previous_questions)
-                    + "\n"
-                )
-        else:
-            # Score 4 to 7: Practice Mode (⭐ Medium)
-            # Keep standard difficulty, generate a new set of questions.
-            adaptation_instructions = (
-                f"\n--- STANDARD PRACTICE MODE ---\n"
-                f"The student scored {previous_score}/10 on the previous quiz.\n"
-                f"Keep standard difficulty for Grade {int(grade_policy.grade)}. Generate a new set of questions to continue practice on the topic.\n"
-                f"Set the 'difficulty' field to exactly: '⭐ Medium'.\n"
-                f"Note: It is fine to reuse some questions or concepts if they are central, as duplication avoidance is not strictly enforced for scores below 8/10.\n"
-            )
-    else:
-        # First time quiz generation or no score available:
-        # Set difficulty to '⭐ Medium'
-        adaptation_instructions = (
-            f"\nSet the 'difficulty' field to exactly: '⭐ Medium'.\n"
-        )
+    adaptation_instructions = _build_adaptation_instructions(
+        mode, previous_score, int(grade_policy.grade), previous_questions
+    )
 
     prompt += adaptation_instructions
 
@@ -1867,22 +1880,7 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
 
     validated_quiz_id = _save_validated_quiz_best_effort(ctx, quiz_dict)
 
-    ctx.state["judge_attempts"] = 0
-    ctx.state["generation_attempts"] = 0
-    ctx.state["deterministic_repair_attempts"] = 0
-    ctx.state["academic_repair_attempts"] = 0
-    ctx.state["pending_quiz_repair_kind"] = None
-    ctx.state[_REPAIR_FAILURE_STATE_KEY] = None
-    ctx.state["deterministic_retry_guidance"] = ""
-    ctx.state["deterministic_validation_issues"] = []
-    ctx.state["judge_history"] = []
-    ctx.state["judge_issues"] = []
-    ctx.state["judge_summary"] = ""
-    ctx.state["repair_history"] = []
-    ctx.state["normalization_failures"] = []
-    ctx.state["authoritative_previous_quiz"] = None
-    ctx.state["validated_quiz_bypass_allowed"] = False
-    ctx.state["validated_quiz_source_id"] = validated_quiz_id
+    _reset_quiz_state(ctx, source_id=validated_quiz_id)
 
     logger.info("Finalizing validated quiz.")
     set_invocation_outcome(ctx, TerminalOutcome.SUCCESS)
@@ -2013,22 +2011,7 @@ def _quality_failure_event(ctx: Context) -> Event:
         logger.warning("Could not construct or persist quiz quality diagnostics.")
 
     ctx.state["temp_quiz"] = None
-    ctx.state["judge_attempts"] = 0
-    ctx.state["generation_attempts"] = 0
-    ctx.state["deterministic_repair_attempts"] = 0
-    ctx.state["academic_repair_attempts"] = 0
-    ctx.state["pending_quiz_repair_kind"] = None
-    ctx.state[_REPAIR_FAILURE_STATE_KEY] = None
-    ctx.state["deterministic_retry_guidance"] = ""
-    ctx.state["deterministic_validation_issues"] = []
-    ctx.state["judge_history"] = []
-    ctx.state["judge_issues"] = []
-    ctx.state["judge_summary"] = ""
-    ctx.state["repair_history"] = []
-    ctx.state["normalization_failures"] = []
-    ctx.state["authoritative_previous_quiz"] = None
-    ctx.state["validated_quiz_bypass_allowed"] = False
-    ctx.state["validated_quiz_source_id"] = None
+    _reset_quiz_state(ctx)
 
     messages = {
         "de": "Ich konnte dieses Quiz diesmal nicht zuverlässig prüfen. Bitte versuche es noch einmal – ich möchte dir nur ein fachlich passendes Quiz zeigen.",

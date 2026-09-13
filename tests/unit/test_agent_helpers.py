@@ -1261,7 +1261,7 @@ def test_invalid_judge_indices_do_not_break_failure_diagnostics() -> None:
     failure = save_failure.call_args.args[0]
     assert failure.judge_history[0].question_indices == list(range(10))
     assert failure.repair_history[0].question_indices == list(range(10))
-    assert "Ich konnte" in event.content.parts[0].text
+    assert "Ich konnte" in (event.content.parts[0].text or "")
     assert context.state["temp_quiz"] is None
 
 
@@ -1279,7 +1279,7 @@ def test_diagnostic_errors_preserve_failure_response_and_privacy(
             save_failure.side_effect = RuntimeError("PRIVATE_DIAGNOSTIC")
         event = _quality_failure_event(context)
 
-    assert "Ich konnte" in event.content.parts[0].text
+    assert "Ich konnte" in (event.content.parts[0].text or "")
     assert context.state["temp_quiz"] is None
     assert context.state["judge_history"] == []
     assert "PRIVATE_DIAGNOSTIC" not in caplog.text
@@ -1564,3 +1564,79 @@ def test_shuffle_quiz_options_shuffles_all_questions_deterministically() -> None
     # Verify that the correct_option_indices across the 10 questions are not all 0
     indices = [q["correct_option_index"] for q in shuffled_quiz["questions"]]
     assert len(set(indices)) > 1
+
+
+@pytest.mark.parametrize(
+    ("score", "selection", "mode"),
+    [
+        (None, None, "initial"),
+        (0, None, "reinforcement"),
+        (3, "hard", "reinforcement"),
+        (4, None, "practice"),
+        (7, "hard", "practice"),
+        (8, None, "progression"),
+        (8, "hard", "challenge"),
+        (10, None, "challenge"),
+        (10, "medium", "progression"),
+    ],
+)
+def test_adaptive_mode_boundaries(score, selection, mode):
+    from app.agent import _adaptive_mode
+
+    assert _adaptive_mode(score, selection) == mode
+
+
+def test_quiz_state_reset_isolates_invocations_and_preserves_output():
+    from app.agent import _reset_quiz_state
+
+    context = MagicMock()
+    candidate = _valid_public_quiz()
+    old_history = [{"result": "failed"}]
+    context.state = {
+        "temp_quiz": candidate,
+        "grade": "Grade 7",
+        "repair_history": old_history,
+        "pending_quiz_repair_kind": "academic_targeted",
+        "validated_quiz_bypass_allowed": True,
+    }
+    _reset_quiz_state(context, source_id="approved-source")
+    assert context.state["temp_quiz"] is candidate
+    assert context.state["grade"] == "Grade 7"
+    assert context.state["validated_quiz_source_id"] == "approved-source"
+    assert context.state["validated_quiz_bypass_allowed"] is False
+    assert context.state["pending_quiz_repair_kind"] is None
+    context.state["repair_history"].append({"result": "applied"})
+    _reset_quiz_state(context)
+    assert context.state["repair_history"] == []
+    assert old_history == [{"result": "failed"}]
+    assert context.state["validated_quiz_source_id"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["deterministic", "academic_targeted"])
+async def test_shared_repair_failure_keeps_source_and_fails_closed(source):
+    from app.agent import _execute_targeted_repair, _targeted_repair_plan
+
+    context = MagicMock()
+    candidate = _valid_public_quiz()
+    context.state = {
+        "temp_quiz": candidate,
+        "deterministic_validation_issues": [
+            {"code": "duplicate_option", "question_index": 0}
+        ],
+        "judge_issues": [{"code": "factual_error", "question_indices": [0]}],
+    }
+    plan = _targeted_repair_plan(context, source)
+    assert plan is not None
+    with patch(
+        "app.agent._repair_targeted_questions", new=AsyncMock(side_effect=ValueError)
+    ):
+        await _execute_targeted_repair(context, plan, candidate, 2, "⭐ Medium")
+    assert context.state["temp_quiz"] is None
+    assert context.state["repair_failure"] == "targeted_repair_failed"
+    assert context.state["quality_failure_type"] == (
+        "deterministic_validation_failed"
+        if source == "deterministic"
+        else "judge_rejected"
+    )
+    assert context.state["repair_history"][-1]["result"] == "failed"

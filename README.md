@@ -194,147 +194,211 @@ To allow FoxQuiz to be safely published as a **public GitHub repository** withou
 
 ### How a Quiz Request Travels Through FoxQuiz
 
-The diagram separates the surrounding **FastAPI request handling**, the
-invocation-wide **ADK plugin**, and the graph-based **Workflow**. A plugin wraps
-the whole invocation; it is not a workflow node. Nodes perform work, while
-edges connect nodes and may select a route emitted by the preceding node. The
-adaptive paths also show the Firestore-backed provenance check inside
-`gather_and_route`, before curriculum preflight. A supplied server-issued ID
-allows the server to load previous question texts for adaptive generation;
-only trusted reinforcement may reuse the stored quiz directly. Internal
-decisions are expanded for clarity, including the Judge bypass inside
-`llm_as_a_judge`; they are not additional Workflow nodes.
+The main workflow below groups internal security and repair decisions into
+stages. See the [detailed workflow](docs/development/quiz-workflow.md) for
+security checks, provenance verification, and runtime integration details.
 
 ```mermaid
 flowchart TD
-    User["Browser: structured quiz request<br/>adaptive requests include validated_quiz_id when available"] --> SSE["POST /run_sse"]
+    Request["Browser quiz request"] --> Security{"◆ LLM<br/>Security and budget checks"}
+    Security -- "Blocked" --> Block["Localized blocked response"]
+    Security -- "Allowed" --> Prepare["◆ LLM<br/>Load trusted previous quiz and check curriculum"]
+    Prepare -- "Needs input" --> Clarify["◆ LLM when incompatible<br/>Clarification or topic guidance"]
+    Prepare -- "Ready" --> Ground["Get or reuse grounding"]
+    Ground --> Candidate["◆ LLM unless trusted reuse<br/>Generate, repair, or reuse quiz"]
+    Candidate --> Validate{"Structural validation"}
+    Validate -- "Valid" --> Review{"◆ LLM unless trusted reuse<br/>Academic review or trusted reuse"}
+    Validate -- "Invalid" --> Repair{"Select repair within its budget"}
+    Review -- "Rejected" --> Repair
+    Repair -- "Affected questions or full quiz" --> Candidate
+    Repair -- "Unavailable or exhausted" --> Failure["Safe quality-failure response"]
+    Review -- "Error" --> Failure
+    Review -- "Approved" --> Final{"Final structural validation"}
+    Final -- "Valid" --> Output["Save provenance and release quiz"]
+    Final -- "Invalid" --> Failure
 
-    subgraph HTTP["FastAPI request layer"]
-        SSE --> Middleware["Request metadata middleware"]
-        Middleware --> Context["ContextVars: client IP, anonymous ID, locale"]
-        Context --> Runner["ADK App and Runner"]
-    end
-
-    subgraph Plugin["FoxQuizSecurityPlugin — wraps every invocation"]
-        Runner --> Before["before_run_callback"]
-        Before --> Config["Load cached private security config<br/>and hash the client IP"]
-        Config --> Ban{"Active ban?"}
-        Ban -- "Yes" --> BlockState["Store localized block envelope<br/>in temporary invocation state"]
-        Ban -- "No" --> Budget{"User or global<br/>daily budget exceeded?"}
-        Budget -- "Yes" --> BlockState
-        Budget -- "No" --> LocalScan["Stage 1: local keyword<br/>and injection-regex scan"]
-        LocalScan -- "Malicious match" --> Violation["Log security event<br/>and run Sheriff 3-strike check"]
-        Violation --> BlockState
-        LocalScan -- "No match" --> Payload{"Valid structured<br/>quiz payload?"}
-        Payload -- "No" --> InvalidRequest["Fixed localized INVALID_REQUEST response<br/>no LLM call"]
-        InvalidRequest --> BlockState
-        Payload -- "Yes" --> Classifier["◆ LLM<br/>Stage 2: semantic security classifier"]
-        Classifier --> ValidDecision{"Valid classifier decision?"}
-        ValidDecision -- "No or classifier error" --> Closed["Fail closed:<br/>CLASSIFIER_UNAVAILABLE"]
-        Closed --> BlockState
-        ValidDecision -- "Yes" --> SafeDecision{"SAFE?"}
-        SafeDecision -- "Yes" --> NoBlock["Do not set block state"]
-        SafeDecision -- "No" --> OffTopicDecision{"OFF_TOPIC?"}
-        OffTopicDecision -- "Yes" --> BlockState
-        OffTopicDecision -- "No" --> PiiDecision{"PII?"}
-        PiiDecision -- "Yes" --> PrivateBlock["Do not log the disclosed PII<br/>and do not count a Sheriff strike"]
-        PrivateBlock --> BlockState
-        PiiDecision -- "No (MALICIOUS)" --> Violation
-    end
-
-    subgraph Workflow["root_agent Workflow — nodes connected by routed edges"]
-        Start["Workflow START"] --> Gate["security_checkpoint_node"]
-        Gate -- "blocked edge" --> BlockNode["security_block_node"]
-        BlockNode --> BlockSSE["Structured blocked response"]
-
-        Gate -- "allowed edge" --> GatherEntry
-        subgraph GatherFlow["gather_and_route — single Workflow node with internal flow"]
-            GatherEntry["Load validated request<br/>clear client-supplied previous quiz data"] --> HasProvenance{"validated_quiz_id supplied?"}
-            HasProvenance -- "No" --> Gather["◆ LLM<br/>Curriculum preflight"]
-            HasProvenance -- "Yes: any request mode" --> ProvenanceRead["Firestore read<br/>validated_quizzes"]
-            ProvenanceRead --> ProvenanceValid{"Record exists, unexpired,<br/>ID/context/fingerprint/contract match,<br/>and current deterministic validation passes?"}
-            ProvenanceValid -- "Yes" --> PreviousSource["Load authoritative previous quiz and question texts<br/>allow direct reuse only when score ≤ 3"]
-            PreviousSource --> Gather
-            ProvenanceValid -- "No or read failure" --> Gather
-        end
-        Gather -- "ask_more edge" --> AskMore["ask_more_node<br/>terminal clarification branch"]
-        Gather -- "generate_quiz edge: all modes" --> Search["decision_and_search<br/>reuse search_context when present;<br/>otherwise query relevant Wikipedia grounding"]
-
-        subgraph QuizGeneration["quiz_generation — single Workflow node with internal flow"]
-            direction TB
-            GenerationEntry["Invocation entry"] --> RepairDecision{"Select candidate source<br/>or repair route"}
-            RepairDecision -- "trusted reinforcement; no pending repair" --> ReuseQuiz["Reuse stored public quiz<br/>shuffle questions and options;<br/>track known index; set Easy difficulty"]
-            RepairDecision -- "targeted academic repair" --> TargetedRepair["◆ LLM<br/>Repair complete affected questions<br/>return internal correct_answer"]
-            RepairDecision -- "duplicate-only repair" --> OptionRepair["◆ LLM<br/>Repair complete affected questions<br/>return internal correct_answer"]
-            RepairDecision -- "initial or full regeneration" --> FullGeneration["◆ LLM<br/>Generate complete quiz<br/>return internal correct_answer"]
-            TargetedRepair --> NormalizeAffected["Common normalization for affected questions<br/>match answer; shuffle options; derive index;<br/>remove correct_answer; assemble with unaffected questions"]
-            OptionRepair --> NormalizeAffected
-            FullGeneration --> NormalizeQuiz["Common normalization boundary<br/>canonicalize correct_answer; shuffle options;<br/>derive public index; remove internal field"]
-            NormalizeAffected --> CandidateReady["Candidate ready"]
-            NormalizeQuiz --> CandidateReady
-            ReuseQuiz --> CandidateReady
-        end
-
-        Search --> GenerationEntry
-        CandidateReady --> Validate["deterministic_quiz_validation<br/>public structure, duplicate options,<br/>index bounds, emoji, and answer-cue checks"]
-        Validate -- "valid edge" --> JudgeGate{"Trusted reinforcement<br/>reuse?"}
-        JudgeGate -- "Yes" --> QuizOutput["quiz_output_node<br/>final invariant and validated quiz"]
-        JudgeGate -- "No" --> Judge["◆ LLM<br/>llm_as_a_judge<br/>semantic and factual review"]
-        Validate -- "retry edge: structural repair budget" --> GenerationEntry
-        Validate -- "quality_failure edge" --> QualityFailure["quality_failure_node<br/>safe retry message and diagnostic"]
-        Judge -- "success edge" --> QuizOutput
-        Judge -- "local issue + valid indices" --> AcademicTargetGate{"Academic repair<br/>unused?"}
-        AcademicTargetGate -- "Yes: targeted" --> GenerationEntry
-        AcademicTargetGate -- "No" --> QualityFailure
-        Judge -- "global, mixed, unknown,<br/>or invalid indices" --> AcademicFullGate{"Academic repair<br/>unused?"}
-        AcademicFullGate -- "Yes: full regeneration" --> GenerationEntry
-        AcademicFullGate -- "No" --> QualityFailure
-        Judge -- "quality_failure edge" --> QualityFailure
-    end
-    NoBlock --> Start
-    BlockState --> Start
-
-    Gather -. "clarification SSE content" .-> FrontendSetup["Frontend setup screen"]
-
-    BlockSSE -. "SSE content" .-> FrontendBlock["Frontend block screen"]
-    QuizOutput --> ProvenanceWrite["Best-effort Firestore write/reuse<br/>validated_quizzes; return validated_quiz_id"]
-    ProvenanceWrite -- "success or write failure" --> FrontendQuiz["Frontend quiz wizard<br/>public quiz only; no correct_answer"]
-    FrontendQuiz -. "adaptive request with validated_quiz_id" .-> SSE
-    QualityFailure -. "SSE content" .-> FrontendSetup
-
-    BlockSSE --> After["after_run_callback"]
-    AskMore --> After
-    QuizOutput --> After
-    QualityFailure --> After
-    After --> Tokens["Flush accumulated token usage<br/>to Firestore budgets"]
-
-    Runner -. "unexpected exception" .-> RunError["on_run_error_callback"]
-    RunError --> Tokens
-
-    classDef bestCase fill:#E6F4EA,stroke:#137333,color:#0D3B1E,stroke-width:3px
+    classDef defaultPath fill:#E6F4EA,stroke:#137333,color:#0D3B1E,stroke-width:3px
     classDef llmCall stroke:#ffb03a,stroke-width:4px
-    class User,SSE,Middleware,Context,Runner bestCase
-    class Before,Config,Ban,Budget,LocalScan,Payload,Classifier,ValidDecision,SafeDecision,NoBlock bestCase
-    class Start,Gate,GatherEntry,HasProvenance,Gather,Search bestCase
-    class GenerationEntry,RepairDecision,FullGeneration,NormalizeQuiz,CandidateReady bestCase
-    class Validate,JudgeGate,Judge,QuizOutput,ProvenanceWrite,FrontendQuiz bestCase
-    class Classifier,Gather,TargetedRepair,OptionRepair,FullGeneration,Judge llmCall
+    class Request,Security,Prepare,Ground,Candidate,Validate,Review,Final,Output defaultPath
+    class Security,Prepare,Clarify,Candidate,Review llmCall
 ```
 
-**Diagram legend**
+**Legend:** Green blocks show the default successful path for a new quiz,
+without clarification or retries. **◆ LLM** and an orange border mark stages
+that can call a language model. Early security blocks use no LLM; trusted
+reinforcement skips generation and academic-review calls. Clarification uses
+the curriculum result; an incompatible topic triggers an additional mascot
+LLM call. Retry paths can revisit green blocks.
 
-- **Green blocks** mark the best-case quiz path: the request passes every
-  security and budget check, the initial candidate has no duplicate or other
-  deterministic defect, the academic Judge accepts it, and the browser opens
-  the frontend quiz wizard without a retry.
-- **Default-colored blocks** are used only by alternative clarification,
-  blocking, targeted-repair, quality-failure, or error paths. Retry paths can
-  re-enter green generation blocks; green means the block is traversed in the
-  best case, not that it is exclusive to that path.
-- **Gold-orange border and `◆ LLM` stamp** mark a block that performs one or
-  more LLM calls. These calls currently use `gemini-2.5-flash`. A green block
-  with a gold-orange border is both part of the best-case path and an
-  LLM-calling block.
+Structural and academic repairs retain separate allowances of one each.
+Both local repair sources use the same executor; full regeneration handles
+issues that cannot be addressed locally. Every repaired quiz returns through
+structural validation and academic review. Trusted reinforcement reuses an
+already approved server quiz and skips the LLM Judge after structural checks.
+A failed final validation also returns a safe quality-failure response.
+
+#### Focused workflow diagrams
+
+Expand a diagram to inspect one part of the workflow. The flowcharts use the
+same green successful path and orange **◆ LLM** markers as the overview.
+The sequence diagram highlights successful trusted reinforcement in green
+and labels model calls explicitly.
+
+<details>
+<summary><strong>Security screening</strong></summary>
+
+Green follows an allowed, valid request. Local checks run before the semantic
+classifier, so bans, exhausted budgets, known attacks, and malformed payloads
+can be blocked without a model call.
+
+```mermaid
+flowchart TD
+    Request["Incoming request"] --> Ban{"Active ban?"}
+    Ban -- "Yes" --> Block["Localized blocked response"]
+    Ban -- "No" --> Budget{"User or global daily budget exceeded?"}
+    Budget -- "Yes" --> Block
+    Budget -- "No" --> Scan{"Local keyword or injection-regex match?"}
+    Scan -- "Yes" --> Violation["Log security event and apply Sheriff strike policy"]
+    Violation --> Block
+    Scan -- "No" --> Payload{"Valid structured quiz payload?"}
+    Payload -- "No" --> Invalid["INVALID_REQUEST"]
+    Invalid --> Block
+    Payload -- "Yes" --> Classifier["◆ LLM<br/>Semantic security classifier"]
+    Classifier --> Decision{"Classifier result"}
+    Decision -- "SAFE" --> Allowed["Continue to curriculum preflight"]
+    Decision -- "MALICIOUS" --> Violation
+    Decision -- "OFF_TOPIC" --> OffTopic["Localized off-topic response; no strike"]
+    OffTopic --> Block
+    Decision -- "PII" --> Privacy["Do not log disclosed personal data; no strike"]
+    Privacy --> Block
+    Decision -- "Malformed result or classifier error" --> Closed["Fail closed: CLASSIFIER_UNAVAILABLE"]
+    Closed --> Block
+
+    classDef defaultPath fill:#E6F4EA,stroke:#137333,color:#0D3B1E,stroke-width:3px
+    classDef llmCall stroke:#ffb03a,stroke-width:4px
+    class Request,Ban,Budget,Scan,Payload,Classifier,Decision,Allowed defaultPath
+    class Classifier llmCall
+```
+
+The privacy branch describes a semantic classifier result. A request caught
+by the earlier local malicious-pattern scan follows the security-event path.
+Infrastructure errors also prevent an unchecked request from proceeding.
+
+</details>
+
+<details>
+<summary><strong>Validation and repair</strong></summary>
+
+Green follows a newly generated quiz accepted on its first attempt. Both
+repair sources share a targeted executor, but consume independent allowances:
+one structural repair and one academic repair per invocation.
+
+```mermaid
+flowchart TD
+    Generate["◆ LLM<br/>Generate full quiz"] --> Normalize["Normalize answers, shuffle options, derive indices"]
+    Normalize -- "Candidate or normalization failure" --> Validate{"Structural validation"}
+    Reuse["Trusted stored quiz; shuffle questions and options"] --> Validate
+    Validate -- "Valid" --> Trust{"Trusted reinforcement reuse?"}
+    Trust -- "No" --> Judge["◆ LLM<br/>Review complete quiz"]
+    Trust -- "Yes" --> Final{"Final structural validation"}
+    Judge -- "Approved" --> Final
+    Final -- "Valid" --> Output["Save or reuse provenance; release public quiz"]
+    Final -- "Invalid" --> Failure["Safe quality-failure response"]
+
+    Validate -- "Invalid" --> StructuralBudget{"Structural repair unused?"}
+    StructuralBudget -- "No" --> Failure
+    StructuralBudget -- "Yes: consume structural allowance on retry" --> LocalStructural{"Only duplicate options with a usable candidate?"}
+    LocalStructural -- "Yes" --> Targeted["◆ LLM<br/>Repair affected complete questions"]
+    LocalStructural -- "No" --> Generate
+
+    Judge -- "Rejected" --> AcademicBudget{"Academic repair unused?"}
+    Judge -- "Malformed response or error" --> Failure
+    AcademicBudget -- "No" --> Failure
+    AcademicBudget -- "Yes: consume academic allowance on retry" --> LocalAcademic{"All issues eligible for local repair with usable indices?"}
+    LocalAcademic -- "Yes" --> Targeted
+    LocalAcademic -- "No: global, mixed, or unknown issues" --> Generate
+    Targeted -- "Success" --> Assemble["Normalize replacements; preserve unaffected questions"]
+    Assemble --> Validate
+    Targeted -- "Call, response, or normalization failure" --> Failure
+
+    classDef defaultPath fill:#E6F4EA,stroke:#137333,color:#0D3B1E,stroke-width:3px
+    classDef llmCall stroke:#ffb03a,stroke-width:4px
+    class Generate,Normalize,Validate,Trust,Judge,Final,Output defaultPath
+    class Generate,Judge,Targeted llmCall
+```
+
+A repaired quiz passes through both validation layers again. Repair selection
+is deterministic; the model performs generation or correction, not routing.
+Normalization removes the internal `correct_answer` field before a candidate
+can become public output.
+
+</details>
+
+<details>
+<summary><strong>Adaptive quiz reuse</strong></summary>
+
+Green highlights successful trusted reinforcement: a student with a score
+of 3/10 or below repeats a server-validated quiz. **◆ LLM** labels identify
+model calls; sequence diagrams use message labels instead of flowchart borders.
+Security screening must pass before the provenance lookup shown below.
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Workflow as Quiz workflow
+    participant Store as Firestore
+    participant Model as ◆ LLM
+
+    rect rgb(230, 244, 234)
+        Browser->>Workflow: Adaptive request with score and optional validated_quiz_id
+        Note over Workflow: Discard client-supplied previous quiz content
+        opt Server-issued ID supplied
+            Workflow->>Store: Load validated quiz record
+            Store-->>Workflow: Record, missing result, or read failure
+            Note over Workflow: Check expiry, ID, context, fingerprints,<br/>contract version, and current structural validity
+        end
+        Workflow->>Model: ◆ LLM: curriculum preflight
+        Model-->>Workflow: Compatibility decision and guidance
+    end
+
+    alt Curriculum is ready
+        Workflow->>Workflow: Get or reuse grounding
+        alt Valid provenance and score at most 3
+            rect rgb(230, 244, 234)
+                Workflow->>Workflow: Reuse stored quiz, shuffle questions and options
+                Workflow->>Workflow: Structural validation, skip LLM Judge, final validation
+                Workflow-->>Browser: Validated public quiz with the same validated_quiz_id
+            end
+        else Higher score or no trusted previous quiz
+            Note over Workflow: Use trusted previous question texts when available,<br/>otherwise generate without client-supplied history
+            Workflow->>Model: ◆ LLM: generate a fresh quiz at resolved difficulty
+            Model-->>Workflow: Internal quiz with correct_answer values
+            Workflow->>Workflow: Normalize answers and validate structure
+            Workflow->>Model: ◆ LLM: academic review after structural validation
+            Model-->>Workflow: Assessment
+            Note over Workflow: Apply bounded repairs if needed,<br/>release only after approval and final validation
+            opt Quiz approved
+                Workflow->>Store: Best-effort save of validated quiz provenance
+                Store-->>Workflow: New ID or write failure
+                Workflow-->>Browser: Public quiz, include new ID when saved
+            end
+        end
+    else Clarification, incompatibility, or preflight error
+        opt Incompatible topic
+            Workflow->>Model: ◆ LLM: friendly mascot explanation
+            Model-->>Workflow: Localized topic guidance
+        end
+        Workflow-->>Browser: Clarification, guidance, or retry response
+    end
+```
+
+Missing, expired, incompatible, or unavailable provenance falls back to normal
+generation and academic review. For low scores, that fallback creates a new
+Easy quiz. A provenance write failure does not block an approved quiz, but
+prevents trusted reuse of that result on the next request. Failed validation
+follows the bounded repair and failure paths in the preceding diagram.
+
+</details>
 
 #### Runtime LLM call overview
 
