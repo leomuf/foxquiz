@@ -1664,11 +1664,14 @@ async def test_quiz_output_node_fails_closed_when_difficulty_mismatches() -> Non
         "temp_quiz": quiz,
         "difficulty": "medium",
     }
-    events = [
-        event
-        async for event in quiz_output_node._run_impl(ctx=context, node_input=None)
-    ]
+    with patch("app.agent._save_quality_failure_best_effort") as save_failure:
+        events = [
+            event
+            async for event in quiz_output_node._run_impl(ctx=context, node_input=None)
+        ]
+
     assert context.state["quality_failure_type"] == "final_invariant_failed"
+    assert save_failure.call_args.args[0].failure_type == "final_invariant_failed"
     assert len(events) == 1
 
 
@@ -1682,11 +1685,14 @@ async def test_quiz_output_node_fails_closed_when_quiz_schema_fails() -> None:
         "temp_quiz": quiz,
         "difficulty": "medium",
     }
-    events = [
-        event
-        async for event in quiz_output_node._run_impl(ctx=context, node_input=None)
-    ]
+    with patch("app.agent._save_quality_failure_best_effort") as save_failure:
+        events = [
+            event
+            async for event in quiz_output_node._run_impl(ctx=context, node_input=None)
+        ]
+
     assert context.state["quality_failure_type"] == "final_invariant_failed"
+    assert save_failure.call_args.args[0].failure_type == "final_invariant_failed"
     assert len(events) == 1
 
 
