@@ -24,18 +24,18 @@ Discover why we built FoxQuiz, see a full feature demo, and explore the technica
 
 FoxQuiz adapts its question structure, language complexity, and cognitive requirements to match the developmental stage of learners from early primary through secondary school:
 
-| Grade Level | Pedagogical Stage | Option Count | Explanation Length | Negative Questions (*"Which is NOT..."*) | Question Emojis | Pedagogical Focus |
+| Grade Level | Pedagogical Stage | Option Count | Explanation Length | Negative Questions (*"Which is NOT..."*) | Question Text / Option Emojis | Pedagogical Focus |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Grades 1–2** | `PRIMARY_EARLY` (Ages 6–8) | **Exactly 3** | Max 2 short sentences | ❌ **Strictly Forbidden** | ✅ Allowed (decorative) | Concrete everyday vocabulary, beginner-reader friendly |
-| **Grades 3–4** | `PRIMARY_LATE` (Ages 8–10) | 3 to 5 | Max 3 short sentences | ❌ **Forbidden** | ✅ Allowed (decorative) | Basic academic concepts, simple cause-and-effect |
-| **Grades 5–10** | `LOWER_SECONDARY` (Ages 10–16) | 3 to 5 | Standard (detailed) | ✅ Allowed | ✅ Allowed (decorative) | Domain-specific terminology, logical relations |
-| **Grades 11–13** | `UPPER_SECONDARY` (Ages 16–19) | 3 to 5 | Comprehensive academic | ✅ Allowed | ✅ Allowed (decorative) | Abstract analytical reasoning, high-school exam rigor |
+| **Grades 1–2** | `PRIMARY_EARLY` (Ages 6–8) | **Exactly 3** | Max 2 short sentences | ❌ **Strictly Forbidden** | ❌ **Forbidden in questions/options** | Concrete everyday vocabulary, beginner-reader friendly |
+| **Grades 3–4** | `PRIMARY_LATE` (Ages 8–10) | 3 to 5 | Max 3 short sentences | ❌ **Forbidden** | ❌ **Forbidden in questions/options** | Basic academic concepts, simple cause-and-effect |
+| **Grades 5–8** | `SECONDARY_LOWER` (Ages 10–14) | 3 to 5 | Standard (detailed) | ✅ Allowed | ❌ **Forbidden in questions/options** | Domain-specific terminology, logical relations |
+| **Grades 9–12** | `SECONDARY_UPPER` (Ages 14–18) | 3 to 5 | Comprehensive academic | ✅ Allowed | ❌ **Forbidden in questions/options** | Abstract analytical reasoning, high-school exam rigor |
 
 ### Key Pedagogical Principles for Primary Grades (1–4):
 1. **Cognitive Load & Reading Accessibility (3 Options for Grades 1–2):** Presenting 4–5 choices overwhelms early readers. Exactly 3 choices provides the optimal balance between guessing probability and reading effort.
 2. **Negation Avoidance:** Young children struggle with double negation and inverted logic (*"Which animal does NOT have fur?"*). FoxQuiz strictly bans negative questions in Grades 1–4 to prevent unintended confusion.
 3. **Bite-Sized Explanations:** Explanations for early grades are limited to 1–2 encouraging, easily digestible sentences.
-4. **Answer-Safe Decorative Emojis:** Friendly emojis are permitted in question titles and text to make learning engaging for young kids, but are strictly prohibited from appearing in answer choices or giving away correct answers.
+4. **Answer-Safe Presentation Emojis:** Friendly emojis may appear in the title, explanation, or difficulty presentation, but deterministic validation keeps question text and answer options emoji-free and rejects visual answer cues.
 
 ---
 
@@ -140,7 +140,7 @@ If you need to clear your active session or reset the server output to get a fre
 | `agents-cli install` | Install dependencies using uv |
 | `agents-cli playground` | Launch the local development environment |
 | `agents-cli lint` | Run code quality checks |
-| `agents-cli eval` | Evaluate agent behavior (generate, grade, analyze, and more — see `agents-cli eval --help`) |
+| `agents-cli eval` | Evaluate agent behavior; use the [FoxQuiz evaluation guide](tests/eval/datasets/README.md) to select the relevant suite and protect Firestore |
 | `uv run playwright install chromium` | Install Chromium once for local frontend tests |
 | `uv run pytest tests/unit tests/integration tests/browser -m "not google_cloud"` | Run the credential-free suite used by GitHub Actions |
 | `uv run pytest tests/integration -m google_cloud` | Run real-agent integration tests locally with Google credentials |
@@ -170,11 +170,23 @@ The persistence layer relies on **Cloud Firestore (Native Mode)**, Google's serv
 * **Atomic Satisfaction Counters (No Race Conditions):** For the **aggregated thumbs-up counter**, Firestore's native **atomic increments** are used. If 100 users complete a quiz and click "Thumbs-Up" at the exact same millisecond, Firestore guarantees they are all counted accurately without transaction deadlocks or lost updates.
 * **Independent Documents:** Writing thumbs-down review logs and saving frozen quizzes create unique documents using random UUIDs, allowing parallel creations to execute at maximum cloud speed.
 
+Quiz content is stored in two collections with different triggers and purposes:
+
+| Collection | Created when | Purpose | Retention | Shareable |
+| --- | --- | --- | --- | --- |
+| `quizzes` | A user clicks **Share** | Serve a frozen quiz through its share link without another model call | 30 days | Yes, through its unguessable link |
+| `validated_quizzes` | A newly generated quiz passes deterministic validation and academic review | Provide trusted, server-side provenance for adaptive follow-ups, including safe reinforcement reuse and duplicate-prevention context | 1 day | No; it is an internal workflow record |
+
+Validated-quiz provenance contains the normalized public quiz and context-bound
+fingerprints, but no user IDs, session IDs, raw prompts, or rejected candidates.
+The write is best effort: if it fails, the quiz is still delivered, while later
+adaptive requests fall back to ordinary generation and academic review.
+
 ## 🔗 Zero-Token Frozen Quiz Sharing
 
 FoxQuiz includes an interactive social feature that allows students to freeze and share their generated quizzes with friends, parents, or teachers:
 
-* **Instant Recipient Delivery:** When a user clicks **"Share"**, the frontend "freezes" the active 10-question quiz state and saves it as a static document in Google Cloud Firestore under `quizzes/{quiz_id}`.
+* **Instant Recipient Delivery:** When a user clicks **"Share"**, the frontend "freezes" the active 10-question quiz state and saves it as a static document in Google Cloud Firestore under `quizzes/{quiz_id}`. The server generates the share ID and uses create-only persistence, so a caller cannot select an existing ID and replace a frozen quiz.
 * **Zero-Token Cost:** When a recipient visits the generated share link, our FastAPI backend (`/quiz/{quiz_id}`) serves the static SPA layout and directly loads the frozen JSON data. **No LLM model calls are triggered and zero Vertex AI tokens are consumed**, making sharing instant and infinitely scalable.
 * **30-Day Link Expiration:** To limit cloud storage overhead and maintain strict compliance with GDPR/LGPD data-minimization guidelines for minors, every shared quiz is written with an `expires_at` timestamp. Shared links stop working **30 days after creation**, and Firestore's native Time To Live (TTL) policy automatically deletes the corresponding quiz documents.
 * **Local Offline Export:** Students can also click **"Save as HTML"** to download the complete quiz locally as a beautifully-styled, standalone HTML file that works offline without any cloud dependencies.
@@ -194,119 +206,211 @@ To allow FoxQuiz to be safely published as a **public GitHub repository** withou
 
 ### How a Quiz Request Travels Through FoxQuiz
 
-The diagram separates the surrounding **FastAPI request handling**, the
-invocation-wide **ADK plugin**, and the graph-based **Workflow**. A plugin wraps
-the whole invocation; it is not a workflow node. Nodes perform work, while
-edges connect nodes and may select a route emitted by the preceding node.
+The main workflow below groups internal security and repair decisions into
+stages. See the [detailed workflow](docs/development/quiz-workflow.md) for
+security checks, provenance verification, and runtime integration details.
 
 ```mermaid
 flowchart TD
-    User["Browser: grade, subject, topic, language"] --> SSE["POST /run_sse"]
+    Request["Browser quiz request"] --> Security{"◆ LLM<br/>Security and budget checks"}
+    Security -- "Blocked" --> Block["Localized blocked response"]
+    Security -- "Allowed" --> Prepare["◆ LLM<br/>Load trusted previous quiz and check curriculum"]
+    Prepare -- "Needs input" --> Clarify["◆ LLM when incompatible<br/>Clarification or topic guidance"]
+    Prepare -- "Ready" --> Ground["Get or reuse grounding"]
+    Ground --> Candidate["◆ LLM unless trusted reuse<br/>Generate, repair, or reuse quiz"]
+    Candidate --> Validate{"Structural validation"}
+    Validate -- "Valid" --> Review{"◆ LLM unless trusted reuse<br/>Academic review or trusted reuse"}
+    Validate -- "Invalid" --> Repair{"Select repair within its budget"}
+    Review -- "Rejected" --> Repair
+    Repair -- "Affected questions or full quiz" --> Candidate
+    Repair -- "Unavailable or exhausted" --> Failure["Safe quality-failure response"]
+    Review -- "Error" --> Failure
+    Review -- "Approved" --> Final{"Final structural validation"}
+    Final -- "Valid" --> Output["Save provenance and release quiz"]
+    Final -- "Invalid" --> Failure
 
-    subgraph HTTP["FastAPI request layer"]
-        SSE --> Middleware["Request metadata middleware"]
-        Middleware --> Context["ContextVars: client IP, anonymous ID, locale"]
-        Context --> Runner["ADK App and Runner"]
-    end
-
-    subgraph Plugin["FoxQuizSecurityPlugin — wraps every invocation"]
-        Runner --> Before["before_run_callback"]
-        Before --> Config["Load cached private security config<br/>and hash the client IP"]
-        Config --> Ban{"Active ban?"}
-        Ban -- "Yes" --> BlockState["Store localized block envelope<br/>in temporary invocation state"]
-        Ban -- "No" --> Budget{"User or global<br/>daily budget exceeded?"}
-        Budget -- "Yes" --> BlockState
-        Budget -- "No" --> LocalScan["Stage 1: local keyword<br/>and injection-regex scan"]
-        LocalScan -- "Malicious match" --> Violation["Log security event<br/>and run Sheriff 3-strike check"]
-        Violation --> BlockState
-        LocalScan -- "No match" --> Payload{"Valid structured<br/>quiz payload?"}
-        Payload -- "No" --> InvalidRequest["Fixed localized INVALID_REQUEST response<br/>no LLM call"]
-        InvalidRequest --> BlockState
-        Payload -- "Yes" --> Classifier["◆ LLM<br/>Stage 2: semantic security classifier"]
-        Classifier --> ValidDecision{"Valid classifier decision?"}
-        ValidDecision -- "No or classifier error" --> Closed["Fail closed:<br/>CLASSIFIER_UNAVAILABLE"]
-        Closed --> BlockState
-        ValidDecision -- "Yes" --> SafeDecision{"SAFE?"}
-        SafeDecision -- "Yes" --> NoBlock["Do not set block state"]
-        SafeDecision -- "No" --> OffTopicDecision{"OFF_TOPIC?"}
-        OffTopicDecision -- "Yes" --> BlockState
-        OffTopicDecision -- "No" --> PiiDecision{"PII?"}
-        PiiDecision -- "Yes" --> PrivateBlock["Do not log the disclosed PII<br/>and do not count a Sheriff strike"]
-        PrivateBlock --> BlockState
-        PiiDecision -- "No (MALICIOUS)" --> Violation
-    end
-
-    subgraph Workflow["root_agent Workflow — nodes connected by routed edges"]
-        Start["Workflow START"] --> Gate["security_checkpoint_node"]
-        Gate -- "blocked edge" --> BlockNode["security_block_node"]
-        BlockNode --> BlockSSE["Structured blocked response"]
-
-        Gate -- "allowed edge" --> Gather["◆ LLM<br/>gather_and_route<br/>load validated request and check curriculum"]
-        Gather -- "ask_more edge" --> AskMore["ask_more_node<br/>terminal clarification branch"]
-        Gather -- "generate_quiz edge" --> Search["decision_and_search<br/>relevant curriculum grounding"]
-
-        subgraph QuizGeneration["quiz_generation — single Workflow node with internal flow"]
-            direction TB
-            GenerationEntry["Invocation entry"] --> RepairDecision{"Retry with only<br/>duplicate-option issues?"}
-            RepairDecision -- "Yes" --> TargetedRepair["◆ LLM<br/>Targeted repair<br/>replace affected option lists and indices"]
-            RepairDecision -- "No" --> FullGeneration["◆ LLM<br/>Generate complete quiz<br/>initial generation or full retry"]
-            TargetedRepair --> ShuffleRepair["Randomized option permutation<br/>shuffle_question_options"]
-            FullGeneration --> ShuffleQuiz["Randomized option permutation<br/>shuffle_quiz_options (index tracking)"]
-            ShuffleRepair --> CandidateReady["Return candidate_ready event"]
-            ShuffleQuiz --> CandidateReady
-        end
-
-        Search --> GenerationEntry
-        CandidateReady --> Validate["deterministic_quiz_validation<br/>structure and answer-cue checks"]
-        Validate -- "valid edge" --> Judge["◆ LLM<br/>llm_as_a_judge<br/>semantic and factual review"]
-        Validate -- "retry edge: structural repair budget" --> GenerationEntry
-        Validate -- "quality_failure edge" --> QualityFailure["quality_failure_node<br/>safe retry message and diagnostic"]
-        Judge -- "retry edge: academic repair budget" --> GenerationEntry
-        Judge -- "success edge" --> QuizOutput["quiz_output_node<br/>final invariant and validated quiz"]
-        Judge -- "quality_failure edge" --> QualityFailure
-    end
-    NoBlock --> Start
-    BlockState --> Start
-
-    Gather -. "clarification SSE content" .-> FrontendSetup["Frontend setup screen"]
-
-    BlockSSE -. "SSE content" .-> FrontendBlock["Frontend block screen"]
-    QuizOutput -. "SSE output" .-> FrontendQuiz["Frontend quiz wizard"]
-    QualityFailure -. "SSE content" .-> FrontendSetup
-
-    BlockSSE --> After["after_run_callback"]
-    AskMore --> After
-    QuizOutput --> After
-    QualityFailure --> After
-    After --> Tokens["Flush accumulated token usage<br/>to Firestore budgets"]
-
-    Runner -. "unexpected exception" .-> RunError["on_run_error_callback"]
-    RunError --> Tokens
-
-    classDef bestCase fill:#E6F4EA,stroke:#137333,color:#0D3B1E,stroke-width:3px
+    classDef defaultPath fill:#E6F4EA,stroke:#137333,color:#0D3B1E,stroke-width:3px
     classDef llmCall stroke:#ffb03a,stroke-width:4px
-    class User,SSE,Middleware,Context,Runner bestCase
-    class Before,Config,Ban,Budget,LocalScan,Payload,Classifier,ValidDecision,SafeDecision,NoBlock bestCase
-    class Start,Gate,Gather,Search bestCase
-    class GenerationEntry,RepairDecision,FullGeneration,ShuffleQuiz,CandidateReady bestCase
-    class Validate,Judge,QuizOutput,FrontendQuiz bestCase
-    class Classifier,Gather,TargetedRepair,FullGeneration,Judge llmCall
+    class Request,Security,Prepare,Ground,Candidate,Validate,Review,Final,Output defaultPath
+    class Security,Prepare,Clarify,Candidate,Review llmCall
 ```
 
-**Diagram legend**
+**Legend:** Green blocks show the default successful path for a new quiz,
+without clarification or retries. **◆ LLM** and an orange border mark stages
+that can call a language model. Early security blocks use no LLM; trusted
+reinforcement skips generation and academic-review calls. Clarification uses
+the curriculum result; an incompatible topic triggers an additional mascot
+LLM call. Retry paths can revisit green blocks.
 
-- **Green blocks** mark the best-case quiz path: the request passes every
-  security and budget check, the initial candidate has no duplicate or other
-  deterministic defect, the academic Judge accepts it, and the browser opens
-  the frontend quiz wizard without a retry.
-- **Default-colored blocks** are used only by alternative clarification,
-  blocking, targeted-repair, quality-failure, or error paths. Retry paths can
-  re-enter green generation blocks; green means the block is traversed in the
-  best case, not that it is exclusive to that path.
-- **Gold-orange border and `◆ LLM` stamp** mark a block that performs one or
-  more LLM calls. These calls currently use `gemini-2.5-flash`. A green block
-  with a gold-orange border is both part of the best-case path and an
-  LLM-calling block.
+Structural and academic repairs retain separate allowances of one each.
+Both local repair sources use the same executor; full regeneration handles
+issues that cannot be addressed locally. Every repaired quiz returns through
+structural validation and academic review. Trusted reinforcement reuses an
+already approved server quiz and skips the LLM Judge after structural checks.
+A failed final validation also returns a safe quality-failure response.
+
+#### Focused workflow diagrams
+
+Expand a diagram to inspect one part of the workflow. The flowcharts use the
+same green successful path and orange **◆ LLM** markers as the overview.
+The sequence diagram highlights successful trusted reinforcement in green
+and labels model calls explicitly.
+
+<details>
+<summary><strong>Security screening</strong></summary>
+
+Green follows an allowed, valid request. Local checks run before the semantic
+classifier, so bans, exhausted budgets, known attacks, and malformed payloads
+can be blocked without a model call.
+
+```mermaid
+flowchart TD
+    Request["Incoming request"] --> Ban{"Active ban?"}
+    Ban -- "Yes" --> Block["Localized blocked response"]
+    Ban -- "No" --> Budget{"User or global daily budget exceeded?"}
+    Budget -- "Yes" --> Block
+    Budget -- "No" --> Scan{"Local keyword or injection-regex match?"}
+    Scan -- "Yes" --> Violation["Log security event and apply Sheriff strike policy"]
+    Violation --> Block
+    Scan -- "No" --> Payload{"Valid structured quiz payload?"}
+    Payload -- "No" --> Invalid["INVALID_REQUEST"]
+    Invalid --> Block
+    Payload -- "Yes" --> Classifier["◆ LLM<br/>Semantic security classifier"]
+    Classifier --> Decision{"Classifier result"}
+    Decision -- "SAFE" --> Allowed["Continue to curriculum preflight"]
+    Decision -- "MALICIOUS" --> Violation
+    Decision -- "OFF_TOPIC" --> OffTopic["Localized off-topic response; no strike"]
+    OffTopic --> Block
+    Decision -- "PII" --> Privacy["Do not log disclosed personal data; no strike"]
+    Privacy --> Block
+    Decision -- "Malformed result or classifier error" --> Closed["Fail closed: CLASSIFIER_UNAVAILABLE"]
+    Closed --> Block
+
+    classDef defaultPath fill:#E6F4EA,stroke:#137333,color:#0D3B1E,stroke-width:3px
+    classDef llmCall stroke:#ffb03a,stroke-width:4px
+    class Request,Ban,Budget,Scan,Payload,Classifier,Decision,Allowed defaultPath
+    class Classifier llmCall
+```
+
+The privacy branch describes a semantic classifier result. A request caught
+by the earlier local malicious-pattern scan follows the security-event path.
+Infrastructure errors also prevent an unchecked request from proceeding.
+
+</details>
+
+<details>
+<summary><strong>Validation and repair</strong></summary>
+
+Green follows a newly generated quiz accepted on its first attempt. Both
+repair sources share a targeted executor, but consume independent allowances:
+one structural repair and one academic repair per invocation.
+
+```mermaid
+flowchart TD
+    Generate["◆ LLM<br/>Generate full quiz"] --> Normalize["Normalize answers, shuffle options, derive indices"]
+    Normalize -- "Candidate or normalization failure" --> Validate{"Structural validation"}
+    Reuse["Trusted stored quiz; shuffle questions and options"] --> Validate
+    Validate -- "Valid" --> Trust{"Trusted reinforcement reuse?"}
+    Trust -- "No" --> Judge["◆ LLM<br/>Review complete quiz"]
+    Trust -- "Yes" --> Final{"Final structural validation"}
+    Judge -- "Approved" --> Final
+    Final -- "Valid" --> Output["Save or reuse provenance; release public quiz"]
+    Final -- "Invalid" --> Failure["Safe quality-failure response"]
+
+    Validate -- "Invalid" --> StructuralBudget{"Structural repair unused?"}
+    StructuralBudget -- "No" --> Failure
+    StructuralBudget -- "Yes: consume structural allowance on retry" --> LocalStructural{"Only duplicate options with a usable candidate?"}
+    LocalStructural -- "Yes" --> Targeted["◆ LLM<br/>Repair affected complete questions"]
+    LocalStructural -- "No" --> Generate
+
+    Judge -- "Rejected" --> AcademicBudget{"Academic repair unused?"}
+    Judge -- "Malformed response or error" --> Failure
+    AcademicBudget -- "No" --> Failure
+    AcademicBudget -- "Yes: consume academic allowance on retry" --> LocalAcademic{"All issues eligible for local repair with usable indices?"}
+    LocalAcademic -- "Yes" --> Targeted
+    LocalAcademic -- "No: global, mixed, or unknown issues" --> Generate
+    Targeted -- "Success" --> Assemble["Normalize replacements; preserve unaffected questions"]
+    Assemble --> Validate
+    Targeted -- "Call, response, or normalization failure" --> Failure
+
+    classDef defaultPath fill:#E6F4EA,stroke:#137333,color:#0D3B1E,stroke-width:3px
+    classDef llmCall stroke:#ffb03a,stroke-width:4px
+    class Generate,Normalize,Validate,Trust,Judge,Final,Output defaultPath
+    class Generate,Judge,Targeted llmCall
+```
+
+A repaired quiz passes through both validation layers again. Repair selection
+is deterministic; the model performs generation or correction, not routing.
+Normalization removes the internal `correct_answer` field before a candidate
+can become public output.
+
+</details>
+
+<details>
+<summary><strong>Adaptive quiz reuse</strong></summary>
+
+Green highlights successful trusted reinforcement: a student with a score
+of 3/10 or below repeats a server-validated quiz. **◆ LLM** labels identify
+model calls; sequence diagrams use message labels instead of flowchart borders.
+Security screening must pass before the provenance lookup shown below.
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Workflow as Quiz workflow
+    participant Store as Firestore
+    participant Model as ◆ LLM
+
+    rect rgb(230, 244, 234)
+        Browser->>Workflow: Adaptive request with score and optional validated_quiz_id
+        Note over Workflow: Discard client-supplied previous quiz content
+        opt Server-issued ID supplied
+            Workflow->>Store: Load validated quiz record
+            Store-->>Workflow: Record, missing result, or read failure
+            Note over Workflow: Check expiry, ID, context, fingerprints,<br/>contract version, and current structural validity
+        end
+        Workflow->>Model: ◆ LLM: curriculum preflight
+        Model-->>Workflow: Compatibility decision and guidance
+    end
+
+    alt Curriculum is ready
+        Workflow->>Workflow: Get or reuse grounding
+        alt Valid provenance and score at most 3
+            rect rgb(230, 244, 234)
+                Workflow->>Workflow: Reuse stored quiz, shuffle questions and options
+                Workflow->>Workflow: Structural validation, skip LLM Judge, final validation
+                Workflow-->>Browser: Validated public quiz with the same validated_quiz_id
+            end
+        else Higher score or no trusted previous quiz
+            Note over Workflow: Use trusted previous question texts when available,<br/>otherwise generate without client-supplied history
+            Workflow->>Model: ◆ LLM: generate a fresh quiz at resolved difficulty
+            Model-->>Workflow: Internal quiz with correct_answer values
+            Workflow->>Workflow: Normalize answers and validate structure
+            Workflow->>Model: ◆ LLM: academic review after structural validation
+            Model-->>Workflow: Assessment
+            Note over Workflow: Apply bounded repairs if needed,<br/>release only after approval and final validation
+            opt Quiz approved
+                Workflow->>Store: Best-effort save of validated quiz provenance
+                Store-->>Workflow: New ID or write failure
+                Workflow-->>Browser: Public quiz, include new ID when saved
+            end
+        end
+    else Clarification, incompatibility, or preflight error
+        opt Incompatible topic
+            Workflow->>Model: ◆ LLM: friendly mascot explanation
+            Model-->>Workflow: Localized topic guidance
+        end
+        Workflow-->>Browser: Clarification, guidance, or retry response
+    end
+```
+
+Missing, expired, incompatible, or unavailable provenance falls back to normal
+generation and academic review. For low scores, that fallback creates a new
+Easy quiz. A provenance write failure does not block an approved quiz, but
+prevents trusted reuse of that result on the next request. Failed validation
+follows the bounded repair and failure paths in the preceding diagram.
+
+</details>
 
 #### Runtime LLM call overview
 
@@ -316,8 +420,9 @@ flowchart TD
 | Curriculum compatibility preflight | gather_and_route | `gemini-2.5-flash` | `0.0` | After grade, subject, and topic are known, it checks whether their combination is suitable and sufficiently clear before any quiz is generated |
 | Mascot incompatibility response | gather_and_route | `gemini-2.5-flash` | `0.7` | After the curriculum preflight finds an incompatible grade, subject, and topic combination, the mascot explains the issue and suggests suitable alternatives |
 | Complete quiz generation | Generate complete quiz | `gemini-2.5-flash` | `0.6` | Initial generation or a non-repair retry |
-| Targeted duplicate-option repair | Targeted repair | `gemini-2.5-flash` | `0.2` | When the first candidate fails deterministic validation only because of duplicate options and the structural repair allowance remains; it replaces only the affected option lists and answer indices |
-| Academic quality review | llm_as_a_judge | `gemini-2.5-flash` | `0.1` | After deterministic validation passes, it reviews factual correctness and grade, curriculum, and difficulty alignment; it is skipped when reinforcement mode repeats a previously validated quiz |
+| Targeted deterministic repair | Duplicate-only repair | `gemini-2.5-flash` | `0.2` | When deterministic validation finds only duplicate options and the repair allowance remains; it regenerates complete affected questions with `correct_answer`, then normalization replaces only those question slots |
+| Targeted academic question repair | Targeted repair | `gemini-2.5-flash` | `0.2` | When every Judge issue is local and has valid, non-contradictory 0-based indices; it regenerates complete affected questions and preserves unaffected questions |
+| Academic quality review | llm_as_a_judge | `gemini-2.5-flash` | `0.1` | After deterministic validation passes, it reviews facts, answer alignment, grade, curriculum, language, difficulty, emojis, and task variety; it is bypassed only for trusted Firestore-backed reinforcement reuse |
 
 This table is an inventory of possible LLM calls, not a sequence executed for
 every request. On the highlighted best-case path, a normal browser request
@@ -350,75 +455,89 @@ interfaces. Grades 1–2 always receive exactly three options per question,
 whereas Grades 3–12 receive three to five. Structured
 clarification and adaptive follow-ups may additionally provide
 `clarification_response`, `previous_score`, `previous_questions`,
-`previous_quiz_json`, and `selected_difficulty`. Unknown fields, missing
+`previous_quiz_json`, `validated_quiz_id`, and `selected_difficulty`. The
+server-issued `validated_quiz_id` is the only trusted provenance for
+reinforcement reuse; client-provided `previous_quiz_json` is never sufficient
+to bypass generation or the Judge. Unknown fields, missing
 required fields, malformed JSON, and free-form text receive a fixed localized
 `INVALID_REQUEST` response without parameter-extraction or mascot LLM calls.
 
-#### Duplicate-option repair and academic review
+#### Answer normalization, repair, and academic review
 
-The duplicate-option repair is an internal branch of `quiz_generation`, not a
-separate ADK workflow node. Initial generation must create the complete quiz:
-ten questions, 30–50 answer options, explanations, correct indices, curriculum
-alignment, difficulty, language, and tone. Even with an explicit uniqueness
-instruction, that larger generative task can occasionally produce equivalent
-options. An unvalidated candidate is never sent to the learner.
+The quiz-generation node keeps the model's answer representation separate from
+the browser contract. Every generated or repaired question contains an
+internal `correct_answer` string, never a model-supplied positional index. A
+common normalization boundary canonicalizes Unicode and whitespace, requires
+exactly one option to match, shuffles options in application code, derives the
+public 0-based `correct_option_index`, and removes `correct_answer` before
+output. An unvalidated candidate is never sent to the learner.
 
-`deterministic_quiz_validation` first checks objective invariants, including
-question and option counts, normalized duplicate options, valid index ranges,
-empty content, emojis, and visual correctness cues. When every reported issue
-is a duplicate option and the deterministic repair allowance remains, the
-retry edge returns to `quiz_generation`, which selects its targeted repair
-branch. That repair is performed by `gemini-2.5-flash` in a separate LLM call. The call
-receives only the affected questions and returns a small structured response
-containing replacement option lists and their corrected
-`correct_option_index` values. It cannot rewrite the title, question text,
-explanations, or unaffected questions because those fields are absent from the
-repair response schema. The repair also uses a lower generation temperature
-than full quiz generation to reduce unnecessary variation.
+`deterministic_quiz_validation` checks question and option counts, normalized
+duplicate options, index bounds, empty content, emojis, and visual answer
+cues. Question text and answer options must be emoji-free; presentation emojis
+remain allowed in titles, explanations, and difficulty badges. When every
+deterministic issue is a duplicate option, the separate deterministic repair
+allowance permits one targeted call that returns complete affected questions.
+Normalization then replaces only those question slots and the complete quiz is
+validated again. Mixed deterministic issues use full regeneration.
 
-The repaired candidate is not trusted automatically. It passes through
-`deterministic_quiz_validation` again. A malformed or incomplete repair is
-blocked when the deterministic repair allowance is exhausted. If the first
-candidate contains mixed or non-duplicate defects, FoxQuiz uses the existing
-full-regeneration branch instead because changing options alone cannot safely
-correct those problems.
+After deterministic validation succeeds, `llm_as_a_judge` performs the
+semantic and academic review. Local issues (`factual_error`,
+`correct_answer_mismatch`, `negative_question`, `emoji_in_question`, and
+`explanation_error`) use targeted repair only when all issues have valid,
+non-contradictory 0-based question indices. Quiz-wide issues
+(`grade_scope_violation`, `difficulty_mismatch`, `language_mismatch`, and
+`task_variety_failure`) use full regeneration. Mixed, unknown, missing, or
+invalid indices also use full regeneration; malformed Judge responses and
+exceptions fail closed. Task variety is not a rigid four-form requirement when
+a narrow topic cannot naturally support that many distinct forms. The academic
+budget allows at most one repair after the initial Judge rejection.
 
-Deterministic validation and academic review each have an independent,
-single-use correction allowance. One initial generation can therefore be
-followed by at most one deterministic correction and at most one full
-regeneration requested by the academic Judge. This bounds an invocation to
-three generated candidates and two Judge reviews while ensuring that a
-targeted structural repair does not remove the opportunity to correct a later
-academic defect.
+The complete generated questions sent to targeted academic repair include the
+affected questions, indices, structured issues, grade, subject, topic,
+language, curriculum guidance, expected and selected difficulty, previous
+score, relevant grounding, and general generation rules. Only unaffected
+question texts are included for duplicate prevention. The response must
+contain complete questions with `correct_answer`; the assembled quiz is then
+normalized, deterministically validated, and judged again.
 
-After deterministic validation succeeds, `llm_as_a_judge` still performs the
-semantic and academic review. The Judge checks factual correctness, curriculum
-and grade alignment, requested difficulty, and whether each
-`correct_option_index` points to the genuinely correct answer described by the
-explanation. A successful repair therefore follows this sequence:
+A successful repair therefore follows this sequence:
 
 ```text
-full quiz generation (◆ LLM)
-  -> randomized option permutation
+full quiz generation (◆ LLM; internal correct_answer)
+  -> common normalization and application shuffle
   -> deterministic validation
-  -> targeted duplicate-option repair (◆ LLM)
-  -> targeted question option permutation
-  -> deterministic validation again
+  -> optional targeted repair for duplicate options (◆ LLM)
+  -> normalization and deterministic validation again
   -> LLM-as-a-Judge (◆ LLM)
-  -> optional full academic regeneration (◆ LLM)
-  -> randomized option permutation
-  -> deterministic validation and LLM-as-a-Judge again
+  -> optional targeted academic repair or full regeneration (◆ LLM)
+  -> normalization, complete-quiz validation, and Judge again
   -> final invariant check and learner output, or fail closed
 ```
 
 #### Randomized option permutation (Zero position bias)
 
-To prevent models from exhibiting answer-position bias (e.g. disproportionately placing the correct answer at index `0`), FoxQuiz applies deterministic index-based option permutations (`shuffle_quiz_options` and `shuffle_question_options`) immediately after LLM JSON generation and targeted repairs. Correct answer indices are tracked and updated mathematically (`permutation.index(correct_idx)`), ensuring unbiased answer distributions without corrupting question metadata or relying on error-prone prompt-level model shuffling.
+To remove model-driven answer-position bias, generated quizzes pass through
+`normalize_generated_quiz`, which delegates each question to
+`normalize_generated_question`. Targeted repairs use the same question
+normalizer. It matches `correct_answer` to exactly one normalized option,
+randomly permutes the options, and deterministically derives the public index.
+The model does not supply an index. This randomizes answer positions without
+guaranteeing an equal distribution within an individual quiz.
 
-The existing reinforcement-mode exception is unchanged: when
-`previous_score <= 3`, FoxQuiz reuses previously validated questions and skips
-the academic Judge. All other repaired candidates must pass the Judge before
-release.
+For reinforcement reuse of an already validated public quiz,
+`shuffle_quiz_questions` changes question order and `shuffle_quiz_options`
+delegates to `shuffle_question_options`. These helpers move the known correct
+index with its option using `permutation.index(correct_idx)`.
+
+In reinforcement mode, when `previous_score <= 3`, FoxQuiz may reuse a stored
+quiz and skip generation and the academic Judge only after loading a matching,
+unexpired Firestore provenance record by the server-issued
+`validated_quiz_id`. The stored quiz must pass the current deterministic
+validation again. Client-supplied quiz JSON is never authoritative; missing,
+expired, incompatible, or invalid provenance falls back to normal generation
+and academic review. A successful new quiz writes a short-lived normalized
+record to Firestore and returns its ID with the public quiz.
 
 The similarly named decisions and routes have different responsibilities:
 
@@ -432,9 +551,11 @@ The similarly named decisions and routes have different responsibilities:
 | `BANNED` / `BUDGET_EXCEEDED` / `CLASSIFIER_UNAVAILABLE` | Plugin block types, not classifier decisions | Stop before quiz processing because an operational guard rejected the invocation. |
 | `blocked` | Edge from `security_checkpoint_node` | A block envelope exists, so the graph goes directly to `security_block_node`. |
 | `generate_quiz` / `ask_more` | Edges from `gather_and_route` | The curriculum check either starts quiz preparation or requests clarification. |
-| `valid` / `retry` / `quality_failure` | Edges from `deterministic_quiz_validation` | Continue to semantic review, return to `quiz_generation` for targeted duplicate repair or full regeneration within the single-use structural repair budget, or fail closed on objective defects. |
-| Duplicate-option repair | Internal retry branch of `quiz_generation` | Replace only affected option lists and indices, preserve all other quiz content, then return the candidate to deterministic validation. |
-| `retry` / `success` / `quality_failure` | Edges from `llm_as_a_judge` | Regenerate within the independent single-use academic repair budget, publish the validated quiz, or fail closed without exposing an unvalidated quiz. |
+| `valid` / `retry` / `quality_failure` | Edges from `deterministic_quiz_validation` | Continue to semantic review, return to `quiz_generation` for targeted complete-question duplicate repair or full regeneration within the single-use deterministic repair budget, or fail closed on objective defects. |
+| Duplicate-option repair | Internal retry branch of `quiz_generation` | Regenerate complete affected questions with `correct_answer`, normalize them, replace only those question slots, preserve unaffected questions, and return the complete candidate to deterministic validation. |
+| Targeted academic repair | Internal retry branch of `quiz_generation` | For local Judge issues with valid indices, regenerate complete affected questions while preserving unaffected questions; consume the academic repair budget. |
+| `retry` / `success` / `quality_failure` | Edges from `llm_as_a_judge` | Route local indexed issues to targeted repair, global or unaddressable issues to full regeneration, publish only an approved quiz, or fail closed. |
+| Reinforcement provenance | Firestore `validated_quizzes` record | Permit direct shuffle reuse and Judge bypass only for a current, context-matching, unexpired server-side record that passes current deterministic validation. |
 
 > **Why the extra security node?** The plugin performs cross-cutting checks before
 > the graph runs and records an expected block in invocation-local state. The
@@ -483,6 +604,11 @@ is the canonical command reference. It contains the prerequisites, preview and
 apply commands for both scripts, existing-DEV updates, production approval
 rules, verification, and campaign cleanup. Provisioning or deploying requires
 explicit maintainer approval.
+
+Before merging a release PR, follow the
+[final pre-release gate](CONTRIBUTING.md#step-31-final-pre-release-gate) to
+freeze the candidate, confirm the applicable local evaluations, deploy that
+exact revision to DEV, and run the required five-case pilot.
 
 ### A2A access
 

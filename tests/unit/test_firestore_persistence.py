@@ -17,7 +17,9 @@ import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
+from google.api_core.exceptions import AlreadyExists
 
+from app.app_utils.typing import QuizContext
 from app.database.firestore_repo import (
     FirestorePersistenceError,
     FirestoreRepository,
@@ -98,8 +100,8 @@ def test_legacy_transient_budget_gets_expiration_on_read(real_repo):
 def test_shared_quiz_failure_is_not_reported_as_saved(real_repo):
     """A failed production write must raise instead of succeeding in memory."""
     repo, client = real_repo
-    client.collection.return_value.document.return_value.set.side_effect = RuntimeError(
-        "Firestore unavailable"
+    client.collection.return_value.document.return_value.create.side_effect = (
+        RuntimeError("Firestore unavailable")
     )
 
     with pytest.raises(FirestorePersistenceError) as exc_info:
@@ -109,6 +111,146 @@ def test_shared_quiz_failure_is_not_reported_as_saved(real_repo):
     assert exc_info.value.phase == "quiz_persistence"
 
     assert repo.use_mock is False
+
+
+def test_shared_quiz_uses_create_only_persistence(real_repo):
+    """A shared identifier must never overwrite an existing Firestore document."""
+    repo, client = real_repo
+    document = client.collection.return_value.document.return_value
+
+    assert repo.save_shared_quiz("quiz-id", {"title": "Quiz"}) is True
+
+    document.create.assert_called_once()
+    document.set.assert_not_called()
+
+
+def test_shared_quiz_collision_is_not_reported_as_saved(real_repo):
+    """An existing Firestore document is preserved and reported as a collision."""
+    repo, client = real_repo
+    document = client.collection.return_value.document.return_value
+    document.create.side_effect = AlreadyExists("quiz already exists")
+
+    assert repo.save_shared_quiz("quiz-id", {"title": "Replacement"}) is False
+
+
+def test_validated_quiz_provenance_has_bounded_ttl_and_fingerprints():
+    repo = FirestoreRepository(force_mock=True)
+    quiz = {
+        "title": "Cells",
+        "difficulty": "medium",
+        "questions": [
+            {
+                "question": f"Question {index}?",
+                "options": ["A", "B", "C"],
+                "correct_option_index": 0,
+                "explanation": "A is correct.",
+            }
+            for index in range(10)
+        ],
+    }
+    context = QuizContext(
+        grade="Klasse 7",
+        subject="Biology",
+        topic="Cells",
+        preferred_language="en",
+    )
+
+    validated_id = repo.save_validated_quiz(
+        quiz,
+        context,
+        validation_contract_version="quiz-validation-v2",
+        service_version="test",
+    )
+
+    record = repo.get_validated_quiz(validated_id)
+    assert record is not None
+    assert record["validated_quiz_id"] == validated_id
+    assert record["quiz"] == quiz
+    assert len(record["quiz_fingerprint"]) == 64
+    assert len(record["context_fingerprint"]) == 64
+    remaining = datetime.datetime.fromisoformat(
+        record["expires_at"]
+    ) - datetime.datetime.now(datetime.UTC)
+    assert datetime.timedelta(hours=23) < remaining <= datetime.timedelta(days=1)
+
+
+def test_expired_validated_quiz_provenance_is_not_returned():
+    repo = FirestoreRepository(force_mock=True)
+    validated_id = repo.save_validated_quiz(
+        {"title": "Expired", "questions": []},
+        QuizContext(grade="Klasse 7", subject="Biology", topic="Cells"),
+        validation_contract_version="quiz-validation-v2",
+        service_version="test",
+        ttl_days=-1,
+    )
+
+    assert repo.get_validated_quiz(validated_id) is None
+
+
+def test_malformed_validated_quiz_expiration_is_not_trusted():
+    repo = FirestoreRepository(force_mock=True)
+    validated_id = repo.save_validated_quiz(
+        {"title": "Malformed", "questions": []},
+        QuizContext(grade="Klasse 7", subject="Biology", topic="Cells"),
+        validation_contract_version="quiz-validation-v2",
+        service_version="test",
+    )
+    repo._get_mock_doc("validated_quizzes", validated_id)["expires_at"] = (
+        "not-a-timestamp"
+    )
+
+    assert repo.get_validated_quiz(validated_id) is None
+
+
+def test_save_shared_quiz_canonicalizes_difficulty_and_strips_internal_fields():
+    repo = FirestoreRepository(force_mock=True)
+
+    # Legacy decorated string
+    repo.save_shared_quiz(
+        "quiz-hard",
+        {
+            "title": "Hard Quiz",
+            "difficulty": "🚀 Hard",
+            "questions": [
+                {
+                    "question": "Q1",
+                    "options": ["A", "B"],
+                    "correct_option_index": 0,
+                    "correct_answer": "A",
+                    "explanation": "E1",
+                }
+            ],
+        },
+    )
+    saved = repo.get_shared_quiz("quiz-hard")
+    assert saved is not None
+    assert saved["difficulty"] == "hard"
+    assert "correct_answer" not in saved["questions"][0]
+
+    # German localized string
+    repo.save_shared_quiz(
+        "quiz-easy",
+        {
+            "title": "Easy Quiz",
+            "difficulty": "🌱 Einfach",
+            "questions": [{"question": "Q2", "options": ["A", "B"]}],
+        },
+    )
+    saved_easy = repo.get_shared_quiz("quiz-easy")
+    assert saved_easy is not None
+    assert saved_easy["difficulty"] == "easy"
+
+    # Missing difficulty defaults to medium
+    repo.save_shared_quiz(
+        "quiz-default",
+        {
+            "title": "Default Quiz",
+            "questions": [{"question": "Q3", "options": ["A", "B"]}],
+        },
+    )
+    saved_default = repo.get_shared_quiz("quiz-default")
+    assert saved_default is not None
+    assert saved_default["difficulty"] == "medium"
 
 
 def test_feedback_failure_is_not_reported_as_saved(real_repo):

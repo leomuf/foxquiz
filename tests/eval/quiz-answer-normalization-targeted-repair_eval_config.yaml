@@ -1,0 +1,49 @@
+metrics_to_run:
+  - quiz_structure
+  - answer_normalization_targeted_repair_quality
+
+custom_metrics:
+  - name: quiz_structure
+    custom_function_file: quiz_structure_metric.py
+    execution: local
+
+  - name: answer_normalization_targeted_repair_quality
+    judge_model_system_instruction: |
+      Return exactly one valid JSON object and nothing else. Do not include
+      Markdown, code fences, headings, or prose before or after the JSON.
+    judge_model_generation_config:
+      temperature: 0
+      max_output_tokens: 512
+      response_mime_type: application/json
+      response_json_schema:
+        type: object
+        additionalProperties: false
+        required:
+          - score
+          - explanation
+        properties:
+          score:
+            type: integer
+            minimum: 1
+            maximum: 5
+          explanation:
+            type: string
+            minLength: 1
+    prompt_template: |
+      Evaluate the final FoxQuiz response for the production-derived answer
+      normalization and targeted-repair regression case.
+
+      Give score 1 when the workflow returns a quality/safety failure instead
+      of a quiz. Give score 5 only when it returns exactly ten questions in the
+      requested language and grade scope, with one factually correct answer per
+      question, no emoji in any question text or option, no internal
+      correct_answer field, and correct_option_index aligned with the selected
+      option after shuffling. Titles, explanations, and difficulty badges may
+      contain presentation emojis. Any incorrect answer or index is a release
+      blocker.
+
+      User Prompt: {prompt}
+      Final Response: {response}
+      Full Agent Trace: {agent_data}
+
+      Return JSON: {"score": <1|2|3|4|5>, "explanation": "<reason>"}

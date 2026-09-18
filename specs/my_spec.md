@@ -63,6 +63,7 @@ production child-facing web UI. Two layers are therefore kept separate:
 ┌───────────────────────────┴─────────────────────────────┐
 │  PERSISTENCE / CLOUD                                      │
 │  - Quiz store (frozen quizzes for share links)           │
+│  - Validated-quiz provenance (short-lived reinforcement)  │
 │  - Admin log (feedback, security, quality failures)      │
 │  - Usage counters (per-anonymous-user + global)          │
 └─────────────────────────────────────────────────────────┘
@@ -340,6 +341,7 @@ request_contract:
     - "previous_score"
     - "previous_questions"
     - "previous_quiz_json"
+    - "validated_quiz_id"
     - "selected_difficulty"
   unknown_fields: "reject"
   free_form_input: "unsupported"
@@ -362,9 +364,17 @@ grade_policy:
   grade_5_to_8:
     age_range: "10-14"
     answer_options: "3-5"
+    question_emojis: false
   grade_9_to_12:
     age_range: "14-18"
     answer_options: "3-5"
+    question_emojis: false
+
+generation_contract:
+  internal_correct_field: "correct_answer"
+  model_must_not_return: "correct_option_index"
+  public_field: "correct_option_index"
+  normalization: "Unicode-and-whitespace canonicalization, exact-one-match, then application shuffle and index derivation"
 
 judge:
   enabled: true
@@ -375,7 +385,21 @@ judge:
     - "Exactly one answer is correct"
     - "The correct index points to the factually correct option"
     - "Difficulty matches the grade level"
-  on_first_rejection: "regenerate_with_judge_reason"
+    - "Question text and answer options contain no emojis or visual answer cues"
+    - "Task variety is appropriate when the topic naturally supports multiple forms"
+  response: "structured JudgeAssessment with issue codes and 0-based question_indices"
+  local_issue_codes:
+    - "factual_error"
+    - "correct_answer_mismatch"
+    - "negative_question"
+    - "emoji_in_question"
+    - "explanation_error"
+  global_issue_codes:
+    - "grade_scope_violation"
+    - "difficulty_mismatch"
+    - "language_mismatch"
+    - "task_variety_failure"
+  on_first_rejection: "route_structured_issues_to_targeted_repair_or_full_regeneration"
   max_attempts: 2
   on_second_rejection: "fail_closed"
   on_exception: "fail_closed"
@@ -383,15 +407,24 @@ judge:
 duplicate_option_repair:
   enabled: true
   trigger: "retry_when_all_deterministic_issues_are_duplicate_option"
-  scope: "affected_option_lists_and_correct_indices_only"
+  scope: "complete affected questions only"
   temperature: 0.2
   preserve:
     - "quiz title and difficulty"
-    - "question text and explanations"
     - "all unaffected questions"
   after_repair: "repeat_deterministic_validation_then_run_judge"
   on_mixed_or_other_issues: "regenerate_complete_quiz"
   on_exhausted_retry: "fail_closed"
+
+targeted_academic_repair:
+  enabled: true
+  trigger: "all Judge issues are local and contain valid, non-contradictory 0-based question_indices"
+  scope: "complete affected questions only"
+  preserve: "all unaffected questions and their exact content"
+  context: "affected questions, indices, structured issues, request context, curriculum and grounding context, and general generation rules"
+  unaffected_context: "question texts only"
+  response: "complete generated questions containing correct_answer"
+  after_repair: "normalize, assemble, deterministic-validate, and Judge the complete quiz"
 
 knowledge_sources:
   default:
@@ -414,32 +447,40 @@ knowledge_sources:
    the preflight's authoritative `difficulty_guidance` and grade policy (Grades 1–2
    use exactly 3 options, Grades 3–12 use 3–5 options). The initial generation
    produces the complete quiz candidate.
-5. **Randomized option permutation & Deterministic validation.** Immediately after
-   raw generation or targeted repair, option order is randomly permuted via index
-   tracking (`shuffle_quiz_options` and `shuffle_question_options`) to eliminate
-   answer position bias. Before any LLM judge call, a pure validation component
-   checks objective structure, option counts, duplicate options, correct-index
-   bounds, and empty fields. Answer options must be neutral text and contain
-   neither Unicode emojis nor visual correctness cues. A first failure returns
-   to `quiz_generation` using privacy-safe issue codes and positions. When every
-   issue is `duplicate_option`, the generation node uses an internal
-   targeted-repair branch that returns only complete replacement option lists
-   and corrected indices for the affected questions. It must preserve the title,
-   question text, explanations, and every unaffected question. Mixed or
-   non-duplicate issues use complete quiz regeneration because option replacement
-   alone cannot safely correct them. Every repaired or regenerated candidate
-   undergoes randomized option permutation and passes deterministic validation
-   again; the repair is never accepted on trust.
-6. **Semantic quality check.** A separate judge verifies factual correctness,
-   exact topic fit, grade-level scope, and whether an emoji in a question names,
-   depicts, or otherwise reveals the correct answer. Decorative question emojis
-   remain allowed. A candidate recovered through targeted option repair still
-   requires this semantic and academic review, including confirmation that each
-   repaired `correct_option_index` points to the genuinely correct answer.
-   Judge rejection shares the same single-retry generation budget with
-   deterministic validation. The existing reinforcement-mode exception remains:
-   when `previous_score <= 3`, previously validated questions are shuffled and
-   reused, so the academic Judge is skipped.
+5. **Answer normalization, randomized permutation, and deterministic validation.**
+   The LLM returns an internal `correct_answer`, never a positional
+   `correct_option_index`. One common normalization boundary validates the
+   grade-specific option count, canonicalizes options and `correct_answer` with
+   Unicode and whitespace rules, requires exactly one option match, shuffles
+   options in application code, derives the public 0-based index, and removes
+   `correct_answer` from the public question. This boundary applies to initial
+   generation, adaptive generation, full retries, targeted academic repair, and
+   duplicate-option repair. Before any LLM Judge call, a pure validator checks
+   objective structure, option counts, duplicate options, correct-index bounds,
+   empty fields, and emojis or visual correctness cues in question text and
+   answer options. Titles, explanations, and difficulty badges may contain
+   presentation emojis. A first failure returns to `quiz_generation` using
+   privacy-safe issue codes and positions. Normalization failures retain their
+   stable error code and, when available, the 0-based question index. Their
+   specific correction guidance must reach the retry generator; validation of
+   a missing public candidate must not overwrite it with a generic invalid-quiz
+   message. Every repaired or regenerated candidate is revalidated before it
+   can be reviewed or released.
+6. **Structured semantic quality check and repair routing.** A separate Judge
+   verifies factual correctness, exact topic fit, grade-level scope, requested
+   language and difficulty, and whether each derived index points to the
+   genuinely correct answer described by the explanation. It returns structured
+   issue codes and 0-based question indices. Local issues
+   (`factual_error`, `correct_answer_mismatch`, `negative_question`,
+   `emoji_in_question`, or `explanation_error`) use targeted repair only when
+   every issue has valid, non-contradictory indices. Quiz-wide issues
+   (`grade_scope_violation`, `difficulty_mismatch`, `language_mismatch`, or
+   `task_variety_failure`) use full regeneration. Mixed, unknown, or
+   unaddressable issues also use full regeneration; malformed Judge responses
+   and exceptions fail closed. Task variety is not a rigid four-form minimum:
+   the Judge must not reject a narrow topic solely because fewer forms are
+   naturally available. The academic repair allowance permits at most one
+   repair after the initial rejection.
 7. **Terminal routing.** Only a passed quiz reaches the presentation layer.
    Exhausted retries or a judge exception route to a localized fail-closed
    response and diagnostic persistence. The generation node may keep a
@@ -478,13 +519,14 @@ Feature: Quiz solving and result
     And the user chooses "harder"
     Then a new quiz starts at higher difficulty from step 1
 
-  Scenario: Duplicate-only failure repairs affected options
+  Scenario: Duplicate-only failure repairs affected questions
     Given an unreleased quiz candidate fails deterministic validation
     And every reported issue is "duplicate_option"
     And the deterministic repair allowance is not exhausted
     When the retry returns to quiz generation
-    Then only the affected option lists and their correct indices are regenerated
-    And the title, questions, explanations, and unaffected questions are preserved
+    Then complete generated questions containing correct_answer are returned for the affected indices
+    And only the affected question slots are replaced after normalization
+    And the title and all unaffected questions are preserved exactly
     And the repaired candidate passes through deterministic validation again
     And the repaired candidate must pass the academic Judge before release
 
@@ -504,10 +546,30 @@ Feature: Quiz solving and result
   Scenario: Academic correction remains after deterministic repair
     Given a candidate used its one deterministic repair
     And the repaired candidate passes deterministic validation
-    When the academic Judge rejects the repaired candidate
+    When the academic Judge rejects the repaired candidate with local issues and valid non-contradictory indices
+    Then the system performs one targeted academic repair for the affected questions
+    And all unaffected questions are preserved exactly
+    And the new candidate passes through deterministic validation and academic review
+    And no candidate is released unless both gates pass
+
+  Scenario: Quiz-wide academic rejection regenerates the complete quiz
+    Given a candidate passes deterministic validation
+    When the academic Judge rejects it with a quiz-wide, mixed, or unaddressable issue
     Then the system regenerates the complete quiz once using the Judge feedback
     And the new candidate passes through deterministic validation and academic review
     And no candidate is released unless both gates pass
+
+  Scenario: Presentation emoji is not a question emoji issue
+    Given a candidate contains an emoji in its title, explanation, or difficulty presentation
+    And its question text and answer options contain no emojis or answer cues
+    When deterministic validation and the academic Judge run
+    Then the candidate is not rejected with "emoji_in_question"
+
+  Scenario: Narrow topics are not rejected for artificial task variety
+    Given a topic cannot naturally support four genuinely distinct task forms
+    And the candidate otherwise satisfies the requested grade, language, difficulty, and quality requirements
+    When the academic Judge assesses task variety
+    Then the candidate is not rejected solely for having fewer than four task forms
 ```
 
 ### 6.1 Asymptotic Progress Loader Overlay
@@ -539,13 +601,18 @@ When the user finishes a quiz, they can choose to continue learning the same top
 
 1. **Reinforcement Mode (Score $\le$ 3 / 10)**:
    - **Pedagogical Goal**: Help the student master the content they struggled with.
-   - **Behavior**: The agent shuffles the previous 10 questions and their options, repeating them so the student can focus on correcting their mistakes. Traditional duplicate-prevention filters are bypassed.
-   - **Difficulty Rating**: `🌱 Easy` (mapped dynamically to user's language).
+   - **Behavior**: The browser sends a server-issued `validated_quiz_id`. When
+     its Firestore provenance record is present, unexpired, context-compatible,
+     current-contract-compatible, and valid under current deterministic
+     validation, the agent shuffles the stored normalized public quiz directly.
+     The client-provided quiz JSON is never authoritative. If provenance cannot
+     be established, the agent uses ordinary generation and academic review.
+   - **Difficulty Rating**: Semantic code `"easy"` (`DifficultyLevel.EASY`), rendered in the UI with localized badge (e.g. `🌱 Einfach` in German).
 
 2. **Practice Mode (Score 4 - 7 / 10)**:
    - **Pedagogical Goal**: Consolidate understanding at the current level.
    - **Behavior**: The agent generates a new set of 10 standard-difficulty questions on the same topic. Duplication-prevention is recommended but not strictly enforced.
-   - **Difficulty Rating**: `⭐ Medium` (mapped dynamically to user's language).
+   - **Difficulty Rating**: Semantic code `"medium"` (`DifficultyLevel.MEDIUM`), rendered in the UI with localized badge (e.g. `⭐ Mittel` in German).
 
 3. **User-Choice Progression Mode (Score $\ge$ 8 / 10) [Tester Feedback Integration]**:
    - **Pedagogical Goal**: Empower high-achieving students to steer their own academic progression and choose between consolidating standard-level content or tackling advanced, high-order challenges.
@@ -553,44 +620,106 @@ When the user finishes a quiz, they can choose to continue learning the same top
      - When a student finishes a quiz with a score of **$\ge 8/10$** and clicks **"Let's go for more questions"**, the app halts the standard request.
      - An interactive, beautifully styled **Difficulty Choice Modal** is presented to the user.
      - The user is prompted to choose between:
-       - **Medium (Standard)**: Generates 10 completely fresh standard-difficulty questions (`⭐ Medium`) with a balanced mix of recall, understanding, application, and reasoning.
-       - **Difficult (Advanced)**: Generates 10 questions with greater cognitive depth (`🚀 Hard`). `🚀 Hard` is relative to the selected grade: it uses varied application, multi-step reasoning, estimation, strategy choice, comparison, or error analysis within the authoritative grade-level curriculum. It must not create difficulty primarily through larger operands, calculator-like manual work, tightly clustered numeric distractors, or higher-grade content.
-     - **Duplication-Prevention**: For both options, duplication-prevention is strictly enforced (absolutely zero questions from the previous run are repeated).
+       - **Medium (Standard)**: Generates 10 completely fresh standard-difficulty questions (`"medium"`) with a balanced mix of recall, understanding, application, and reasoning.
+       - **Difficult (Advanced)**: Generates 10 questions with greater cognitive depth (`"hard"`). `"hard"` is relative to the selected grade: it uses varied application, multi-step reasoning, estimation, strategy choice, comparison, or error analysis within the authoritative grade-level curriculum. It must not create difficulty primarily through larger operands, calculator-like manual work, tightly clustered numeric distractors, or higher-grade content.
+     - **Duplication-Prevention**: For both options, the generation prompt instructs the model to avoid repeated or similar questions. When a valid provenance record is available, the server supplies its previous question texts. Without that record, those texts are unavailable; client-supplied previous quiz data is ignored. This is prompt-based guidance, not a deterministic guarantee of zero repeated questions.
 
-Across all generated levels, question templates and distractors must remain pedagogically varied when the topic permits. All ten questions retain the required multiple-choice response format; variety refers to cognitive demands and problem patterns within that format. Easy prioritizes short, concrete core-understanding tasks and manageable workload. Medium and Hard should use at least four meaningfully different task forms across ten questions when suitable. For quantitative Hard quizzes, at most two questions may be pure long-form exact calculations when conceptual alternatives exist, and the opening question must not be an unusually laborious calculation.
+Across all generated levels, question templates and distractors must remain pedagogically varied when the topic permits. All ten questions retain the required multiple-choice response format; variety refers to cognitive demands and problem patterns within that format. Easy prioritizes short, concrete core-understanding tasks and manageable workload. Medium and Hard should use at least four meaningfully different task forms across ten questions when suitable. A narrow topic may use fewer forms when that is the strongest natural variety available; the Judge must not reject it solely for missing a fixed numeric minimum. For quantitative Hard quizzes, at most two questions may be pure long-form exact calculations when conceptual alternatives exist, and the opening question must not be an unusually laborious calculation.
 
-#### 6.2.2 Dynamic Difficulty Localization
+#### 6.2.2 Server-backed reinforcement provenance
 
-To prevent leakage of English terminology on non-English user interfaces, raw difficulty indicators received from the backend are mapped to localized labels before rendering on the screen (both in `#quiz-difficulty` on the quiz interface and `#summary-difficulty` on the final summary screen). To ensure the UI is fully self-explained, a language-specific prefix description is prepended before the difficulty label:
+After a newly generated quiz passes deterministic validation and the academic
+Judge, the server writes a short-lived record to the Firestore
+`validated_quizzes` collection. The record contains:
+
+- a cryptographically random, unguessable `validated_quiz_id`;
+- the normalized public quiz, without `correct_answer`;
+- a deterministic quiz fingerprint;
+- a context fingerprint covering grade, subject, topic, and language;
+- the validation-contract version and FoxQuiz service version;
+- creation and expiration timestamps.
+
+When the provenance write succeeds, the server returns `validated_quiz_id`
+alongside the public quiz. The browser stores it and sends it on adaptive
+requests when available. Inside `gather_and_route`, any supplied ID is checked
+before curriculum preflight, including Practice and Hard requests. A trusted
+record supplies previous question texts for adaptive generation. All approved
+request modes then traverse `decision_and_search`, which skips a new Wikipedia
+query only when `search_context` is already present. Firestore is the source
+of truth; ADK session state may cache the ID only as a convenience. A reinforcement
+request may bypass generation and the Judge only when the Firestore record is
+present, unexpired, matches the exact current context, uses the current
+validation contract, and passes current deterministic validation again. The
+stored quiz is then shuffled directly. Missing, expired, incompatible,
+tampered, or invalid records fall back to normal generation and academic
+review. The collection uses Firestore TTL on `expires_at` with a short
+retention period of one day; reads enforce expiration independently.
+
+These records do not contain user IDs, session IDs, raw prompts, or rejected
+candidate snapshots. A provenance write failure does not release an
+unvalidated quiz or turn a validated quiz into a user-facing error; it simply
+disables the future Judge bypass for that quiz.
+
+```gherkin
+Feature: Firestore-backed reinforcement provenance
+
+  Scenario: Validated provenance enables reinforcement reuse
+    Given a quiz passed deterministic validation and academic review
+    And the server stored its normalized public quiz with a short-lived context-bound record
+    When the learner requests reinforcement with score 3 or below
+    Then the server loads the stored quiz by validated_quiz_id
+    And verifies expiration, context, contract version, fingerprint, and current deterministic validation
+    And shuffles the stored quiz without a generation or Judge call
+
+  Scenario: Client quiz data is not trusted as provenance
+    Given an adaptive request includes previous_quiz_json but no valid server record
+    When reinforcement is requested
+    Then the client quiz is ignored as an authoritative source
+    And normal generation and academic review are used
+
+  Scenario: Invalid provenance falls back safely
+    Given the validated quiz record is missing, expired, incompatible, or fails current validation
+    When reinforcement is requested
+    Then the Judge bypass is disabled
+    And normal generation and academic review are used
+```
+
+#### 6.2.3 Clean Semantic Boundary and Dynamic Difficulty Localization
+
+To keep API contracts clean, portable, and stable, all backend agent models, schemas, and persistence boundaries operate strictly on semantic codes: `"easy"`, `"medium"`, and `"hard"` defined by Python's `DifficultyLevel(StrEnum)`.
+
+Presentation concerns (emojis and localized text) are strictly isolated to the frontend presentation layer (`app/static/index.html`). The frontend normalizes both clean semantic codes and legacy decorated strings (from legacy Firestore documents) via `normalizeDifficulty()`, ensuring full backward compatibility.
+
+Before rendering in `#quiz-difficulty` on the quiz interface and `#summary-difficulty` on the final summary screen, semantic difficulty codes are mapped to localized labels and accompanied by an accessible `aria-label` without emoji clutter:
 
 - **Deutsch (DE)** (# USER-FACING — DO NOT TRANSLATE):
   - Prefix description: `"Stufe: "`
-  - `🌱 Easy` $\to$ `"Stufe: 🌱 Einfach"`
-  - `⭐ Medium` $\to$ `"Stufe: ⭐ Mittel"`
-  - `🚀 Hard` $\to$ `"Stufe: 🚀 Schwer"`
+  - `easy` $\to$ visual: `"Stufe: 🌱 Einfach"`, aria-label: `"Stufe: Einfach"`
+  - `medium` $\to$ visual: `"Stufe: ⭐ Mittel"`, aria-label: `"Stufe: Mittel"`
+  - `hard` $\to$ visual: `"Stufe: 🚀 Schwer"`, aria-label: `"Stufe: Schwer"`
   - Choice Modal Title: `"Hervorragende Leistung! Möchtest du mit der mittleren oder der schwierigen Stufe fortfahren?"`
   - Choice Button Medium: `"Mittel (Standard)"`
   - Choice Button Difficult: `"Schwer (Fortgeschritten)"`
 
 - **Português (PT)** (# USER-FACING — DO NOT TRANSLATE):
   - Prefix description: `"Nível: "`
-  - `🌱 Easy` $\to$ `"Nível: 🌱 Fácil"`
-  - `⭐ Medium` $\to$ `"Nível: ⭐ Médio"`
-  - `🚀 Hard` $\to$ `"Nível: 🚀 Difícil"`
+  - `easy` $\to$ visual: `"Nível: 🌱 Fácil"`, aria-label: `"Nível: Fácil"`
+  - `medium` $\to$ visual: `"Nível: ⭐ Médio"`, aria-label: `"Nível: Médio"`
+  - `hard` $\to$ visual: `"Nível: 🚀 Difícil"`, aria-label: `"Nível: Difícil"`
   - Choice Modal Title: `"Excelente resultado! Você gostaria de continuar no nível médio ou no nível difícil?"`
   - Choice Button Medium: `"Médio (Padrão)"`
   - Choice Button Difficult: `"Difícil (Avançado)"`
 
 - **English (EN / Fallback)** (# USER-FACING — DO NOT TRANSLATE):
   - Prefix description: `"Level: "`
-  - `🌱 Easy` $\to$ `"Level: 🌱 Easy"`
-  - `⭐ Medium` $\to$ `"Level: ⭐ Medium"`
-  - `🚀 Hard` $\to$ `"Level: 🚀 Hard"`
+  - `easy` $\to$ visual: `"Level: 🌱 Easy"`, aria-label: `"Level: Easy"`
+  - `medium` $\to$ visual: `"Level: ⭐ Medium"`, aria-label: `"Level: Medium"`
+  - `hard` $\to$ visual: `"Level: 🚀 Hard"`, aria-label: `"Level: Hard"`
   - Choice Modal Title: `"Great job! Do you want to proceed with the Medium or Difficult level?"`
   - Choice Button Medium: `"Medium (Standard)"`
   - Choice Button Difficult: `"Difficult (Advanced)"`
 
-#### 6.2.3 Interactive Difficulty Tooltips
+#### 6.2.4 Interactive Difficulty Tooltips
 
 To make the adaptive pacing transparent and self-explained, both the `#quiz-difficulty` and `#summary-difficulty` badges feature an interactive hover effect. When a user hovers their cursor over a difficulty badge, a localized tooltip displays explaining how the current level was determined:
 
@@ -646,7 +775,7 @@ Feature: Adaptive learning progression and localized difficulty indicators
     When the user selects "Difficult (Advanced)"
     Then the system triggers progression mode with Difficult difficulty
     And the generated quiz has significantly harder questions within the selected grade's curriculum
-    And the academic judge treats "🚀 Hard" as the authoritative user-selected label rather than a higher-grade request
+    And the academic judge treats "hard" as the authoritative user-selected label rather than a higher-grade request
     And none of the previous questions are duplicated
     And the difficulty is shown as localized "🚀 Hard" (e.g. "🚀 Schwer" in German)
 ```
@@ -743,23 +872,28 @@ FoxQuiz differentiates generation, deterministic validation, and judging criteri
    - **Language & readability:** Short, concrete sentences using everyday words appropriate for beginner readers.
    - **Explanations:** Strictly limited to 1–2 short sentences.
    - **Negation avoidance:** Negative questions (*"Which is NOT..."*, *"Welches gehört NICHT dazu?"*, *"Qual NÃO..."*) are strictly prohibited to avoid developmental confusion.
-   - **Question emojis:** Non-revealing decorative emojis are permitted in question text. Emojis in answer options remain strictly forbidden.
+   - **Question emojis:** Forbidden in question text under the deterministic
+     contract. Presentation emojis remain allowed in titles, explanations, and
+     difficulty badges; answer options remain emoji-free.
 
 2. **`PRIMARY_LATE` (Grades 3–4 / Ages 8–10):**
    - **Option count:** 3 to 5 answer choices per question.
    - **Language:** Clear concrete language introducing basic subject-specific terms.
    - **Explanations:** Up to 3 short sentences.
    - **Negation avoidance:** Negative questions are prohibited.
-   - **Question emojis:** Decorative question emojis permitted.
+   - **Question emojis:** Forbidden in question text; presentation emojis remain
+     allowed in titles, explanations, and difficulty badges.
 
-3. **`LOWER_SECONDARY` (Grades 5–10 / Ages 10–16):**
+3. **`SECONDARY_LOWER` (Grades 5–8 / Ages 10–14):**
    - **Option count:** 3 to 5 answer choices.
    - **Language:** Standard curriculum terminology with intermediate conceptual relationships.
    - **Negation:** Allowed when pedagogically sound.
+   - **Question text and options:** Emoji-free under the deterministic contract; presentation emojis remain allowed in titles, explanations, and difficulty badges.
 
-4. **`UPPER_SECONDARY` (Grades 11–13 / Ages 16–19):**
+4. **`SECONDARY_UPPER` (Grades 9–12 / Ages 14–18):**
    - **Option count:** 3 to 5 answer choices.
    - **Language:** In-depth academic rigor, abstract analytical reasoning, multi-step problem solving.
+   - **Question text and options:** Emoji-free under the deterministic contract; presentation emojis remain allowed in titles, explanations, and difficulty badges.
 
 ```gherkin
 Feature: Pedagogical Stage Policies
@@ -788,20 +922,42 @@ A quiz that cannot pass review is never released to the browser. The terminal
 returns a localized retry message, and writes a best-effort diagnostic to
 `quiz_quality_failures`.
 
-Each diagnostic contains:
+Each diagnostic uses schema version `2` and contains the following
+privacy-bounded model fields (the repository also adds `failure_id`):
 
-- nested `quiz_context` with grade, subject, topic, and preferred language;
-- `failure_type` (`deterministic_validation_failed`,
-  `final_invariant_failed`, `judge_rejected`, or `judge_exception`);
-- the number of judge attempts and every judge reason;
-- privacy-safe deterministic issue codes and question/option positions, without
-  generated question or answer text;
-- accepted Wikipedia title, if any, and whether grounding was discarded;
-- a UTC timestamp.
+- `schema_version: 2`;
+- `failure_type`;
+- `quiz_context`;
+- `generation_attempts`;
+- `judge_attempts`;
+- `academic_repair_attempts`;
+- `deterministic_repair_attempts`;
+- `judge_history`, with `attempt`, `passed`, `issue_codes`,
+  `question_indices`, and `selected_route` for each entry;
+- `repair_history`, with `attempt`, `kind` (`targeted` or
+  `full_regeneration`), `issue_codes`, `question_indices`, and `result`;
+- `normalization_failures`, with a stable `code` and optional 0-based
+  `question_index`;
+- `usage_summary`, with `model_call_count`, `prompt_token_count`,
+  `candidate_token_count`, `thoughts_token_count`, `total_token_count`, and
+  `stage_total_token_counts`;
+- `duration_ms`;
+- `service_version`;
+- `deployment_revision`;
+- `grounding_title`;
+- `grounding_discarded`;
+- `timestamp`.
 
-Persistence failure is logged but must not replace the user-facing quality
-message. No automatic Firestore Time To Live (TTL) policy is currently defined
-for this diagnostic collection; its retention must be governed operationally.
+Diagnostics never store raw prompts, complete model responses, user or session
+IDs, or rejected candidate snapshots by default. Judge and repair histories
+store only distinct integer question indices from 0 through 9; invalid indices
+are excluded from diagnostics without changing the conservative repair route.
+Both diagnostic-construction and persistence failures must preserve the
+localized quality-failure response and temporary-state cleanup. Failure logs
+must not include exception details that could expose generated content.
+Diagnostic retention is an operational policy; the short-lived
+`validated_quizzes` collection has its
+own Firestore TTL described in Section 6.2.2.
 
 Every deterministic candidate validation also emits a structured Cloud Run log
 event for aggregate quality analysis. It records only the validation outcome,
@@ -809,6 +965,32 @@ generation attempt, issue count, stable issue codes, service version, and
 deployed commit. Grade, subject, topic, prompts, generated questions, answer
 options, explanations, client identifiers, and model responses are excluded.
 No log-based metric or Terraform resource is required.
+
+### 6.6 Quality and Evaluation Acceptance Thresholds
+
+Deterministic and mocked integration tests must require:
+
+- 100% correct public-index derivation after application shuffling;
+- 100% emoji-free question text and answer options;
+- 100% preservation of unaffected questions during targeted repair;
+- no quiz release without deterministic validation and academic approval for
+  the current quiz, or trusted provenance of a quiz that previously passed
+  both gates;
+- no `correct_answer` field in public JSON; and
+- compatibility with existing persisted quizzes.
+
+Live LLM evaluations must run at least ten repetitions for every
+production-derived scenario. Each scenario requires at least nine successful
+completions out of ten. Any released quiz containing an incorrect answer or
+index remains a release blocker regardless of aggregate success rate. Existing
+quality metrics must not decrease by more than 0.05 absolute points.
+
+Targeted repair must achieve at least 20% lower median token usage than full
+regeneration, while median total latency must remain within 10% above the
+baseline. An invocation may perform at most one academic repair after the
+initial Judge rejection. Verified in `docs/reports/targeted-repair-efficiency-v1.4.0.md`
+(achieved 48.6% lower total tokens, 87.3% lower candidate tokens, and 54.7%
+faster turnaround latency).
 
 ---
 
@@ -986,6 +1168,9 @@ Every shared quiz receives `created_at` and `expires_at` timestamps. The API
 logically rejects an expired link even if Firestore's asynchronous Time To Live
 (TTL) deletion has not yet removed the document. A Firestore Time To Live (TTL)
 policy on `quizzes.expires_at` performs eventual physical deletion.
+Share identifiers are generated exclusively by the server. The create endpoint
+rejects caller-selected identifiers, and persistence uses Firestore's atomic
+create operation so an existing frozen quiz cannot be overwritten.
 
 The root page must return localized Open Graph and Twitter metadata for normal
 and `?quiz_id=...` URLs so WhatsApp and other crawlers receive HTTP 200 instead
@@ -1090,6 +1275,11 @@ must all stop the workflow with a localized `SECURITY_UNAVAILABLE` response.
 The security checkpoint's allowed route must carry the original user input
 unchanged through invocation-local `temp:` state to `gather_and_route`, consume it
 once, and never emit it as an intermediate client-visible workflow output.
+
+Validated-quiz provenance is an optional optimization for adaptive
+reinforcement, not a prerequisite for ordinary quiz generation. If its
+Firestore read fails or cannot establish trusted provenance, the bypass is
+disabled and the request falls back to normal generation and academic review.
 
 The repository emits exactly one privacy-safe structured
 `firestore_operation_failed` event per failed operation. It may contain only
@@ -1478,6 +1668,11 @@ still requires:
   LLM or logs (Section 10).
 - Shared quiz documents expire logically after 30 days and are physically
   removed by Firestore Time To Live (TTL).
+- Every newly generated and approved quiz receives a best-effort provenance
+  record in `validated_quizzes`. It contains the normalized public quiz and
+  context-bound fingerprints, but no user ID, session ID, raw prompt, or
+  rejected candidate snapshot. It expires logically after one day and is
+  physically removed by Firestore Time To Live (TTL).
 - Transient anonymous budget documents expire after seven days; the global
   budget document does not expire.
 - Negative feedback and quiz-quality/security diagnostics are anonymized.

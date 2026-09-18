@@ -3,20 +3,41 @@ metrics_to_run:
 
 custom_metrics:
   - name: adaptive_hard_followup_quality
+    judge_model_system_instruction: |
+      Return exactly one valid JSON object and nothing else. Do not include
+      Markdown, code fences, headings, or prose before or after the JSON.
+    judge_model_generation_config:
+      temperature: 0
+      max_output_tokens: 1024
+      response_mime_type: application/json
+      response_json_schema:
+        type: object
+        additionalProperties: false
+        required:
+          - score
+          - explanation
+        properties:
+          score:
+            type: integer
+            minimum: 1
+            maximum: 5
+          explanation:
+            type: string
+            minLength: 1
     prompt_template: |
       Evaluate whether FoxQuiz successfully completed the requested adaptive
       hard-mode follow-up for Grade 5.
 
-      The user explicitly selected hard mode after a high score. "🚀 Hard" is
+      The user explicitly selected hard mode after a high score. "hard" is
       relative to Grade 5: questions must become more demanding through
       age-appropriate reasoning while remaining inside the requested subject,
       topic, language, and Grade 5 curriculum.
 
       Give score 1 when the workflow returns a quality/safety retry error instead
-      of a quiz. Give score 3 when a ten-question "🚀 Hard" quiz is returned but
+      of a quiz. Give score 3 when a ten-question "hard" quiz is returned but
       its grade alignment, task variety, or cognitive challenge is unclear. Give
       score 5 only when the trace shows a completed ten-question Portuguese quiz
-      labeled "🚀 Hard" that is meaningfully challenging and age-appropriate.
+      labeled "hard" that is meaningfully challenging and age-appropriate.
 
       All ten questions must remain in FoxQuiz's required multiple-choice
       format. Task variety means different cognitive demands and problem

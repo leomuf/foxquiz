@@ -1489,6 +1489,7 @@
         let mascotColor = "#ff6b35";
         let currentSessionId = "";
         let currentQuizData = null;
+        let currentValidatedQuizId = "";
         let currentQuizContext = {
             grade: null,
             subject: null,
@@ -1695,44 +1696,88 @@
             }
         };
 
+        const difficultyPresentation = {
+            de: {
+                easy: { emoji: "🌱", label: "Einfach" },
+                medium: { emoji: "⭐", label: "Mittel" },
+                hard: { emoji: "🚀", label: "Schwer" }
+            },
+            en: {
+                easy: { emoji: "🌱", label: "Easy" },
+                medium: { emoji: "⭐", label: "Medium" },
+                hard: { emoji: "🚀", label: "Hard" }
+            },
+            pt: {
+                easy: { emoji: "🌱", label: "Fácil" },
+                medium: { emoji: "⭐", label: "Médio" },
+                hard: { emoji: "🚀", label: "Difícil" }
+            }
+        };
+
         /**
-         * Maps multilingual or emoji-based model difficulty labels to UI text.
-         * Unknown and empty values intentionally fall back to medium difficulty.
-         * @param {string|null|undefined} difficultyStr Raw quiz difficulty.
-         * @returns {string} Difficulty label in the active UI language.
+         * Normalizes raw semantic codes and legacy decorated strings into 'easy', 'medium', or 'hard'.
+         * @param {string|null|undefined} value
+         * @returns {"easy"|"medium"|"hard"}
          */
-        function getLocalizedDifficulty(difficultyStr) {
-            const t = translations[currentLanguage];
-            const prefix = t.label_level || "";
-            if (!difficultyStr) return prefix + t.difficulty_medium;
-            const normalized = difficultyStr.toLowerCase();
-            if (normalized.includes("easy") || normalized.includes("einfach") || normalized.includes("fácil") || normalized.includes("🌱")) {
-                return prefix + t.difficulty_easy;
+        function normalizeDifficulty(value) {
+            const legacyValues = {
+                "🌱 Easy": "easy",
+                "⭐ Medium": "medium",
+                "🚀 Hard": "hard"
+            };
+            if (!value) return "medium";
+            if (legacyValues[value]) return legacyValues[value];
+            if (typeof value === "string") {
+                const normalized = value.trim().toLowerCase();
+                if (normalized === "easy" || normalized.includes("easy") || normalized.includes("einfach") || normalized.includes("fácil") || normalized.includes("🌱")) {
+                    return "easy";
+                }
+                if (normalized === "hard" || normalized.includes("hard") || normalized.includes("schwer") || normalized.includes("difícil") || normalized.includes("🚀")) {
+                    return "hard";
+                }
+                if (normalized === "medium" || normalized.includes("medium") || normalized.includes("mittel") || normalized.includes("médio") || normalized.includes("⭐")) {
+                    return "medium";
+                }
             }
-            if (normalized.includes("hard") || normalized.includes("schwer") || normalized.includes("difícil") || normalized.includes("🚀")) {
-                return prefix + t.difficulty_hard;
-            }
-            return prefix + t.difficulty_medium;
+            return "medium";
         }
 
         /**
-         * Updates both the localized badge label and its matching tooltip.
+         * Returns the localized display string for a semantic difficulty code.
+         * Falls back safely to 'medium' for unknown or empty values.
+         * @param {string|null|undefined} difficultyStr Raw or semantic difficulty.
+         * @returns {string} Fully formatted label (e.g., 'Level: ⭐ Medium').
+         */
+        function getLocalizedDifficulty(difficultyStr) {
+            const code = normalizeDifficulty(difficultyStr);
+            const lang = difficultyPresentation[currentLanguage] ? currentLanguage : "en";
+            const item = difficultyPresentation[lang][code] || difficultyPresentation[lang]["medium"];
+            const t = translations[currentLanguage] || translations["en"];
+            const prefix = t.label_level || "";
+            return `${prefix}${item.emoji} ${item.label}`;
+        }
+
+        /**
+         * Updates both the localized badge label, aria-label, and its matching tooltip.
          * @param {HTMLElement|null} elem Badge element, if present on this screen.
-         * @param {string|null|undefined} difficultyStr Raw quiz difficulty.
+         * @param {string|null|undefined} difficultyStr Raw or semantic difficulty.
          */
         function updateDifficultyBadge(elem, difficultyStr) {
             if (!elem) return;
-            elem.innerText = getLocalizedDifficulty(difficultyStr);
-            
-            const t = translations[currentLanguage];
+            const code = normalizeDifficulty(difficultyStr);
+            const lang = difficultyPresentation[currentLanguage] ? currentLanguage : "en";
+            const item = difficultyPresentation[lang][code] || difficultyPresentation[lang]["medium"];
+            const t = translations[currentLanguage] || translations["en"];
+            const prefix = t.label_level || "";
+
+            elem.innerText = `${prefix}${item.emoji} ${item.label}`;
+            elem.setAttribute("aria-label", `${prefix}${item.label}`);
+
             let tooltipText = t.tooltip_medium;
-            if (difficultyStr) {
-                const normalized = difficultyStr.toLowerCase();
-                if (normalized.includes("easy") || normalized.includes("einfach") || normalized.includes("fácil") || normalized.includes("🌱")) {
-                    tooltipText = t.tooltip_easy;
-                } else if (normalized.includes("hard") || normalized.includes("schwer") || normalized.includes("difícil") || normalized.includes("🚀")) {
-                    tooltipText = t.tooltip_hard;
-                }
+            if (code === "easy") {
+                tooltipText = t.tooltip_easy;
+            } else if (code === "hard") {
+                tooltipText = t.tooltip_hard;
             }
             elem.setAttribute("data-tooltip", tooltipText);
         }
@@ -1906,6 +1951,10 @@
                 const data = await response.json();
                 if (data.status === "success" && data.quiz_data) {
                     currentQuizData = data.quiz_data;
+                    if (currentQuizData && currentQuizData.difficulty) {
+                        currentQuizData.difficulty = normalizeDifficulty(currentQuizData.difficulty);
+                    }
+                    currentValidatedQuizId = "";
                     currentQuizId = quizId;
                     startQuizWizard();
                 } else {
@@ -2120,14 +2169,13 @@
             };
 
             if (isAdaptation) {
-                const previousQuestions = currentQuizData ? currentQuizData.questions.map(q => q.question) : [];
-                const previousQuizJson = currentQuizData ? JSON.stringify(currentQuizData) : "";
                 Object.assign(payload, {
                     previous_score: score,
-                    previous_questions: previousQuestions,
-                    previous_quiz_json: previousQuizJson,
                     selected_difficulty: progressionDifficultyChosen
                 });
+                if (currentValidatedQuizId) {
+                    payload.validated_quiz_id = currentValidatedQuizId;
+                }
 
                 // Reset the choice variable for future runs
                 progressionDifficultyChosen = null;
@@ -2225,6 +2273,13 @@
                 }
 
                 if (quiz && quiz.questions && quiz.questions.length === 10) {
+                    currentValidatedQuizId = typeof quiz.validated_quiz_id === "string"
+                        ? quiz.validated_quiz_id
+                        : "";
+                    delete quiz.validated_quiz_id;
+                    if (quiz && quiz.difficulty) {
+                        quiz.difficulty = normalizeDifficulty(quiz.difficulty);
+                    }
                     currentQuizData = quiz;
                     pendingClarificationContext = null;
                     // A share ID identifies one frozen quiz snapshot. A newly
@@ -2595,8 +2650,8 @@
 </head>
 <body>
     <div class="header">
-        <h1>${currentQuizData.title}</h1>
-        <p>${t.export_level}: ${t.export_offline_buddy}</p>
+        <h1>${escapeHtml(currentQuizData.title)}</h1>
+        <p>${escapeHtml(t.export_level)}: ${escapeHtml(t.export_offline_buddy)}${currentQuizData.difficulty ? ` · ${escapeHtml(getLocalizedDifficulty(currentQuizData.difficulty))}` : ""}</p>
     </div>
     <button class="btn-print" onclick="window.print()">${t.export_print}</button>
     ${questionsHtml}
@@ -2762,6 +2817,7 @@
             window.history.pushState({ path: cleanUrl }, '', cleanUrl);
 
             currentQuizData = null;
+            currentValidatedQuizId = "";
             currentQuizId = "";
             currentSessionId = "";
             pendingClarificationContext = null;

@@ -114,7 +114,7 @@
         "turns": []
       },
       "expected_outcome": "quiz",
-      "expected_difficulty": "⭐ Medium"
+      "expected_difficulty": "medium"
     }
   ]
 }

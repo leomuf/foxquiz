@@ -46,6 +46,9 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from app.agent import root_agent
+from app.app_utils.typing import QuizContext
+from app.database.firestore_repo import FirestoreRepository
+from app.domain.quiz_provenance import VALIDATION_CONTRACT_VERSION
 
 pytestmark = pytest.mark.google_cloud
 
@@ -120,7 +123,7 @@ def test_agent_stream() -> None:
 def test_adaptive_quiz_generation() -> None:
     """
     Integration test for the adaptive quiz generation logic.
-    Verifies reinforcement mode (score <= 4) generates '🌱 Easy' difficulty.
+    Verifies reinforcement mode (score <= 4) generates 'easy' difficulty.
     """
     import json
 
@@ -130,6 +133,7 @@ def test_adaptive_quiz_generation() -> None:
 
     mock_previous_quiz = {
         "title": "Old fractions quiz",
+        "difficulty": "medium",
         "questions": [
             {
                 "question": "What is 1/2 of 10?",
@@ -140,6 +144,18 @@ def test_adaptive_quiz_generation() -> None:
         ]
         * 10,
     }
+    provenance_repo = FirestoreRepository(force_mock=True)
+    validated_quiz_id = provenance_repo.save_validated_quiz(
+        mock_previous_quiz,
+        QuizContext(
+            grade="Grade 5",
+            subject="Math",
+            topic="Fractions",
+            preferred_language="en",
+        ),
+        validation_contract_version=VALIDATION_CONTRACT_VERSION,
+        service_version="integration-test",
+    )
 
     # 1. Test Reinforcement Mode (score <= 4)
     payload_reinforce = {
@@ -148,22 +164,22 @@ def test_adaptive_quiz_generation() -> None:
         "topic": "Fractions",
         "preferred_language": "en",
         "previous_score": 3,
-        "previous_questions": ["What is 1/2 of 10?"],
-        "previous_quiz_json": json.dumps(mock_previous_quiz),
+        "validated_quiz_id": validated_quiz_id,
     }
 
     message = types.Content(
         role="user", parts=[types.Part.from_text(text=json.dumps(payload_reinforce))]
     )
 
-    events = list(
-        runner.run(
-            new_message=message,
-            user_id="test_user",
-            session_id=session.id,
-            run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+    with patch("app.agent.FirestoreRepository", return_value=provenance_repo):
+        events = list(
+            runner.run(
+                new_message=message,
+                user_id="test_user",
+                session_id=session.id,
+                run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+            )
         )
-    )
 
     quiz_outputs = [
         event.output
@@ -177,9 +193,12 @@ def test_adaptive_quiz_generation() -> None:
         "Only the validated terminal node may expose quiz JSON"
     )
     quiz_output = quiz_outputs[0]
-    assert quiz_output.get("difficulty") == "🌱 Easy", (
-        f"Expected '🌱 Easy', got {quiz_output.get('difficulty')}"
+    assert quiz_output.get("difficulty") == "easy", (
+        f"Expected 'easy', got {quiz_output.get('difficulty')}"
     )
+    assert {question["question"] for question in quiz_output["questions"]} == {
+        "What is 1/2 of 10?"
+    }
 
 
 @pytest.mark.parametrize(
@@ -257,7 +276,7 @@ def test_adaptive_hard_mode_remains_relative_to_grade(
     assert len(quiz_outputs) == 1, (
         "The selected Grade 5 hard follow-up should produce one validated quiz"
     )
-    assert quiz_outputs[0].get("difficulty") == "🚀 Hard"
+    assert quiz_outputs[0].get("difficulty") == "hard"
     assert len(quiz_outputs[0].get("questions", [])) == 10
 
 
@@ -390,11 +409,13 @@ def test_upfront_curriculum_validation_accepts_a_recognizable_broad_topic(
     subject: str,
     topic: str,
 ) -> None:
-    """Route recognizable broad topics directly to a validated general quiz.
+    """Route recognizable broad topics to a validated quiz or a clarification.
 
     The parameters cover the reported history scenario and the financial-topic
-    eval input. Pytest verifies compatible routing, retained topic state, and
-    the ten-question output contract, not the wording of generated questions.
+    eval input. Broad topics may either generate a balanced general overview
+    quiz directly (compatible) or ask a clarifying question to narrow down
+    broad subtopics (needs_clarification). Pytest verifies compliant routing,
+    retained topic state, and the respective output contract.
     """
     import json
 
@@ -426,14 +447,45 @@ def test_upfront_curriculum_validation_accepts_a_recognizable_broad_topic(
         and isinstance(event.output, dict)
         and "questions" in event.output
     ]
+    clarification_payloads = []
+    for event in events:
+        for part in (event.content.parts or []) if event.content else []:
+            if not part.text:
+                continue
+            try:
+                clarif = json.loads(part.text)
+            except json.JSONDecodeError:
+                continue
+            if clarif.get("status") == "clarification_required":
+                clarification_payloads.append(clarif)
+
     final_session = session_service.get_session_sync(
         user_id="test_user", session_id=session.id, app_name="test"
     )
+    curriculum_status = final_session.state.get("curriculum_status")
 
-    assert len(quiz_outputs) == 1
-    assert len(quiz_outputs[0].get("questions", [])) == 10
-    assert final_session.state.get("curriculum_status") == "compatible"
+    assert curriculum_status in {"compatible", "needs_clarification"}, (
+        f"Broad topic '{topic}' should be compatible or request clarification, got {curriculum_status}"
+    )
     assert final_session.state.get("topic") == topic
+
+    if curriculum_status == "compatible":
+        assert len(quiz_outputs) == 1, "Expected one validated quiz output"
+        assert len(quiz_outputs[0].get("questions", [])) == 10
+        assert len(clarification_payloads) == 0, (
+            "No clarification expected when compatible"
+        )
+    else:
+        assert len(quiz_outputs) == 0, (
+            "No quiz should be exposed when clarification is required"
+        )
+        assert len(clarification_payloads) == 1, (
+            "Expected one structured clarification payload"
+        )
+        assert clarification_payloads[0].get("message"), (
+            "Clarification message must not be empty"
+        )
+        assert final_session.state.get("pending_topic") == topic
 
 
 @pytest.mark.parametrize(

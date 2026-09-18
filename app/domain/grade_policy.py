@@ -86,7 +86,7 @@ def policy_for_grade(grade: Grade) -> GradePolicy:
             maximum_options=3,
             maximum_explanation_sentences=2,
             negation_questions_allowed=False,
-            question_emojis_allowed=True,
+            question_emojis_allowed=False,
         )
     if grade <= Grade.GRADE_4:
         return GradePolicy(
@@ -98,7 +98,7 @@ def policy_for_grade(grade: Grade) -> GradePolicy:
             maximum_options=5,
             maximum_explanation_sentences=None,
             negation_questions_allowed=False,
-            question_emojis_allowed=True,
+            question_emojis_allowed=False,
         )
     if grade <= Grade.GRADE_8:
         return GradePolicy(
@@ -110,7 +110,7 @@ def policy_for_grade(grade: Grade) -> GradePolicy:
             maximum_options=5,
             maximum_explanation_sentences=None,
             negation_questions_allowed=True,
-            question_emojis_allowed=True,
+            question_emojis_allowed=False,
         )
     return GradePolicy(
         grade=grade,
@@ -121,7 +121,7 @@ def policy_for_grade(grade: Grade) -> GradePolicy:
         maximum_options=5,
         maximum_explanation_sentences=None,
         negation_questions_allowed=True,
-        question_emojis_allowed=True,
+        question_emojis_allowed=False,
     )
 
 
@@ -166,7 +166,8 @@ def build_grade_prompt_guidance(policy: GradePolicy) -> str:
     common = (
         f"The learner is in Grade {int(policy.grade)}, approximately ages "
         f"{policy.minimum_age}-{policy.maximum_age}. Each question must have "
-        f"{policy.option_count_instruction}."
+        f"{policy.option_count_instruction}. Never use emojis in question text "
+        "or answer options."
     )
     if policy.stage is PedagogicalStage.PRIMARY_EARLY:
         return common + (

@@ -35,6 +35,7 @@ class QuizRequest(BaseModel):
     previous_score: int | None = Field(default=None, ge=0, le=10)
     previous_questions: list[str] | None = Field(default=None, max_length=10)
     previous_quiz_json: str | dict[str, Any] | None = None
+    validated_quiz_id: str | None = Field(default=None, max_length=200)
     selected_difficulty: Literal["medium", "hard"] | None = None
     clarification_response: str | None = Field(default=None, max_length=500)
 

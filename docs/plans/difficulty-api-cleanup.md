@@ -2,8 +2,11 @@
 
 ## Status
 
-Planned. This document describes a future API cleanup and must not be treated
-as an already implemented contract.
+Implemented in v1.4.0. All backend, domain, prompt, persistence, frontend
+presentation, backward compatibility, and test suites have been updated to use
+the semantic `DifficultyLevel` contract (`easy`, `medium`, `hard`). Presentation
+decorations and localization are isolated in the frontend UI (`app/static/index.html`).
+For current specifications and contracts, consult `specs/my_spec.md`.
 
 ## Problem
 
@@ -186,3 +189,11 @@ function normalizeDifficulty(value) {
 ### 6. Update tests and behavioral evaluations
 
 Credential-free tests must cover:
+
+- `DifficultyLevel` member parsing, fallback handling, and string conversion;
+- backend node outputs containing semantic codes (`easy`, `medium`, `hard`);
+- Judge prompt formatting using semantic codes without emoji expectations;
+- frontend badge, tooltip, and accessible `aria-label` rendering in all supported languages;
+- backward-compatibility loading of legacy Firestore shared quizzes (`🌱 Easy`, `⭐ Medium`, `🚀 Hard`);
+- adaptive follow-up quiz sharing freezing clean semantic codes;
+- evaluation configs and datasets aligned with semantic difficulty codes.

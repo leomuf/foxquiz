@@ -33,7 +33,7 @@ environment.
 
 Install Agents CLI with `uv` when it is not already available:
 ```bash
-uv tool install google-agents-cli
+uv tool install --with 'emoji>=2.15.0,<3.0.0' google-agents-cli
 ```
 
 Upgrade an existing Agents CLI installation and verify the installed version:
@@ -170,6 +170,14 @@ Before submitting your changes, please ensure that all tests and code quality ch
   Credentials. They are deliberately excluded from GitHub Actions; never add
   Google credentials or service-account keys to the repository.
 
+* **Run behavioral evaluations when agent behavior changes:**
+
+  Use the [FoxQuiz evaluation guide](tests/eval/datasets/README.md) to select
+  the suite that matches the changed workflow boundary. Local evaluations call
+  live Vertex AI, so follow the guide's Firestore-isolation requirement before
+  generating traces. Remote measurement and request-contract campaigns run
+  only against a temporary DEV deployment.
+
 * **Run the code linter:**
   ```bash
   agents-cli lint
@@ -201,7 +209,7 @@ changes.
 
 #### Step 1: Initialize Firestore (One-Time Project Prerequisite)
 
-Create the Native Mode Firestore database once for every new Google Cloud
+Create the Native Mode production database once for every new Google Cloud
 project:
 ```bash
 gcloud firestore databases create \
@@ -212,6 +220,19 @@ gcloud firestore databases create \
 
 The `us-east1` location keeps Firestore in the same region as FoxQuiz.
 Skip this command when the `(default)` database already exists.
+
+DEV campaigns use the separate `foxquiz-dev` database configured in
+`scripts/deploy.sh`. Create it once as well:
+
+```bash
+gcloud firestore databases create \
+  --project="${GCLOUD_PROJECT_ID}" \
+  --database=foxquiz-dev \
+  --location=us-east1 \
+  --type=firestore-native
+```
+
+Skip this command when `foxquiz-dev` already exists.
 
 #### Step 2: Provision Runtime Identities (One-Time Prerequisite)
 
@@ -258,6 +279,89 @@ scripts/deploy.sh \
   --service-name "${GCLOUD_RUN_DEV_SERVICE_NAME}" \
   --apply
 ```
+
+#### Step 3.1: Final Pre-Release Gate
+
+Use this checklist once the release PR is complete. It connects the
+credential-free checks, affected local evaluations, exact-candidate DEV
+deployment, deployed pilot, merge, tag, and production approval into one
+release decision. Detailed dataset commands and thresholds remain in the
+[FoxQuiz evaluation guide](tests/eval/datasets/README.md).
+
+1. **Freeze the candidate after all planned changes.** Start from the release
+   PR head with a clean worktree, record the exact commit and tree, and do not
+   amend, rebase, or add commits while the gate is running:
+
+   ```bash
+   test -z "$(git status --porcelain)"
+   export RELEASE_CANDIDATE_COMMIT="$(git rev-parse HEAD)"
+   export RELEASE_CANDIDATE_TREE="$(git rev-parse HEAD^{tree})"
+   git show --stat --oneline --summary "${RELEASE_CANDIDATE_COMMIT}"
+   ```
+
+2. **Confirm deterministic checks and affected local evaluations.** Require
+   green PR CI for the recorded commit. Run the complete local suites selected
+   by the evaluation guide for behavior changed since their latest passing
+   result. Local generation must use `INTEGRATION_TEST=TRUE`. Record each
+   generated trace, grade result, threshold decision, and any suite skipped
+   because its behavior did not change. Do not replace per-suite gates with one
+   aggregate average.
+
+3. **Deploy that exact commit to a new temporary DEV campaign.** Verify that
+   `HEAD` is still the frozen candidate, then use the Step 3 DEV preview and
+   apply commands without `--service-name`:
+
+   ```bash
+   test "$(git rev-parse HEAD)" = "${RELEASE_CANDIDATE_COMMIT}"
+   scripts/deploy.sh --environment dev --project "${GCLOUD_PROJECT_ID}"
+   scripts/deploy.sh \
+     --environment dev \
+     --project "${GCLOUD_PROJECT_ID}" \
+     --apply
+   ```
+
+   The deployment script verifies the runtime identity, resource settings,
+   `FIRESTORE_DATABASE_ID=foxquiz-dev`, full `COMMIT_SHA`, version metadata,
+   public access, root page, and `/version` response. Record the random service
+   name and URL in the ignored local `.env` file as described under
+   [Temporary Public DEV Campaigns](#temporary-public-dev-campaigns).
+
+4. **Run and grade the five-case deployed pilot.** Follow the evaluation
+   guide's token-observability pilot commands using the DEV URL and the short
+   form of `RELEASE_CANDIDATE_COMMIT`. All five cases must complete and all
+   deterministic structure scores must be 1. Fulfillment scores of 5 pass
+   automatically; a score of 4 requires documented human review and acceptance;
+   3 or below fails. Confirm there are no dropped cases, HTTP 429 or 5xx
+   responses, timeouts, unexpected persistence or budget failures, or writes to
+   the `(default)` database. The 45-case rollout is not part of the routine
+   release gate.
+
+5. **Invalidate the gate if the candidate changes.** Any later application,
+   prompt, model-configuration, dependency-lock, deployment-configuration, or
+   runtime-environment change requires a new DEV deployment and pilot. Rerun
+   each local suite whose covered behavior changed. Documentation and isolated
+   test changes do not invalidate prior local behavioral grades, but the final
+   pilot must still target the commit that will be merged.
+
+6. **Merge only the tested candidate.** Immediately before merging, confirm
+   that the release PR head is still `RELEASE_CANDIDATE_COMMIT` and that `main`
+   has not gained changes outside the candidate. After merging and updating the
+   local `main` branch, verify its source tree matches the tested tree:
+
+   ```bash
+   test "$(git rev-parse HEAD^{tree})" = "${RELEASE_CANDIDATE_TREE}"
+   ```
+
+   If the tree differs, stop and review the diff. Repeat affected checks and the
+   deployed pilot before production whenever the difference can affect runtime
+   behavior or the deployment artifact.
+
+7. **Tag and deploy production with separate approval.** Create the release tag
+   from the verified `main` commit according to the repository's release
+   convention. Obtain explicit human approval for production, preview the
+   production deployment below, inspect the exact commit and configuration, and
+   only then run its `--apply` form. Verify `/version` and production health
+   after deployment.
 
 Preview and deploy production only after DEV verification and separate
 production approval:
@@ -309,23 +413,43 @@ gcloud firestore indexes composite list \
 ```
 
 ##### Step 4.2: Firestore Time To Live (TTL) Policies
+
+The collections below have distinct quiz-storage responsibilities:
+
+| Collection | Write trigger | Purpose | Retention |
+| --- | --- | --- | --- |
+| `quizzes` | The user clicks **Share** | Frozen quiz served by a share link | 30 days |
+| `validated_quizzes` | A generated quiz passes deterministic validation and academic review | Internal, non-shareable provenance for trusted adaptive follow-ups | 1 day |
+
+Configure the policies once in **each** database used by FoxQuiz. Use
+`foxquiz-dev` for DEV campaigns and `(default)` for production:
+
 ```bash
+export FIRESTORE_DATABASE_ID="foxquiz-dev" # Use "(default)" for production.
+
 gcloud firestore fields ttls update expires_at \
   --collection-group=budgets \
-  --database='(default)' \
+  --database="${FIRESTORE_DATABASE_ID}" \
   --enable-ttl \
   --project="${GCLOUD_PROJECT_ID}"
 
 gcloud firestore fields ttls update expires_at \
   --collection-group=quizzes \
-  --database='(default)' \
+  --database="${FIRESTORE_DATABASE_ID}" \
+  --enable-ttl \
+  --project="${GCLOUD_PROJECT_ID}"
+
+gcloud firestore fields ttls update expires_at \
+  --collection-group=validated_quizzes \
+  --database="${FIRESTORE_DATABASE_ID}" \
   --enable-ttl \
   --project="${GCLOUD_PROJECT_ID}"
 ```
 
 The application sets `expires_at` to seven days for transient budgets and
-30 days for shared quizzes. Firestore TTL performs the eventual physical
-deletion.
+30 days for shared quizzes, and one day for validated-quiz provenance.
+Firestore TTL performs the eventual physical deletion. The application also
+checks expiration on every provenance read.
 
 ##### Step 4.3: Firestore Failure Counter
 

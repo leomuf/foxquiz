@@ -34,7 +34,9 @@ from fastapi.staticfiles import StaticFiles
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
 from google.cloud import logging as google_cloud_logging
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.agent import Quiz
 from app.app_utils import services
 from app.app_utils.a2a import attach_a2a_routes
 from app.app_utils.build_info import get_build_info
@@ -50,6 +52,7 @@ from app.database.firestore_repo import (
     FirestorePersistenceError,
     FirestoreRepository,
 )
+from app.domain.quiz_validation import validate_quiz_candidate
 
 setup_telemetry()
 
@@ -167,6 +170,26 @@ app: FastAPI = get_fast_api_app(
 )
 app.title = "foxquiz"
 app.description = "API for interacting with the Agent foxquiz"
+
+
+class SharedQuizPayload(Quiz):
+    """Bounded public quiz and metadata accepted by the sharing endpoint."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    validated_quiz_id: str | None = Field(default=None, min_length=40, max_length=200)
+    grade: str | None = Field(default=None, min_length=1, max_length=100)
+    subject: str | None = Field(default=None, min_length=1, max_length=200)
+    topic: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class ShareQuizRequest(BaseModel):
+    """Create-only request contract; sharing identifiers are server-owned."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    quiz_data: SharedQuizPayload
+
 
 # Remove inherited routes that FoxQuiz replaces with its UI and build metadata.
 # Modify app.routes list in-place because it has no setter in newer FastAPI/Starlette versions.
@@ -409,19 +432,37 @@ def collect_feedback(feedback: Feedback) -> dict[str, str]:
 
 
 @app.post("/share")
-def share_quiz(payload: dict) -> dict[str, Any]:
+def share_quiz(payload: dict[str, Any]) -> dict[str, Any]:
     """Freeze a generated quiz and persist it in the cloud for sharing."""
     quiz_data = payload.get("quiz_data")
-    if not quiz_data:
+    if not quiz_data or not isinstance(quiz_data, dict):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing required quiz_data payload.",
         )
 
-    # Generate a secure, unique sharing identifier
-    quiz_id = payload.get("quiz_id") or str(uuid.uuid4())
+    try:
+        request = ShareQuizRequest.model_validate(payload)
+        canonical_quiz_data = request.quiz_data.model_dump(
+            mode="json", exclude_none=True
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid quiz payload for sharing.",
+        ) from e
+
+    deterministic_validation = validate_quiz_candidate(canonical_quiz_data)
+    if not deterministic_validation.is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid quiz payload for sharing.",
+        )
+
+    # The server owns share identifiers so callers cannot replace frozen quizzes.
+    quiz_id = str(uuid.uuid4())
     repo = FirestoreRepository()
-    success = repo.save_shared_quiz(quiz_id, quiz_data)
+    success = repo.save_shared_quiz(quiz_id, canonical_quiz_data)
 
     if not success:
         raise HTTPException(

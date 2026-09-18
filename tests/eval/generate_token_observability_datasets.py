@@ -57,7 +57,7 @@ def _structured_case(
     if previous_score is not None and previous_score <= 3:
         payload["previous_quiz_json"] = {
             "title": f"Previous quiz about {topic}",
-            "difficulty": "⭐ Medium",
+            "difficulty": "medium",
             "questions": [
                 {
                     "question": f"Previous question {number} about {topic}?",
@@ -382,7 +382,7 @@ STRUCTURED_REQUEST_SAFE_CASES = [
             separators=(",", ":"),
         ),
         expected_outcome="quiz",
-        expected_difficulty="⭐ Medium",
+        expected_difficulty="medium",
     ),
 ]
 

@@ -46,6 +46,7 @@ class QuizValidationCode(StrEnum):
     EMPTY_OPTION = "empty_option"
     DUPLICATE_OPTION = "duplicate_option"
     INVALID_CORRECT_INDEX = "invalid_correct_index"
+    INTERNAL_CORRECT_ANSWER = "internal_correct_answer"
     EMOJI_IN_OPTION = "emoji_in_option"
     ANSWER_CUE_IN_OPTION = "answer_cue_in_option"
     EMPTY_EXPLANATION = "empty_explanation"
@@ -95,7 +96,7 @@ def validate_quiz_candidate(
     issues: list[QuizValidationIssue] = []
     minimum_options = MIN_OPTION_COUNT
     maximum_options = MAX_OPTION_COUNT
-    question_emojis_allowed = True
+    question_emojis_allowed = False
     if grade is not None:
         policy = get_grade_policy(grade)
         minimum_options = policy.minimum_options
@@ -124,6 +125,14 @@ def validate_quiz_candidate(
                 )
             )
             continue
+
+        if "correct_answer" in question:
+            issues.append(
+                QuizValidationIssue(
+                    QuizValidationCode.INTERNAL_CORRECT_ANSWER,
+                    question_index=question_index,
+                )
+            )
 
         question_text = question.get("question")
         if not isinstance(question_text, str) or not question_text.strip():

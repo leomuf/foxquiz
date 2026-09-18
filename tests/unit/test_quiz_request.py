@@ -83,6 +83,24 @@ def test_adaptive_request_accepts_previous_quiz_object() -> None:
     assert request.previous_quiz_json == {"title": "Previous quiz"}
 
 
+def test_adaptive_request_accepts_server_validated_quiz_id() -> None:
+    request = parse_quiz_request(
+        json.dumps(
+            {
+                "grade": "Klasse 6",
+                "subject": "Science",
+                "topic": "States of matter",
+                "previous_score": 2,
+                "validated_quiz_id": "validated-quiz-id-with-more-than-forty-characters-123",
+            }
+        )
+    )
+
+    assert request.validated_quiz_id == (
+        "validated-quiz-id-with-more-than-forty-characters-123"
+    )
+
+
 @pytest.mark.parametrize(
     "payload",
     [

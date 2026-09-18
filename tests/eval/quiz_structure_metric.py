@@ -4,13 +4,20 @@
 
 """Deterministically validate the structure of released FoxQuiz JSON.
 
-The evaluation CLI executes this file as standalone source, so it intentionally
-uses only the Python standard library and does not import application modules.
+The evaluation CLI executes this file as standalone source. It requires the
+same emoji package as the application, but does not import application modules.
 """
 
 import json
 import unicodedata
 from typing import Any
+
+import emoji
+
+
+def _contains_emoji(value: str) -> bool:
+    """Use the same Unicode sequence detection as production validation."""
+    return bool(emoji.emoji_list(value))
 
 
 def _final_response_text(instance: dict[str, Any]) -> str | None:
@@ -80,6 +87,12 @@ def _structural_issue_codes(
             or not question["question"].strip()
         ):
             issues.add("empty_question")
+        if "correct_answer" in question:
+            issues.add("internal_correct_answer")
+        if isinstance(question.get("question"), str) and _contains_emoji(
+            question["question"]
+        ):
+            issues.add("emoji_in_question")
         if (
             not isinstance(question.get("explanation"), str)
             or not question["explanation"].strip()
@@ -110,6 +123,8 @@ def _structural_issue_codes(
             if not isinstance(option, str) or not option.strip():
                 issues.add("empty_option")
                 continue
+            if _contains_emoji(option):
+                issues.add("emoji_in_option")
             normalized = _normalize_option(option)
             if normalized in normalized_options:
                 issues.add("duplicate_option")

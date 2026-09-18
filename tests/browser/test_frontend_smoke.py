@@ -83,14 +83,14 @@ def frontend_base_url() -> Iterator[str]:
 
 
 def _quiz_fixture(
-    *, title: str = "Cells", difficulty: str = "Medium", subject: str = "Biology"
+    *, title: str = "Cells", difficulty: str = "medium", subject: str = "Biology"
 ) -> dict:
     return {
         "title": title,
         "difficulty": difficulty,
         "questions": [
             {
-                "question": f"{subject} question {index}? \U0001f4a1",
+                "question": f"{subject} question {index}?",
                 "options": [
                     "Correct <strong>answer</strong>",
                     "Incorrect A",
@@ -271,7 +271,7 @@ def test_complete_quiz_and_negative_feedback_flow(
 
     for question_number in range(1, 11):
         expect(page.locator("#question-text")).to_have_text(
-            f"Biology question {question_number}? \U0001f4a1"
+            f"Biology question {question_number}?"
         )
         indicators = page.locator(".option-indicator")
         expect(indicators).to_have_count(4)
@@ -321,10 +321,10 @@ def test_adaptive_quiz_sharing_freezes_the_new_quiz_snapshot(
     generated_requests: list[dict] = []
     shared_requests: list[dict] = []
     quizzes = [
-        _quiz_fixture(title="Multiplication Medium", difficulty="⭐ Medium"),
+        _quiz_fixture(title="Multiplication Medium", difficulty="medium"),
         _quiz_fixture(
             title="Multiplication Hard",
-            difficulty="🚀 Hard",
+            difficulty="hard",
             subject="Mathematics",
         ),
     ]
@@ -372,7 +372,7 @@ def test_adaptive_quiz_sharing_freezes_the_new_quiz_snapshot(
     page.locator('button[onclick="shareCurrentQuiz()"]').click()
     expect(page.locator("#summary-screen")).to_be_visible()
     assert len(shared_requests) == 1
-    assert shared_requests[0]["quiz_data"]["difficulty"] == "⭐ Medium"
+    assert shared_requests[0]["quiz_data"]["difficulty"] == "medium"
 
     page.locator("#btn-more-questions").click()
     expect(page.locator("#choice-modal")).to_be_visible()
@@ -386,7 +386,7 @@ def test_adaptive_quiz_sharing_freezes_the_new_quiz_snapshot(
     page.locator('button[onclick="shareCurrentQuiz()"]').click()
     assert len(shared_requests) == 2
     assert shared_requests[1]["quiz_data"]["title"] == "Multiplication Hard"
-    assert shared_requests[1]["quiz_data"]["difficulty"] == "🚀 Hard"
+    assert shared_requests[1]["quiz_data"]["difficulty"] == "hard"
 
 
 def test_blocked_generation_never_displays_a_quiz(
@@ -529,10 +529,10 @@ def test_hard_follow_up_recreates_a_missing_session_once(
     session_ids: list[str] = []
     generated_requests: list[dict] = []
     quizzes = [
-        _quiz_fixture(title="Multiplication Medium", difficulty="Medium"),
+        _quiz_fixture(title="Multiplication Medium", difficulty="medium"),
         _quiz_fixture(
             title="Multiplication Hard",
-            difficulty="Hard",
+            difficulty="hard",
             subject="Mathematics",
         ),
     ]
@@ -605,3 +605,212 @@ def test_selected_mascot_is_sent_with_the_quiz_request(
     expect(page.locator("#quiz-screen")).to_be_visible()
     prompt = json.loads(generated_requests[0]["new_message"]["parts"][0]["text"])
     assert prompt["mascot_id"] == "owl"
+
+
+@pytest.mark.parametrize(
+    (
+        "lang",
+        "difficulty",
+        "expected_badge",
+        "expected_aria",
+        "expected_tooltip_prefix",
+    ),
+    [
+        (
+            "de",
+            "easy",
+            "Stufe: 🌱 Einfach",
+            "Stufe: Einfach",
+            "Einfach: Automatisch aktiv",
+        ),
+        (
+            "de",
+            "⭐ Medium",
+            "Stufe: ⭐ Mittel",
+            "Stufe: Mittel",
+            "Mittel: Standardstufe für diese Klasse.",
+        ),
+        (
+            "de",
+            "hard",
+            "Stufe: 🚀 Schwer",
+            "Stufe: Schwer",
+            "Schwer: Meisterstufe!",
+        ),
+        (
+            "en",
+            "🌱 Easy",
+            "Level: 🌱 Easy",
+            "Level: Easy",
+            "Easy: Activated automatically",
+        ),
+        (
+            "en",
+            "medium",
+            "Level: ⭐ Medium",
+            "Level: Medium",
+            "Medium: Standard level for this grade.",
+        ),
+        (
+            "en",
+            "🚀 Hard",
+            "Level: 🚀 Hard",
+            "Level: Hard",
+            "Hard: Master level!",
+        ),
+        (
+            "pt",
+            "easy",
+            "Nível: 🌱 Fácil",
+            "Nível: Fácil",
+            "Fácil: Ativado automaticamente",
+        ),
+        (
+            "pt",
+            "medium",
+            "Nível: ⭐ Médio",
+            "Nível: Médio",
+            "Médio: Nível padrão para esta série.",
+        ),
+        (
+            "pt",
+            "hard",
+            "Nível: 🚀 Difícil",
+            "Nível: Difícil",
+            "Difícil: Nível mestre!",
+        ),
+    ],
+)
+def test_shared_quiz_normalizes_difficulty_and_displays_localized_badges(
+    page: Page,
+    frontend_base_url: str,
+    lang: str,
+    difficulty: str,
+    expected_badge: str,
+    expected_aria: str,
+    expected_tooltip_prefix: str,
+) -> None:
+    """Loading shared quizzes must render localized presentation on quiz and summary screens."""
+    quiz = _quiz_fixture(
+        title="Localized Plants",
+        difficulty=difficulty,
+        subject="Biology",
+    )
+    quiz_slug = f"test-diff-{lang}-{hash(difficulty) % 10000}"
+
+    def fulfill_shared_quiz(route) -> None:
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "success", "quiz_data": quiz}),
+        )
+
+    page.route(f"**/quiz/{quiz_slug}", fulfill_shared_quiz)
+    page.goto(f"{frontend_base_url}/?quiz_id={quiz_slug}&lang={lang}")
+
+    expect(page.locator("#quiz-screen")).to_be_visible()
+    badge = page.locator("#quiz-difficulty")
+    expect(badge).to_have_text(expected_badge)
+    expect(badge).to_have_attribute("aria-label", expected_aria)
+    tooltip = badge.get_attribute("data-tooltip") or ""
+    assert tooltip.startswith(expected_tooltip_prefix)
+
+    # Transition to summary screen and verify summary badge
+    page.evaluate("() => showSummaryScreen()")
+    expect(page.locator("#summary-screen")).to_be_visible()
+    summary_badge = page.locator("#summary-difficulty")
+    expect(summary_badge).to_have_text(expected_badge)
+    expect(summary_badge).to_have_attribute("aria-label", expected_aria)
+    summary_tooltip = summary_badge.get_attribute("data-tooltip") or ""
+    assert summary_tooltip.startswith(expected_tooltip_prefix)
+
+
+def test_offline_export_and_localized_difficulty_presentation(
+    page: Page,
+    frontend_base_url: str,
+) -> None:
+    """Offline quiz export must present localized difficulty for all supported languages."""
+    page.goto(f"{frontend_base_url}/?lang=en")
+
+    eval_script = """() => {
+        const results = [];
+        const languages = ['de', 'en', 'pt'];
+        const difficulties = ['easy', 'medium', 'hard', '🌱 Easy', '⭐ Medium', '🚀 Hard'];
+        for (const l of languages) {
+            setLanguage(l);
+            for (const d of difficulties) {
+                results.push({
+                    lang: l,
+                    diff: d,
+                    localized: getLocalizedDifficulty(d)
+                });
+            }
+        }
+        return results;
+    }"""
+    results = page.evaluate(eval_script)
+
+    expected_labels = {
+        ("de", "easy"): "Stufe: 🌱 Einfach",
+        ("de", "medium"): "Stufe: ⭐ Mittel",
+        ("de", "hard"): "Stufe: 🚀 Schwer",
+        ("de", "🌱 Easy"): "Stufe: 🌱 Einfach",
+        ("de", "⭐ Medium"): "Stufe: ⭐ Mittel",
+        ("de", "🚀 Hard"): "Stufe: 🚀 Schwer",
+        ("en", "easy"): "Level: 🌱 Easy",
+        ("en", "medium"): "Level: ⭐ Medium",
+        ("en", "hard"): "Level: 🚀 Hard",
+        ("en", "🌱 Easy"): "Level: 🌱 Easy",
+        ("en", "⭐ Medium"): "Level: ⭐ Medium",
+        ("en", "🚀 Hard"): "Level: 🚀 Hard",
+        ("pt", "easy"): "Nível: 🌱 Fácil",
+        ("pt", "medium"): "Nível: ⭐ Médio",
+        ("pt", "hard"): "Nível: 🚀 Difícil",
+        ("pt", "🌱 Easy"): "Nível: 🌱 Fácil",
+        ("pt", "⭐ Medium"): "Nível: ⭐ Médio",
+        ("pt", "🚀 Hard"): "Nível: 🚀 Difícil",
+    }
+    for res in results:
+        key = (res["lang"], res["diff"])
+        assert res["localized"] == expected_labels[key], (
+            f"Mismatch for {key}: got {res['localized']}"
+        )
+
+    export_check = """async () => {
+        currentQuizData = {
+            title: "Photosynthesis Test",
+            difficulty: "hard",
+            questions: [{
+                question: "What is chlorophyll?",
+                options: ["Pigment", "Gas", "Metal"],
+                correct_option_index: 0,
+                explanation: "Green pigment."
+            }]
+        };
+        setLanguage("de");
+        const originalCreateObjectURL = URL.createObjectURL;
+        const originalClick = HTMLAnchorElement.prototype.click;
+        let exportedBlob = null;
+        let exportedFilename = null;
+        URL.createObjectURL = (blob) => {
+            exportedBlob = blob;
+            return "blob:captured-export";
+        };
+        HTMLAnchorElement.prototype.click = function() {
+            exportedFilename = this.download;
+        };
+        try {
+            exportOfflineQuiz();
+            return {
+                html: await exportedBlob.text(),
+                filename: exportedFilename
+            };
+        } finally {
+            URL.createObjectURL = originalCreateObjectURL;
+            HTMLAnchorElement.prototype.click = originalClick;
+        }
+    }"""
+    exported = page.evaluate(export_check)
+    assert exported["filename"] == "Photosynthesis_Test_offline.html"
+    assert "Altersgruppe: Erstellt mit FoxQuiz · Stufe: 🚀 Schwer" in exported["html"]
+    assert '<html lang="de">' in exported["html"]

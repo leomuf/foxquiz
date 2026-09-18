@@ -10,6 +10,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from app.domain.quiz_validation import validate_quiz_candidate
+
 
 def _evaluate() -> Callable[[dict[str, Any]], dict[str, float | str]]:
     """Load the metric exactly as standalone evaluation code."""
@@ -21,7 +25,7 @@ def _quiz() -> dict[str, Any]:
     """Build the smallest ten-question quiz satisfying every invariant."""
     return {
         "title": "Arithmetic practice",
-        "difficulty": "⭐ Medium",
+        "difficulty": "medium",
         "questions": [
             {
                 "question": f"What is {number} + 1?",
@@ -85,6 +89,49 @@ def test_quiz_structure_metric_rejects_non_json_response() -> None:
         "score": 0.0,
         "explanation": "The final response was not valid JSON.",
     }
+
+
+def test_quiz_structure_metric_rejects_internal_correct_answer() -> None:
+    """Evaluation must reject accidental leakage of the internal answer field."""
+    quiz = _quiz()
+    quiz["questions"][0]["correct_answer"] = "2"
+
+    result = _evaluate()(_instance(json.dumps(quiz)))
+
+    assert result["score"] == 0.0
+    assert result["explanation"] == (
+        "Deterministic validation failed: internal_correct_answer"
+    )
+
+
+def test_quiz_structure_metric_rejects_question_and_option_emojis() -> None:
+    """The evaluation metric mirrors the universal emoji prohibition."""
+    quiz = _quiz()
+    quiz["questions"][0]["question"] += " 😀"
+    quiz["questions"][0]["options"][0] += " 🇩🇪"
+
+    result = _evaluate()(_instance(json.dumps(quiz)))
+
+    assert result["score"] == 0.0
+    assert result["explanation"] == (
+        "Deterministic validation failed: emoji_in_option, emoji_in_question"
+    )
+
+
+@pytest.mark.parametrize("symbol", ["1️⃣", "⌚", "🇩🇪", "👍🏽", "👩‍🔬", "♯"])
+@pytest.mark.parametrize("field", ["question", "option"])
+def test_metric_emoji_semantics_match_production(symbol: str, field: str) -> None:
+    quiz = _quiz()
+    question = quiz["questions"][0]
+    if field == "question":
+        question["question"] += symbol
+    else:
+        question["options"][0] += symbol
+
+    result = _evaluate()(_instance(json.dumps(quiz)))
+    expected_valid = symbol == "♯"
+    assert validate_quiz_candidate(quiz).is_valid == expected_valid
+    assert result["score"] == float(expected_valid)
 
 
 def test_quiz_structure_metric_enforces_three_options_for_grade_one() -> None:
