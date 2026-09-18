@@ -14,11 +14,13 @@ Validates:
 import pytest
 from starlette.testclient import TestClient
 
-from app.fast_api_app import app
-
 
 @pytest.fixture
-def client():
+def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """Import and exercise the application with cloud integrations disabled."""
+    monkeypatch.setenv("INTEGRATION_TEST", "TRUE")
+    from app.fast_api_app import app
+
     return TestClient(app)
 
 
