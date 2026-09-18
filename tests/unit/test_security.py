@@ -358,7 +358,11 @@ def test_firestore_repo_quiz(mock_repo):
     success = mock_repo.save_shared_quiz(quiz_id, quiz_data)
     assert success is True
 
+    replacement = {"title": "Replacement"}
+    assert mock_repo.save_shared_quiz(quiz_id, replacement) is False
+
     stored_quiz = mock_repo._get_mock_doc("quizzes", quiz_id)
+    assert stored_quiz["quiz_data"] == {"difficulty": "medium", **quiz_data}
     expires_at = datetime.datetime.fromisoformat(stored_quiz["expires_at"])
     remaining = expires_at - datetime.datetime.now(datetime.UTC)
     assert datetime.timedelta(days=29, hours=23) < remaining

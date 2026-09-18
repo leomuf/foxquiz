@@ -72,28 +72,34 @@ def test_share_endpoint_rejects_invalid_public_contract(
     assert response.json()["detail"] == "Invalid quiz payload for sharing."
 
 
-def test_share_endpoint_canonicalizes_decorated_difficulty(client: TestClient) -> None:
+def test_share_endpoint_canonicalizes_decorated_difficulty(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generated_id = "00000000-0000-4000-8000-000000000001"
+    monkeypatch.setattr("app.fast_api_app.uuid.uuid4", lambda: generated_id)
     payload = {
-        "quiz_id": "test-canonical-hard-1",
         "quiz_data": _valid_quiz_payload(difficulty="🚀 Hard"),
     }
     response = client.post("/share", json=payload)
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
-    assert data["quiz_id"] == "test-canonical-hard-1"
+    assert data["quiz_id"] == generated_id
 
     # Verify retrieval returns normalized difficulty
-    get_res = client.get("/quiz/test-canonical-hard-1")
+    get_res = client.get(f"/quiz/{generated_id}")
     assert get_res.status_code == 200
     quiz_body = get_res.json()
     assert quiz_body["status"] == "success"
     assert quiz_body["quiz_data"]["difficulty"] == "hard"
 
 
-def test_share_endpoint_canonicalizes_localized_difficulty(client: TestClient) -> None:
+def test_share_endpoint_canonicalizes_localized_difficulty(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generated_id = "00000000-0000-4000-8000-000000000002"
+    monkeypatch.setattr("app.fast_api_app.uuid.uuid4", lambda: generated_id)
     payload = {
-        "quiz_id": "test-canonical-easy-1",
         "quiz_data": _valid_quiz_payload(difficulty="🌱 Einfach"),
     }
     response = client.post("/share", json=payload)
@@ -101,6 +107,45 @@ def test_share_endpoint_canonicalizes_localized_difficulty(client: TestClient) -
     assert response.json()["status"] == "success"
 
     # Verify retrieval
-    get_res = client.get("/quiz/test-canonical-easy-1")
+    get_res = client.get(f"/quiz/{generated_id}")
     assert get_res.status_code == 200
     assert get_res.json()["quiz_data"]["difficulty"] == "easy"
+
+
+def test_share_endpoint_rejects_client_selected_identifier(client: TestClient) -> None:
+    response = client.post(
+        "/share",
+        json={
+            "quiz_id": "existing-shared-quiz",
+            "quiz_data": _valid_quiz_payload(),
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Invalid quiz payload for sharing."
+
+
+@pytest.mark.parametrize(
+    "quiz_data",
+    [
+        {**_valid_quiz_payload(), "title": "T" * 201},
+        {
+            **_valid_quiz_payload(),
+            "questions": [
+                {
+                    **_valid_quiz_payload()["questions"][0],
+                    "question": "Q" * 1_001,
+                },
+                *_valid_quiz_payload()["questions"][1:],
+            ],
+        },
+        {**_valid_quiz_payload(), "topic": "T" * 501},
+    ],
+)
+def test_share_endpoint_rejects_oversized_public_fields(
+    client: TestClient, quiz_data: dict
+) -> None:
+    response = client.post("/share", json={"quiz_data": quiz_data})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Invalid quiz payload for sharing."

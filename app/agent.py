@@ -31,7 +31,7 @@ import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import StrEnum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -311,24 +311,41 @@ def shuffle_quiz_questions(
 # --- Pydantic Models for Quiz and Safety Structures ---
 
 
+QuizOption = Annotated[str, Field(min_length=1, max_length=500)]
+
+
 class QuizQuestion(BaseModel):
-    question: str = Field(description="The question text without emojis.")
-    options: List[str] = Field(
-        description="List of 3 to 5 neutral text-only choices without emojis or answer cues."
+    question: str = Field(
+        min_length=1,
+        max_length=1_000,
+        description="The question text without emojis.",
+    )
+    options: List[QuizOption] = Field(
+        min_length=3,
+        max_length=5,
+        description="List of 3 to 5 neutral text-only choices without emojis or answer cues.",
     )
     correct_option_index: int = Field(
-        description="0-based index of the correct option."
+        ge=0, le=4, description="0-based index of the correct option."
     )
     explanation: str = Field(
-        description="A friendly, encouraging, and educational explanation of the answer."
+        min_length=1,
+        max_length=2_000,
+        description="A friendly, encouraging, and educational explanation of the answer.",
     )
 
 
 class Quiz(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    title: str = Field(description="A fun and engaging title for the quiz.")
-    questions: List[QuizQuestion] = Field(description="List of exactly 10 questions.")
+    title: str = Field(
+        min_length=1,
+        max_length=200,
+        description="A fun and engaging title for the quiz.",
+    )
+    questions: List[QuizQuestion] = Field(
+        min_length=10,
+        max_length=10,
+        description="List of exactly 10 questions.",
+    )
     difficulty: DifficultyLevel = Field(
         description="The semantic difficulty level of the quiz ('easy', 'medium', or 'hard').",
     )

@@ -1168,6 +1168,9 @@ Every shared quiz receives `created_at` and `expires_at` timestamps. The API
 logically rejects an expired link even if Firestore's asynchronous Time To Live
 (TTL) deletion has not yet removed the document. A Firestore Time To Live (TTL)
 policy on `quizzes.expires_at` performs eventual physical deletion.
+Share identifiers are generated exclusively by the server. The create endpoint
+rejects caller-selected identifiers, and persistence uses Firestore's atomic
+create operation so an existing frozen quiz cannot be overwritten.
 
 The root page must return localized Open Graph and Twitter metadata for normal
 and `?quiz_id=...` URLs so WhatsApp and other crawlers receive HTTP 200 instead

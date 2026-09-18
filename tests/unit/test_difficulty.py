@@ -96,6 +96,16 @@ def test_quiz_model_difficulty_validation_and_serialization() -> None:
     )
     assert quiz_from_str.difficulty == DifficultyLevel.HARD
 
+    quiz_with_unknown_field = Quiz.model_validate(
+        {
+            "title": "Sample Quiz",
+            "questions": sample_questions,
+            "difficulty": "medium",
+            "untrusted_internal_field": "must not enter the public contract",
+        }
+    )
+    assert "untrusted_internal_field" not in quiz_with_unknown_field.model_dump()
+
     # Coerces legacy decorated string
     quiz_legacy = Quiz(
         title="Sample Quiz",

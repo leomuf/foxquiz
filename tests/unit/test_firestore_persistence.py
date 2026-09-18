@@ -17,6 +17,7 @@ import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
+from google.api_core.exceptions import AlreadyExists
 
 from app.app_utils.typing import QuizContext
 from app.database.firestore_repo import (
@@ -99,8 +100,8 @@ def test_legacy_transient_budget_gets_expiration_on_read(real_repo):
 def test_shared_quiz_failure_is_not_reported_as_saved(real_repo):
     """A failed production write must raise instead of succeeding in memory."""
     repo, client = real_repo
-    client.collection.return_value.document.return_value.set.side_effect = RuntimeError(
-        "Firestore unavailable"
+    client.collection.return_value.document.return_value.create.side_effect = (
+        RuntimeError("Firestore unavailable")
     )
 
     with pytest.raises(FirestorePersistenceError) as exc_info:
@@ -110,6 +111,26 @@ def test_shared_quiz_failure_is_not_reported_as_saved(real_repo):
     assert exc_info.value.phase == "quiz_persistence"
 
     assert repo.use_mock is False
+
+
+def test_shared_quiz_uses_create_only_persistence(real_repo):
+    """A shared identifier must never overwrite an existing Firestore document."""
+    repo, client = real_repo
+    document = client.collection.return_value.document.return_value
+
+    assert repo.save_shared_quiz("quiz-id", {"title": "Quiz"}) is True
+
+    document.create.assert_called_once()
+    document.set.assert_not_called()
+
+
+def test_shared_quiz_collision_is_not_reported_as_saved(real_repo):
+    """An existing Firestore document is preserved and reported as a collision."""
+    repo, client = real_repo
+    document = client.collection.return_value.document.return_value
+    document.create.side_effect = AlreadyExists("quiz already exists")
+
+    assert repo.save_shared_quiz("quiz-id", {"title": "Replacement"}) is False
 
 
 def test_validated_quiz_provenance_has_bounded_ttl_and_fingerprints():

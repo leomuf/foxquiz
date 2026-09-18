@@ -10,6 +10,7 @@ import secrets
 from copy import deepcopy
 from typing import Any, NoReturn
 
+from google.api_core.exceptions import AlreadyExists
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
@@ -297,13 +298,18 @@ class FirestoreRepository:
         }
 
         if self.use_mock:
+            if self._get_mock_doc("quizzes", quiz_id) is not None:
+                return False
             self._set_mock_doc("quizzes", quiz_id, data, merge=False)
             return True
 
         try:
             doc_ref = self.client.collection("quizzes").document(quiz_id)
-            doc_ref.set(data)
+            # Firestore create is atomic and fails if the document already exists.
+            doc_ref.create(data)
             return True
+        except AlreadyExists:
+            return False
         except Exception as e:
             self._raise_persistence_error("save_shared_quiz", "quiz_persistence", e)
 
