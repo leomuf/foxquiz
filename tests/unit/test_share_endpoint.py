@@ -11,6 +11,8 @@ Validates:
 - Persistence and retrieval via public quiz contracts
 """
 
+from uuid import UUID
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -76,7 +78,7 @@ def test_share_endpoint_canonicalizes_decorated_difficulty(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     generated_id = "00000000-0000-4000-8000-000000000001"
-    monkeypatch.setattr("app.fast_api_app.uuid.uuid4", lambda: generated_id)
+    monkeypatch.setattr("app.fast_api_app.uuid.uuid4", lambda: UUID(generated_id))
     payload = {
         "quiz_data": _valid_quiz_payload(difficulty="🚀 Hard"),
     }
@@ -98,7 +100,7 @@ def test_share_endpoint_canonicalizes_localized_difficulty(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     generated_id = "00000000-0000-4000-8000-000000000002"
-    monkeypatch.setattr("app.fast_api_app.uuid.uuid4", lambda: generated_id)
+    monkeypatch.setattr("app.fast_api_app.uuid.uuid4", lambda: UUID(generated_id))
     payload = {
         "quiz_data": _valid_quiz_payload(difficulty="🌱 Einfach"),
     }
