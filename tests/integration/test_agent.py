@@ -123,7 +123,7 @@ def test_agent_stream() -> None:
 def test_adaptive_quiz_generation() -> None:
     """
     Integration test for the adaptive quiz generation logic.
-    Verifies reinforcement mode (score <= 4) generates '🌱 Easy' difficulty.
+    Verifies reinforcement mode (score <= 4) generates 'easy' difficulty.
     """
     import json
 
@@ -133,6 +133,7 @@ def test_adaptive_quiz_generation() -> None:
 
     mock_previous_quiz = {
         "title": "Old fractions quiz",
+        "difficulty": "medium",
         "questions": [
             {
                 "question": "What is 1/2 of 10?",
@@ -147,7 +148,7 @@ def test_adaptive_quiz_generation() -> None:
     validated_quiz_id = provenance_repo.save_validated_quiz(
         mock_previous_quiz,
         QuizContext(
-            grade="Klasse 5",
+            grade="Grade 5",
             subject="Math",
             topic="Fractions",
             preferred_language="en",
@@ -192,8 +193,8 @@ def test_adaptive_quiz_generation() -> None:
         "Only the validated terminal node may expose quiz JSON"
     )
     quiz_output = quiz_outputs[0]
-    assert quiz_output.get("difficulty") == "🌱 Easy", (
-        f"Expected '🌱 Easy', got {quiz_output.get('difficulty')}"
+    assert quiz_output.get("difficulty") == "easy", (
+        f"Expected 'easy', got {quiz_output.get('difficulty')}"
     )
     assert {question["question"] for question in quiz_output["questions"]} == {
         "What is 1/2 of 10?"
@@ -275,7 +276,7 @@ def test_adaptive_hard_mode_remains_relative_to_grade(
     assert len(quiz_outputs) == 1, (
         "The selected Grade 5 hard follow-up should produce one validated quiz"
     )
-    assert quiz_outputs[0].get("difficulty") == "🚀 Hard"
+    assert quiz_outputs[0].get("difficulty") == "hard"
     assert len(quiz_outputs[0].get("questions", [])) == 10
 
 

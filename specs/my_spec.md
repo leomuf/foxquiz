@@ -607,12 +607,12 @@ When the user finishes a quiz, they can choose to continue learning the same top
      validation, the agent shuffles the stored normalized public quiz directly.
      The client-provided quiz JSON is never authoritative. If provenance cannot
      be established, the agent uses ordinary generation and academic review.
-   - **Difficulty Rating**: `🌱 Easy` (mapped dynamically to user's language).
+   - **Difficulty Rating**: Semantic code `"easy"` (`DifficultyLevel.EASY`), rendered in the UI with localized badge (e.g. `🌱 Einfach` in German).
 
 2. **Practice Mode (Score 4 - 7 / 10)**:
    - **Pedagogical Goal**: Consolidate understanding at the current level.
    - **Behavior**: The agent generates a new set of 10 standard-difficulty questions on the same topic. Duplication-prevention is recommended but not strictly enforced.
-   - **Difficulty Rating**: `⭐ Medium` (mapped dynamically to user's language).
+   - **Difficulty Rating**: Semantic code `"medium"` (`DifficultyLevel.MEDIUM`), rendered in the UI with localized badge (e.g. `⭐ Mittel` in German).
 
 3. **User-Choice Progression Mode (Score $\ge$ 8 / 10) [Tester Feedback Integration]**:
    - **Pedagogical Goal**: Empower high-achieving students to steer their own academic progression and choose between consolidating standard-level content or tackling advanced, high-order challenges.
@@ -620,8 +620,8 @@ When the user finishes a quiz, they can choose to continue learning the same top
      - When a student finishes a quiz with a score of **$\ge 8/10$** and clicks **"Let's go for more questions"**, the app halts the standard request.
      - An interactive, beautifully styled **Difficulty Choice Modal** is presented to the user.
      - The user is prompted to choose between:
-       - **Medium (Standard)**: Generates 10 completely fresh standard-difficulty questions (`⭐ Medium`) with a balanced mix of recall, understanding, application, and reasoning.
-       - **Difficult (Advanced)**: Generates 10 questions with greater cognitive depth (`🚀 Hard`). `🚀 Hard` is relative to the selected grade: it uses varied application, multi-step reasoning, estimation, strategy choice, comparison, or error analysis within the authoritative grade-level curriculum. It must not create difficulty primarily through larger operands, calculator-like manual work, tightly clustered numeric distractors, or higher-grade content.
+       - **Medium (Standard)**: Generates 10 completely fresh standard-difficulty questions (`"medium"`) with a balanced mix of recall, understanding, application, and reasoning.
+       - **Difficult (Advanced)**: Generates 10 questions with greater cognitive depth (`"hard"`). `"hard"` is relative to the selected grade: it uses varied application, multi-step reasoning, estimation, strategy choice, comparison, or error analysis within the authoritative grade-level curriculum. It must not create difficulty primarily through larger operands, calculator-like manual work, tightly clustered numeric distractors, or higher-grade content.
      - **Duplication-Prevention**: For both options, the generation prompt instructs the model to avoid repeated or similar questions. When a valid provenance record is available, the server supplies its previous question texts. Without that record, those texts are unavailable; client-supplied previous quiz data is ignored. This is prompt-based guidance, not a deterministic guarantee of zero repeated questions.
 
 Across all generated levels, question templates and distractors must remain pedagogically varied when the topic permits. All ten questions retain the required multiple-choice response format; variety refers to cognitive demands and problem patterns within that format. Easy prioritizes short, concrete core-understanding tasks and manageable workload. Medium and Hard should use at least four meaningfully different task forms across ten questions when suitable. A narrow topic may use fewer forms when that is the strongest natural variety available; the Judge must not reject it solely for missing a fixed numeric minimum. For quantitative Hard quizzes, at most two questions may be pure long-form exact calculations when conceptual alternatives exist, and the opening question must not be an unusually laborious calculation.
@@ -684,33 +684,37 @@ Feature: Firestore-backed reinforcement provenance
     And normal generation and academic review are used
 ```
 
-#### 6.2.3 Dynamic Difficulty Localization
+#### 6.2.3 Clean Semantic Boundary and Dynamic Difficulty Localization
 
-To prevent leakage of English terminology on non-English user interfaces, raw difficulty indicators received from the backend are mapped to localized labels before rendering on the screen (both in `#quiz-difficulty` on the quiz interface and `#summary-difficulty` on the final summary screen). To ensure the UI is fully self-explained, a language-specific prefix description is prepended before the difficulty label:
+To keep API contracts clean, portable, and stable, all backend agent models, schemas, and persistence boundaries operate strictly on semantic codes: `"easy"`, `"medium"`, and `"hard"` defined by Python's `DifficultyLevel(StrEnum)`.
+
+Presentation concerns (emojis and localized text) are strictly isolated to the frontend presentation layer (`app/static/index.html`). The frontend normalizes both clean semantic codes and legacy decorated strings (from legacy Firestore documents) via `normalizeDifficulty()`, ensuring full backward compatibility.
+
+Before rendering in `#quiz-difficulty` on the quiz interface and `#summary-difficulty` on the final summary screen, semantic difficulty codes are mapped to localized labels and accompanied by an accessible `aria-label` without emoji clutter:
 
 - **Deutsch (DE)** (# USER-FACING — DO NOT TRANSLATE):
   - Prefix description: `"Stufe: "`
-  - `🌱 Easy` $\to$ `"Stufe: 🌱 Einfach"`
-  - `⭐ Medium` $\to$ `"Stufe: ⭐ Mittel"`
-  - `🚀 Hard` $\to$ `"Stufe: 🚀 Schwer"`
+  - `easy` $\to$ visual: `"Stufe: 🌱 Einfach"`, aria-label: `"Stufe: Einfach"`
+  - `medium` $\to$ visual: `"Stufe: ⭐ Mittel"`, aria-label: `"Stufe: Mittel"`
+  - `hard` $\to$ visual: `"Stufe: 🚀 Schwer"`, aria-label: `"Stufe: Schwer"`
   - Choice Modal Title: `"Hervorragende Leistung! Möchtest du mit der mittleren oder der schwierigen Stufe fortfahren?"`
   - Choice Button Medium: `"Mittel (Standard)"`
   - Choice Button Difficult: `"Schwer (Fortgeschritten)"`
 
 - **Português (PT)** (# USER-FACING — DO NOT TRANSLATE):
   - Prefix description: `"Nível: "`
-  - `🌱 Easy` $\to$ `"Nível: 🌱 Fácil"`
-  - `⭐ Medium` $\to$ `"Nível: ⭐ Médio"`
-  - `🚀 Hard` $\to$ `"Nível: 🚀 Difícil"`
+  - `easy` $\to$ visual: `"Nível: 🌱 Fácil"`, aria-label: `"Nível: Fácil"`
+  - `medium` $\to$ visual: `"Nível: ⭐ Médio"`, aria-label: `"Nível: Médio"`
+  - `hard` $\to$ visual: `"Nível: 🚀 Difícil"`, aria-label: `"Nível: Difícil"`
   - Choice Modal Title: `"Excelente resultado! Você gostaria de continuar no nível médio ou no nível difícil?"`
   - Choice Button Medium: `"Médio (Padrão)"`
   - Choice Button Difficult: `"Difícil (Avançado)"`
 
 - **English (EN / Fallback)** (# USER-FACING — DO NOT TRANSLATE):
   - Prefix description: `"Level: "`
-  - `🌱 Easy` $\to$ `"Level: 🌱 Easy"`
-  - `⭐ Medium` $\to$ `"Level: ⭐ Medium"`
-  - `🚀 Hard` $\to$ `"Level: 🚀 Hard"`
+  - `easy` $\to$ visual: `"Level: 🌱 Easy"`, aria-label: `"Level: Easy"`
+  - `medium` $\to$ visual: `"Level: ⭐ Medium"`, aria-label: `"Level: Medium"`
+  - `hard` $\to$ visual: `"Level: 🚀 Hard"`, aria-label: `"Level: Hard"`
   - Choice Modal Title: `"Great job! Do you want to proceed with the Medium or Difficult level?"`
   - Choice Button Medium: `"Medium (Standard)"`
   - Choice Button Difficult: `"Difficult (Advanced)"`
@@ -771,7 +775,7 @@ Feature: Adaptive learning progression and localized difficulty indicators
     When the user selects "Difficult (Advanced)"
     Then the system triggers progression mode with Difficult difficulty
     And the generated quiz has significantly harder questions within the selected grade's curriculum
-    And the academic judge treats "🚀 Hard" as the authoritative user-selected label rather than a higher-grade request
+    And the academic judge treats "hard" as the authoritative user-selected label rather than a higher-grade request
     And none of the previous questions are duplicated
     And the difficulty is shown as localized "🚀 Hard" (e.g. "🚀 Schwer" in German)
 ```

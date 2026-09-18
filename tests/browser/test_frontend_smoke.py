@@ -83,7 +83,7 @@ def frontend_base_url() -> Iterator[str]:
 
 
 def _quiz_fixture(
-    *, title: str = "Cells", difficulty: str = "Medium", subject: str = "Biology"
+    *, title: str = "Cells", difficulty: str = "medium", subject: str = "Biology"
 ) -> dict:
     return {
         "title": title,
@@ -321,10 +321,10 @@ def test_adaptive_quiz_sharing_freezes_the_new_quiz_snapshot(
     generated_requests: list[dict] = []
     shared_requests: list[dict] = []
     quizzes = [
-        _quiz_fixture(title="Multiplication Medium", difficulty="⭐ Medium"),
+        _quiz_fixture(title="Multiplication Medium", difficulty="medium"),
         _quiz_fixture(
             title="Multiplication Hard",
-            difficulty="🚀 Hard",
+            difficulty="hard",
             subject="Mathematics",
         ),
     ]
@@ -372,7 +372,7 @@ def test_adaptive_quiz_sharing_freezes_the_new_quiz_snapshot(
     page.locator('button[onclick="shareCurrentQuiz()"]').click()
     expect(page.locator("#summary-screen")).to_be_visible()
     assert len(shared_requests) == 1
-    assert shared_requests[0]["quiz_data"]["difficulty"] == "⭐ Medium"
+    assert shared_requests[0]["quiz_data"]["difficulty"] == "medium"
 
     page.locator("#btn-more-questions").click()
     expect(page.locator("#choice-modal")).to_be_visible()
@@ -386,7 +386,7 @@ def test_adaptive_quiz_sharing_freezes_the_new_quiz_snapshot(
     page.locator('button[onclick="shareCurrentQuiz()"]').click()
     assert len(shared_requests) == 2
     assert shared_requests[1]["quiz_data"]["title"] == "Multiplication Hard"
-    assert shared_requests[1]["quiz_data"]["difficulty"] == "🚀 Hard"
+    assert shared_requests[1]["quiz_data"]["difficulty"] == "hard"
 
 
 def test_blocked_generation_never_displays_a_quiz(
@@ -529,10 +529,10 @@ def test_hard_follow_up_recreates_a_missing_session_once(
     session_ids: list[str] = []
     generated_requests: list[dict] = []
     quizzes = [
-        _quiz_fixture(title="Multiplication Medium", difficulty="Medium"),
+        _quiz_fixture(title="Multiplication Medium", difficulty="medium"),
         _quiz_fixture(
             title="Multiplication Hard",
-            difficulty="Hard",
+            difficulty="hard",
             subject="Mathematics",
         ),
     ]
@@ -605,3 +605,33 @@ def test_selected_mascot_is_sent_with_the_quiz_request(
     expect(page.locator("#quiz-screen")).to_be_visible()
     prompt = json.loads(generated_requests[0]["new_message"]["parts"][0]["text"])
     assert prompt["mascot_id"] == "owl"
+
+
+def test_legacy_shared_quiz_normalizes_difficulty_and_displays_localized_badge(
+    page: Page, frontend_base_url: str
+) -> None:
+    """Loading a legacy shared quiz with '⭐ Medium' must render localized presentation."""
+    legacy_quiz = _quiz_fixture(
+        title="Legacy Plants",
+        difficulty="⭐ Medium",
+        subject="Biology",
+    )
+
+    def fulfill_shared_quiz(route) -> None:
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "success", "quiz_data": legacy_quiz}),
+        )
+
+    page.route("**/quiz/test-legacy-123", fulfill_shared_quiz)
+    page.goto(f"{frontend_base_url}/?quiz_id=test-legacy-123&lang=de")
+
+    expect(page.locator("#quiz-screen")).to_be_visible()
+    badge = page.locator("#quiz-difficulty")
+    expect(badge).to_have_text("Stufe: ⭐ Mittel")
+    expect(badge).to_have_attribute("aria-label", "Stufe: Mittel")
+    expect(badge).to_have_attribute(
+        "data-tooltip",
+        "Mittel: Standardstufe für diese Klasse. Aktiv bei 4 bis 7 Punkten, oder per Benutzerauswahl.",
+    )

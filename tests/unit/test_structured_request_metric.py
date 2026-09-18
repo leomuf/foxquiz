@@ -108,7 +108,7 @@ def test_metric_accepts_structured_block_and_clarification() -> None:
 def test_metric_accepts_quiz_with_expected_difficulty() -> None:
     """A delivered quiz must contain ten questions at the expected difficulty."""
     quiz = {
-        "difficulty": "⭐ Medium",
+        "difficulty": "medium",
         "questions": [{"question": f"Question {number}"} for number in range(10)],
     }
 
@@ -116,7 +116,7 @@ def test_metric_accepts_quiz_with_expected_difficulty() -> None:
         _instance(
             json.dumps(quiz),
             "quiz",
-            expected_difficulty="⭐ Medium",
+            expected_difficulty="medium",
         )
     )
 

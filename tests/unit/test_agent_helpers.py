@@ -64,6 +64,7 @@ from app.agent import (
 from app.app_utils.token_usage import TerminalOutcome
 from app.app_utils.typing import QuizContext, QuizQualityFailure, UsageSummary
 from app.database.firestore_repo import FirestorePersistenceError
+from app.domain.difficulty import DifficultyLevel
 from app.domain.quiz_provenance import (
     VALIDATION_CONTRACT_VERSION,
     context_fingerprint,
@@ -76,7 +77,7 @@ def _valid_public_quiz() -> dict:
     """Build a deterministic public quiz fixture for workflow boundary tests."""
     return {
         "title": "Cells",
-        "difficulty": "⭐ Medium",
+        "difficulty": "medium",
         "questions": [
             {
                 "question": f"Question {index}?",
@@ -399,7 +400,7 @@ async def test_reinforcement_reuses_only_currently_validated_server_quiz() -> No
     assert {question["question"] for question in reinforced_quiz["questions"]} == {
         question["question"] for question in quiz["questions"]
     }
-    assert reinforced_quiz["difficulty"] == "🌱 Easy"
+    assert reinforced_quiz["difficulty"] == "easy"
     assert validate_quiz_candidate(reinforced_quiz, grade="Klasse 10").is_valid
     assert context.state["judge_attempts"] == 0
 
@@ -491,18 +492,18 @@ def test_each_quiz_repair_kind_retries_once_then_fails_closed() -> None:
 @pytest.mark.parametrize(
     ("previous_score", "selected_difficulty", "expected"),
     [
-        (None, None, "⭐ Medium"),
-        (3, None, "🌱 Easy"),
-        (7, None, "⭐ Medium"),
-        (9, "medium", "⭐ Medium"),
-        (9, "hard", "🚀 Hard"),
-        (10, None, "🚀 Hard"),
+        (None, None, DifficultyLevel.MEDIUM),
+        (3, None, DifficultyLevel.EASY),
+        (7, None, DifficultyLevel.MEDIUM),
+        (9, "medium", DifficultyLevel.MEDIUM),
+        (9, "hard", DifficultyLevel.HARD),
+        (10, None, DifficultyLevel.HARD),
     ],
 )
 def test_expected_quiz_difficulty_is_shared_across_adaptive_modes(
     previous_score: int | None,
     selected_difficulty: str | None,
-    expected: str,
+    expected: DifficultyLevel,
 ) -> None:
     """One deterministic contract keeps generation metadata and review aligned."""
     assert _expected_quiz_difficulty(previous_score, selected_difficulty) == expected
@@ -511,10 +512,13 @@ def test_expected_quiz_difficulty_is_shared_across_adaptive_modes(
 @pytest.mark.parametrize(
     ("difficulty", "required_fragments"),
     [
-        ("🌱 Easy", ("short, concrete", "unnecessarily large numbers")),
-        ("⭐ Medium", ("balanced standard-grade mix", "estimation, strategy")),
+        (DifficultyLevel.EASY, ("short, concrete", "unnecessarily large numbers")),
         (
-            "🚀 Hard",
+            DifficultyLevel.MEDIUM,
+            ("balanced standard-grade mix", "estimation, strategy"),
+        ),
+        (
+            DifficultyLevel.HARD,
             (
                 "at least four meaningfully different task forms",
                 "at most two pure long-form exact calculations",
@@ -522,10 +526,14 @@ def test_expected_quiz_difficulty_is_shared_across_adaptive_modes(
                 "tightly clustered numeric distractors",
             ),
         ),
+        ("easy", ("short, concrete", "unnecessarily large numbers")),
+        ("🌱 Easy", ("short, concrete", "unnecessarily large numbers")),
+        ("hard", ("at least four meaningfully different task forms",)),
+        ("🚀 Hard", ("at least four meaningfully different task forms",)),
     ],
 )
 def test_difficulty_design_guidance_controls_variety_and_workload(
-    difficulty: str, required_fragments: tuple[str, ...]
+    difficulty: DifficultyLevel | str, required_fragments: tuple[str, ...]
 ) -> None:
     """Each adaptive level defines task variety and manageable cognitive load."""
     guidance = _build_difficulty_design_guidance(difficulty)
@@ -536,7 +544,7 @@ def test_difficulty_design_guidance_controls_variety_and_workload(
 def test_judge_prompt_treats_hard_as_relative_to_grade() -> None:
     """A Grade 5 hard-mode label must not be mistaken for higher-grade content."""
     prompt = _build_judge_prompt(
-        quiz_dict={"difficulty": "🚀 Hard", "questions": []},
+        quiz_dict={"difficulty": "hard", "questions": []},
         grade="Klasse 5",
         subject="Ciencias",
         topic="Ciclo de vida de uma planta",
@@ -545,9 +553,9 @@ def test_judge_prompt_treats_hard_as_relative_to_grade() -> None:
         selected_difficulty="hard",
     )
 
-    assert "expected difficulty field is exactly '🚀 Hard'" in prompt
+    assert "expected difficulty field is exactly 'hard'" in prompt
     assert "relative to the requested grade" in prompt
-    assert "Do not reject a quiz merely because '🚀 Hard'" in prompt
+    assert "Do not reject a quiz merely because 'hard'" in prompt
     assert "required quality criterion" in prompt
     assert "at most two pure long-form exact calculations" in prompt
     assert "calculator-like busywork" in prompt
@@ -567,7 +575,7 @@ def test_judge_prompt_scopes_emoji_and_task_variety_reviews() -> None:
     )
 
     assert (
-        "Ignore emojis in the quiz title, explanations, and difficulty presentation"
+        "Ignore emojis in the quiz title and explanations; those fields are allowed"
         in prompt
     )
     assert "The quiz title is presentation-only and is intentionally omitted" in prompt
@@ -583,7 +591,7 @@ def test_judge_prompt_scopes_emoji_and_task_variety_reviews() -> None:
 def test_judge_prompt_includes_prior_structural_repair_history() -> None:
     """The Judge receives compact provenance for defects repaired earlier."""
     prompt = _build_judge_prompt(
-        quiz_dict={"difficulty": "⭐ Medium", "questions": []},
+        quiz_dict={"difficulty": "medium", "questions": []},
         grade="Klasse 10",
         subject="Chemie",
         topic="Redoxreaktionen",
@@ -608,7 +616,7 @@ def test_judge_prompt_includes_prior_structural_repair_history() -> None:
 def test_judge_prompt_applies_early_primary_contract() -> None:
     """The Judge enforces the same Grade 1 rules as generation and validation."""
     prompt = _build_judge_prompt(
-        quiz_dict={"difficulty": "⭐ Medium", "questions": []},
+        quiz_dict={"difficulty": "medium", "questions": []},
         grade="Klasse 1",
         subject="Mathematik",
         topic="Zahlen bis 20",
@@ -718,7 +726,7 @@ async def test_quiz_generation_prompt_requires_normalized_unique_options() -> No
             }
             for number in range(10)
         ],
-        "difficulty": "⭐ Medium",
+        "difficulty": "medium",
     }
     response = MagicMock(text=json.dumps(quiz))
 
@@ -765,7 +773,7 @@ async def test_quiz_generation_repairs_only_questions_with_duplicate_options() -
             }
             for number in range(10)
         ],
-        "difficulty": "⭐ Medium",
+        "difficulty": "medium",
     }
     repaired_response = MagicMock(
         text=json.dumps(
@@ -870,7 +878,7 @@ async def test_academic_repair_uses_full_generation_after_deterministic_repair()
                     }
                     for number in range(10)
                 ],
-                "difficulty": "⭐ Medium",
+                "difficulty": "medium",
             }
         )
     )
@@ -1631,7 +1639,9 @@ async def test_shared_repair_failure_keeps_source_and_fails_closed(source):
     with patch(
         "app.agent._repair_targeted_questions", new=AsyncMock(side_effect=ValueError)
     ):
-        await _execute_targeted_repair(context, plan, candidate, 2, "⭐ Medium")
+        await _execute_targeted_repair(
+            context, plan, candidate, 2, DifficultyLevel.MEDIUM
+        )
     assert context.state["temp_quiz"] is None
     assert context.state["repair_failure"] == "targeted_repair_failed"
     assert context.state["quality_failure_type"] == (

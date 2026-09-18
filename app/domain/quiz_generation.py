@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.domain.difficulty import DifficultyLevel
 from app.domain.grade_policy import Grade, get_grade_policy
 from app.domain.quiz_validation import normalize_option
 
@@ -54,10 +55,10 @@ class GeneratedQuiz(BaseModel):
     questions: list[GeneratedQuizQuestion] = Field(
         description="List of exactly 10 generated questions."
     )
-    difficulty: str | None = Field(
+    difficulty: DifficultyLevel | str | None = Field(
         default=None,
         description=(
-            "The requested difficulty indicator. Application code supplies the "
+            "The requested difficulty level. Application code supplies the "
             "authoritative public value."
         ),
     )
@@ -195,5 +196,9 @@ def normalize_generated_quiz(
             )
             for question_index, question in enumerate(quiz.questions)
         ],
-        "difficulty": quiz.difficulty,
+        "difficulty": (
+            DifficultyLevel.from_raw(quiz.difficulty).value
+            if quiz.difficulty is not None
+            else None
+        ),
     }

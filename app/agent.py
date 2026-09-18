@@ -79,6 +79,7 @@ from app.domain.quiz_validation import (
     build_retry_guidance,
     validate_quiz_candidate,
 )
+from app.domain.difficulty import DifficultyLevel
 from app.domain.quiz_generation import (
     GeneratedQuiz,
     GeneratedQuizQuestion,
@@ -319,9 +320,9 @@ class QuizQuestion(BaseModel):
 class Quiz(BaseModel):
     title: str = Field(description="A fun and engaging title for the quiz.")
     questions: List[QuizQuestion] = Field(description="List of exactly 10 questions.")
-    difficulty: Optional[str] = Field(
-        None,
-        description="The difficulty indicator of the quiz. Must be exactly one of: '🌱 Easy', '⭐ Medium', or '🚀 Hard'.",
+    difficulty: DifficultyLevel = Field(
+        default=DifficultyLevel.MEDIUM,
+        description="The semantic difficulty level of the quiz ('easy', 'medium', or 'hard').",
     )
 
 
@@ -949,10 +950,10 @@ def _append_repair_history(
 def _expected_quiz_difficulty(
     previous_score: int | None,
     selected_difficulty: str | None,
-) -> str:
-    """Return the authoritative adaptive difficulty label for a quiz request."""
+) -> DifficultyLevel:
+    """Return the authoritative adaptive difficulty level for a quiz request."""
     if previous_score is not None and previous_score <= 3:
-        return "🌱 Easy"
+        return DifficultyLevel.EASY
     if previous_score is not None and previous_score >= 8:
         normalized_selection = (
             selected_difficulty.strip().casefold()
@@ -960,13 +961,13 @@ def _expected_quiz_difficulty(
             else ""
         )
         if normalized_selection == _HARD_DIFFICULTY_SELECTION:
-            return "🚀 Hard"
+            return DifficultyLevel.HARD
         return (
-            "🚀 Hard"
+            DifficultyLevel.HARD
             if previous_score == 10 and not normalized_selection
-            else "⭐ Medium"
+            else DifficultyLevel.MEDIUM
         )
-    return "⭐ Medium"
+    return DifficultyLevel.MEDIUM
 
 
 def _adaptive_mode(previous_score: int | None, selected_difficulty: str | None) -> str:
@@ -979,7 +980,8 @@ def _adaptive_mode(previous_score: int | None, selected_difficulty: str | None) 
         return "practice"
     return (
         "challenge"
-        if _expected_quiz_difficulty(previous_score, selected_difficulty) == "🚀 Hard"
+        if _expected_quiz_difficulty(previous_score, selected_difficulty)
+        == DifficultyLevel.HARD
         else "progression"
     )
 
@@ -999,23 +1001,23 @@ def _build_adaptation_instructions(
                 "No trusted server-side previous quiz was available for direct "
                 "reinforcement reuse. Generate a complete Easy quiz and keep the "
                 "questions clear and within the requested scope.\n"
-                "Set the 'difficulty' field to exactly: '🌱 Easy'.\n"
+                f"Set the 'difficulty' field to exactly: '{DifficultyLevel.EASY.value}'.\n"
             )
         elif mode in {"progression", "challenge"}:
-            # Score >= 8/10: User-Choice Progression Mode (choose between ⭐ Medium and 🚀 Hard)
+            # Score >= 8/10: User-Choice Progression Mode (choose between Medium and Hard)
             if mode == "challenge":
                 adaptation_instructions = (
                     f"\n--- ADAPTIVE PROGRESSION MODE (CHALLENGE) ---\n"
                     f"The student scored {previous_score}/10 on the previous quiz and selected the DIFFICULT (Advanced) level.\n"
                     f"You must significantly SCALE UP the cognitive depth of this new quiz while staying inside Grade {grade}. Use varied reasoning, application, strategy, estimation, comparison, or error-analysis tasks when they fit the topic. Do not create difficulty mainly through larger numbers, calculator-like manual work, or tightly clustered answer choices.\n"
-                    f"Set the 'difficulty' field to exactly: '🚀 Hard'.\n"
+                    f"Set the 'difficulty' field to exactly: '{DifficultyLevel.HARD.value}'.\n"
                 )
             else:
                 adaptation_instructions = (
                     f"\n--- ADAPTIVE PROGRESSION MODE (NEXT LEVEL) ---\n"
                     f"The student scored {previous_score}/10 on the previous quiz and selected the MEDIUM (Standard) level.\n"
                     f"Maintain standard Grade {grade} difficulty, but generate a completely fresh set of questions.\n"
-                    f"Set the 'difficulty' field to exactly: '⭐ Medium'.\n"
+                    f"Set the 'difficulty' field to exactly: '{DifficultyLevel.MEDIUM.value}'.\n"
                 )
 
             # Strict Avoid Duplication rules
@@ -1031,26 +1033,26 @@ def _build_adaptation_instructions(
                     + "\n"
                 )
         else:
-            # Score 4 to 7: Practice Mode (⭐ Medium)
+            # Score 4 to 7: Practice Mode (Medium)
             # Keep standard difficulty, generate a new set of questions.
             adaptation_instructions = (
                 f"\n--- STANDARD PRACTICE MODE ---\n"
                 f"The student scored {previous_score}/10 on the previous quiz.\n"
                 f"Keep standard difficulty for Grade {grade}. Generate a new set of questions to continue practice on the topic.\n"
-                f"Set the 'difficulty' field to exactly: '⭐ Medium'.\n"
+                f"Set the 'difficulty' field to exactly: '{DifficultyLevel.MEDIUM.value}'.\n"
                 f"Note: It is fine to reuse some questions or concepts if they are central, as duplication avoidance is not strictly enforced for scores below 8/10.\n"
             )
     else:
         # First time quiz generation or no score available:
-        # Set difficulty to '⭐ Medium'
-        adaptation_instructions = (
-            f"\nSet the 'difficulty' field to exactly: '⭐ Medium'.\n"
-        )
+        # Set difficulty to 'medium'
+        adaptation_instructions = f"\nSet the 'difficulty' field to exactly: '{DifficultyLevel.MEDIUM.value}'.\n"
 
     return adaptation_instructions
 
 
-def _build_difficulty_design_guidance(expected_difficulty: str) -> str:
+def _build_difficulty_design_guidance(
+    expected_difficulty: DifficultyLevel | str,
+) -> str:
     """Define varied, age-appropriate challenge without rewarding busywork."""
     common = (
         "Use varied cognitive task forms that fit the subject instead of repeating "
@@ -1061,14 +1063,19 @@ def _build_difficulty_design_guidance(expected_difficulty: str) -> str:
         "represent different plausible misconceptions; for numeric answers, do not "
         "create difficulty only by clustering every option around the correct value. "
     )
-    if expected_difficulty == "🌱 Easy":
+    diff = (
+        DifficultyLevel.from_raw(expected_difficulty)
+        if not isinstance(expected_difficulty, DifficultyLevel)
+        else expected_difficulty
+    )
+    if diff == DifficultyLevel.EASY:
         return common + (
             "Keep questions short, concrete, mostly one-step, and focused on core "
             "understanding. Keep arithmetic and reading load manageable, and avoid "
             "unnecessarily large numbers. Reinforcement may reuse prior concepts, "
             "so clarity matters more than novelty."
         )
-    if expected_difficulty == "🚀 Hard":
+    if diff == DifficultyLevel.HARD:
         return common + (
             "Create challenge through deeper reasoning while remaining strictly "
             "inside the requested grade. When the topic permits, use at least four "
@@ -1137,7 +1144,7 @@ def _build_judge_prompt(
         "5. Is the 'correct_option_index' mathematically and factually correct? "
         "CRITICAL: For each question, you MUST independently determine the factually correct answer (whether it is a mathematical calculation, a historical date, a biological definition, etc.). Then, verify that the 'correct_option_index' points EXACTLY to that correct answer inside the 0-based options array. "
         "If there is any mismatch between the factually correct answer, the option at 'correct_option_index', or the correct answer described in your explanation, you MUST set passed to false.\n"
-        "6. Are all answer options neutral and free of emojis or visual correctness cues, and are question texts completely emoji-free? If not, you MUST set passed to false. Ignore emojis in the quiz title, explanations, and difficulty presentation; those fields are allowed and must not produce an emoji_in_question issue.\n"
+        "6. Are all answer options neutral and free of emojis or visual correctness cues, and are question texts completely emoji-free? If not, you MUST set passed to false. Ignore emojis in the quiz title and explanations; those fields are allowed and must not produce an emoji_in_question issue.\n"
         "For every rejected quiz, return one structured issue for each material defect. Use a valid 0-based question_indices list for local defects when possible. Use an empty list for quiz-wide defects. Never rely on the summary or issue explanations to communicate routing metadata.\n"
         "Return structured JSON matching JudgeAssessment with passed, summary, and issues.\n\n"
         "--- AUTHORITATIVE AGE-APPROPRIATE DESIGN CONTRACT ---\n"
@@ -1145,12 +1152,12 @@ def _build_judge_prompt(
         f"{exact_primary_constraints}"
         "Reject the quiz when it materially violates this contract.\n\n"
         "--- AUTHORITATIVE ADAPTIVE DIFFICULTY CONTRACT ---\n"
-        f"The expected difficulty field is exactly '{expected_difficulty}'.\n"
+        f"The expected difficulty field is exactly '{expected_difficulty.value}'.\n"
         f"Previous score: {previous_score if previous_score is not None else 'not available'}/10.\n"
         f"User-selected progression difficulty: {selected_difficulty or 'not selected'}.\n"
         "Difficulty labels are relative to the requested grade, never permission to use content from a higher grade. "
-        "In particular, '🚀 Hard' means a deeper, more demanding challenge for a high-achieving student within the authoritative curriculum scope for the requested grade. "
-        "Do not reject a quiz merely because '🚀 Hard' is used for a younger grade when that is the expected user-selected label. "
+        "In particular, 'hard' means a deeper, more demanding challenge for a high-achieving student within the authoritative curriculum scope for the requested grade. "
+        "Do not reject a quiz merely because 'hard' is used for a younger grade when that is the expected user-selected label. "
         "Instead, verify that its content is meaningfully challenging while remaining age-appropriate and inside the supplied grade-level scope. "
         "Reject when the label differs from the expected label, when the content is too easy for the selected mode, or when it exceeds or contradicts the grade-level scope.\n\n"
         "Apply the following task-design contract as a required quality criterion, but reject a quiz that materially violates it only when the topic naturally supports additional distinct cognitive forms:\n"
@@ -1245,7 +1252,7 @@ async def _repair_targeted_questions(
         f"Grade: {ctx.state.get('grade')}\n"
         f"Subject: {ctx.state.get('subject')}\n"
         f"Topic: {ctx.state.get('topic')}\n"
-        f"Expected difficulty: {expected_difficulty}\n"
+        f"Expected difficulty: {expected_difficulty.value}\n"
         f"Previous score: {ctx.state.get('previous_score', 'not available')}\n"
         f"Selected progression difficulty: {ctx.state.get('selected_difficulty') or 'not selected'}\n"
         f"Curriculum guidance:\n{ctx.state.get('curriculum_guidance') or 'None available.'}\n"
@@ -1358,7 +1365,9 @@ async def _execute_targeted_repair(
             issue_records=repair.issues,
             generation_attempt=attempt,
         )
-        repaired["difficulty"] = difficulty
+        repaired["difficulty"] = (
+            difficulty.value if isinstance(difficulty, DifficultyLevel) else difficulty
+        )
         ctx.state["temp_quiz"] = repaired
         result = "applied"
     except Exception as error:
@@ -1470,7 +1479,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         )
         shuffle_quiz_questions(reinforced_quiz)
         shuffle_quiz_options(reinforced_quiz)
-        reinforced_quiz["difficulty"] = expected_difficulty
+        reinforced_quiz["difficulty"] = expected_difficulty.value
         ctx.state["temp_quiz"] = reinforced_quiz
         logger.info("Reusing and shuffling the server-validated reinforcement quiz.")
         return _candidate_ready_event()
@@ -1585,7 +1594,7 @@ async def quiz_generation(ctx: Context, node_input: Any) -> Event:
         )
         # Keep user-visible metadata deterministic and consistent with the
         # adaptive mode reviewed by the academic judge.
-        quiz_dict["difficulty"] = expected_difficulty
+        quiz_dict["difficulty"] = expected_difficulty.value
         ctx.state["temp_quiz"] = quiz_dict
         if repair_kind in {_DETERMINISTIC_REPAIR_KIND, _ACADEMIC_REPAIR_KIND}:
             issue_records = (

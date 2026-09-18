@@ -25,7 +25,7 @@ def _quiz() -> dict[str, Any]:
     """Build the smallest ten-question quiz satisfying every invariant."""
     return {
         "title": "Arithmetic practice",
-        "difficulty": "⭐ Medium",
+        "difficulty": "medium",
         "questions": [
             {
                 "question": f"What is {number} + 1?",

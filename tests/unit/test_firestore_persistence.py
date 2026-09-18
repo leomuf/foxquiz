@@ -116,7 +116,7 @@ def test_validated_quiz_provenance_has_bounded_ttl_and_fingerprints():
     repo = FirestoreRepository(force_mock=True)
     quiz = {
         "title": "Cells",
-        "difficulty": "⭐ Medium",
+        "difficulty": "medium",
         "questions": [
             {
                 "question": f"Question {index}?",
