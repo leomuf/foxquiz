@@ -576,7 +576,7 @@ wheels = [
 
 [[package]]
 name = "foxquiz"
-version = "1.3.2"
+version = "1.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk", extra = ["http-server"] },
