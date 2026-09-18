@@ -338,7 +338,7 @@ class Quiz(BaseModel):
     def _coerce_difficulty(cls, value: Any) -> DifficultyLevel:
         if value is None:
             raise ValueError("Difficulty is required and cannot be None.")
-        return DifficultyLevel.from_raw(value)
+        return DifficultyLevel.parse_known(value)
 
 
 class JudgeIssueCode(StrEnum):
@@ -1922,7 +1922,10 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
     try:
         validated_quiz_model = Quiz.model_validate(quiz_dict)
     except Exception as e:
-        logger.error("Quiz schema validation failed on output boundary: %s", e)
+        logger.error(
+            "Quiz schema validation failed on output boundary (%s).",
+            type(e).__name__,
+        )
         ctx.state["quality_failure_type"] = "final_invariant_failed"
         yield _quality_failure_event(ctx)
         return

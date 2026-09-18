@@ -63,6 +63,12 @@ def test_from_raw_custom_default() -> None:
     )
 
 
+@pytest.mark.parametrize("raw_input", ["banana", "not hard", "hardly", 12345])
+def test_parse_known_rejects_unknown_or_ambiguous_values(raw_input: object) -> None:
+    with pytest.raises(ValueError):
+        DifficultyLevel.parse_known(raw_input)
+
+
 def test_quiz_model_difficulty_validation_and_serialization() -> None:
     sample_questions = [
         QuizQuestion(
@@ -111,6 +117,13 @@ def test_quiz_model_difficulty_validation_and_serialization() -> None:
             title="Sample Quiz",
             questions=sample_questions,
             difficulty=None,
+        )
+
+    with pytest.raises(ValidationError):
+        Quiz(
+            title="Sample Quiz",
+            questions=sample_questions,
+            difficulty="not hard",
         )
 
 

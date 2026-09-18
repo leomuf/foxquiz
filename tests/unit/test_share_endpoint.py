@@ -54,6 +54,22 @@ def test_share_endpoint_rejects_malformed_quiz_schema(client: TestClient) -> Non
     assert "Invalid quiz payload for sharing" in response.json()["detail"]
 
 
+@pytest.mark.parametrize(
+    "quiz_data",
+    [
+        {**_valid_quiz_payload(), "questions": _valid_quiz_payload()["questions"][:1]},
+        _valid_quiz_payload(difficulty="banana"),
+        _valid_quiz_payload(difficulty="not hard"),
+    ],
+)
+def test_share_endpoint_rejects_invalid_public_contract(
+    client: TestClient, quiz_data: dict
+) -> None:
+    response = client.post("/share", json={"quiz_data": quiz_data})
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Invalid quiz payload for sharing."
+
+
 def test_share_endpoint_canonicalizes_decorated_difficulty(client: TestClient) -> None:
     payload = {
         "quiz_id": "test-canonical-hard-1",

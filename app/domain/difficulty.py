@@ -16,6 +16,40 @@ class DifficultyLevel(StrEnum):
     HARD = "hard"
 
     @classmethod
+    def parse_known(cls, value: Any) -> "DifficultyLevel":
+        """Parse a semantic code or an exact known legacy presentation value."""
+        if isinstance(value, cls):
+            return value
+        if not isinstance(value, str):
+            raise ValueError("Difficulty must be a recognized string value.")
+
+        normalized = " ".join(value.strip().casefold().split())
+        known_values = {
+            "easy": cls.EASY,
+            "🌱 easy": cls.EASY,
+            "einfach": cls.EASY,
+            "🌱 einfach": cls.EASY,
+            "fácil": cls.EASY,
+            "🌱 fácil": cls.EASY,
+            "medium": cls.MEDIUM,
+            "⭐ medium": cls.MEDIUM,
+            "mittel": cls.MEDIUM,
+            "⭐ mittel": cls.MEDIUM,
+            "médio": cls.MEDIUM,
+            "⭐ médio": cls.MEDIUM,
+            "hard": cls.HARD,
+            "🚀 hard": cls.HARD,
+            "schwer": cls.HARD,
+            "🚀 schwer": cls.HARD,
+            "difícil": cls.HARD,
+            "🚀 difícil": cls.HARD,
+        }
+        try:
+            return known_values[normalized]
+        except KeyError as error:
+            raise ValueError("Difficulty must be easy, medium, or hard.") from error
+
+    @classmethod
     def from_raw(
         cls, value: Any, default: "DifficultyLevel" = MEDIUM
     ) -> "DifficultyLevel":
@@ -23,40 +57,7 @@ class DifficultyLevel(StrEnum):
 
         Falls back safely to the specified default for missing or unknown values.
         """
-        if isinstance(value, cls):
-            return value
-        if not isinstance(value, str):
+        try:
+            return cls.parse_known(value)
+        except ValueError:
             return default
-
-        stripped = value.strip().casefold()
-        if stripped in {cls.EASY.value, "easy"}:
-            return cls.EASY
-        if stripped in {cls.MEDIUM.value, "medium"}:
-            return cls.MEDIUM
-        if stripped in {cls.HARD.value, "hard"}:
-            return cls.HARD
-
-        # Backward compatibility with legacy Firestore-stored quizzes
-        if (
-            "easy" in stripped
-            or "einfach" in stripped
-            or "fácil" in stripped
-            or "🌱" in value
-        ):
-            return cls.EASY
-        if (
-            "hard" in stripped
-            or "schwer" in stripped
-            or "difícil" in stripped
-            or "🚀" in value
-        ):
-            return cls.HARD
-        if (
-            "medium" in stripped
-            or "mittel" in stripped
-            or "médio" in stripped
-            or "⭐" in value
-        ):
-            return cls.MEDIUM
-
-        return default

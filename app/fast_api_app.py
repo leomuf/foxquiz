@@ -51,6 +51,7 @@ from app.database.firestore_repo import (
     FirestorePersistenceError,
     FirestoreRepository,
 )
+from app.domain.quiz_validation import validate_quiz_candidate
 
 setup_telemetry()
 
@@ -419,13 +420,20 @@ def share_quiz(payload: dict) -> dict[str, Any]:
             detail="Missing required quiz_data payload.",
         )
 
+    deterministic_validation = validate_quiz_candidate(quiz_data)
+    if not deterministic_validation.is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid quiz payload for sharing.",
+        )
+
     try:
         validated_quiz = Quiz.model_validate(quiz_data)
         canonical_quiz_data = validated_quiz.model_dump(mode="json")
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Invalid quiz payload for sharing: {e}",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid quiz payload for sharing.",
         ) from e
 
     for extra_field in ("validated_quiz_id", "grade", "subject", "topic"):

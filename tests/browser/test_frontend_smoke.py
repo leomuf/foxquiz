@@ -776,7 +776,7 @@ def test_offline_export_and_localized_difficulty_presentation(
             f"Mismatch for {key}: got {res['localized']}"
         )
 
-    export_check = """() => {
+    export_check = """async () => {
         currentQuizData = {
             title: "Photosynthesis Test",
             difficulty: "hard",
@@ -788,8 +788,29 @@ def test_offline_export_and_localized_difficulty_presentation(
             }]
         };
         setLanguage("de");
-        const t = translations[currentLanguage];
-        return `${t.export_level}: ${t.export_offline_buddy} · ${getLocalizedDifficulty(currentQuizData.difficulty)}`;
+        const originalCreateObjectURL = URL.createObjectURL;
+        const originalClick = HTMLAnchorElement.prototype.click;
+        let exportedBlob = null;
+        let exportedFilename = null;
+        URL.createObjectURL = (blob) => {
+            exportedBlob = blob;
+            return "blob:captured-export";
+        };
+        HTMLAnchorElement.prototype.click = function() {
+            exportedFilename = this.download;
+        };
+        try {
+            exportOfflineQuiz();
+            return {
+                html: await exportedBlob.text(),
+                filename: exportedFilename
+            };
+        } finally {
+            URL.createObjectURL = originalCreateObjectURL;
+            HTMLAnchorElement.prototype.click = originalClick;
+        }
     }"""
-    export_header = page.evaluate(export_check)
-    assert export_header == "Altersgruppe: Erstellt mit FoxQuiz · Stufe: 🚀 Schwer"
+    exported = page.evaluate(export_check)
+    assert exported["filename"] == "Photosynthesis_Test_offline.html"
+    assert "Altersgruppe: Erstellt mit FoxQuiz · Stufe: 🚀 Schwer" in exported["html"]
+    assert '<html lang="de">' in exported["html"]
