@@ -605,6 +605,11 @@ apply commands for both scripts, existing-DEV updates, production approval
 rules, verification, and campaign cleanup. Provisioning or deploying requires
 explicit maintainer approval.
 
+Before merging a release PR, follow the
+[final pre-release gate](CONTRIBUTING.md#step-31-final-pre-release-gate) to
+freeze the candidate, confirm the applicable local evaluations, deploy that
+exact revision to DEV, and run the required five-case pilot.
+
 ### A2A access
 
 The agents-cli 1.3.1 A2A implementation is installed but disabled by default.

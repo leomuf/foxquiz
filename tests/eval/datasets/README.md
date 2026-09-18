@@ -38,12 +38,16 @@ every subsequent release-PR update.
 | Curriculum preflight, mascot guidance, or language-localization changes | `multilingual-curriculum-incompatible.json` with `multilingual_routing_eval_config.yaml` | 3 | Local, mocked persistence |
 | Answer normalization, option shuffling, validation, Judge routing, repair, or public quiz output | `quiz-answer-normalization-targeted-repair.json` with its matching config | 20 | Local, mocked persistence; 20-case statistical release gate when affected |
 | Broad prompt, model, workflow, adaptive, or token-instrumentation regression | `token-observability-regression.json` with `token_observability_eval_config.yaml` | 10 | Local, mocked persistence |
-| Validate telemetry, budgets, latency, or concurrency on a deployed revision | Token-observability pilot first, then rollout when the pilot is healthy | 5 pilot + 45 rollout | Temporary DEV deployment only |
+| Final smoke gate for the frozen production candidate | `token-observability-pilot.json` with `token_observability_eval_config.yaml` | 5 | Temporary DEV deployment; required before production |
+| Establish a new telemetry, budget, latency, scaling, or concurrency baseline | `token-observability-rollout.json` after a healthy pilot | 45 | Temporary DEV deployment; conditional measurement campaign |
 | Request parsing, security routing, HTTP envelopes, or token-call elimination | Structured-request safe suite, then the malicious case last | 5 safe + 1 malicious | Temporary DEV deployment only |
 
-The pilot and rollout are measurement campaigns, not routine regression suites.
-Do not run every dataset for every code change: use the table to select the
-behavioral boundary that changed, plus the basic smoke suite for broad changes.
+The five-case pilot is the deployed smoke gate for a frozen production
+candidate. The 45-case rollout is a measurement campaign and is not required
+for a routine release unless telemetry, budgets, latency, scaling, concurrency,
+or their baseline changed. Do not run every local dataset for every code
+change: use the table to select the behavioral boundary that changed, plus the
+basic smoke suite for broad changes.
 
 ### Protect Firestore during local evaluations
 
@@ -302,28 +306,46 @@ by the browser. Adaptive cases are longer because they also carry realistic
 `selected_difficulty` context. That extra context is required to measure the
 different token profile of adaptive quiz generation.
 
-After deploying the telemetry revision to DEV, set `GCLOUD_RUN_DEV_URL` in the
-local shell without committing its real value. Create an artifact directory
-named for the revision's short commit SHA, then run the pilot with two workers:
+After deploying the frozen production candidate to DEV, set
+`GCLOUD_RUN_DEV_URL` in the local shell without committing its real value. Set
+`RELEASE_REVISION` to the deployed commit's short SHA, then run the pilot with
+two workers:
 
 ```bash
+export RELEASE_REVISION="$(git rev-parse --short "${RELEASE_CANDIDATE_COMMIT:-HEAD}")"
+
 agents-cli eval generate \
   --url "${GCLOUD_RUN_DEV_URL}" \
   --app-name app \
   --dataset tests/eval/datasets/token-observability-pilot.json \
-  --output artifacts/traces/token-observability/<REVISION>/pilot-c2.json \
+  --output "artifacts/traces/token-observability/${RELEASE_REVISION}/pilot-c2.json" \
   --concurrency 2
+
+agents-cli eval grade \
+  --traces "artifacts/traces/token-observability/${RELEASE_REVISION}/pilot-c2.json" \
+  --config tests/eval/token_observability_eval_config.yaml \
+  --output "artifacts/grade_results/token-observability/${RELEASE_REVISION}/pilot-c2"
 ```
 
-Check successful summaries, HTTP 429 and 5xx responses, timeouts, retries,
-latency, and projected global token usage before running the remaining cases:
+The pilot passes automatically when all five cases complete without dropped
+cases, HTTP 429 or 5xx responses, or timeouts; every
+`quiz_structure_validity` score is 1; and every `quiz_request_fulfillment`
+score is 5. A fulfillment score of 4 requires documented human review and
+acceptance before release, while 3 or below fails the gate. Confirm in Cloud
+Logging that events identify `RELEASE_REVISION`, token summaries exist, and no
+unexpected budget or persistence failures occurred. Also confirm that DEV
+writes appear only in `foxquiz-dev`, never `(default)`.
+
+Stop here for a routine production release. Run the remaining 45 cases only
+when establishing a new telemetry, budget, latency, scaling, or concurrency
+baseline, and only after the pilot is healthy:
 
 ```bash
 agents-cli eval generate \
   --url "${GCLOUD_RUN_DEV_URL}" \
   --app-name app \
   --dataset tests/eval/datasets/token-observability-rollout.json \
-  --output artifacts/traces/token-observability/<REVISION>/rollout-c4.json \
+  --output "artifacts/traces/token-observability/${RELEASE_REVISION}/rollout-c4.json" \
   --concurrency 4
 ```
 
@@ -341,7 +363,7 @@ agents-cli eval generate \
   --url "${GCLOUD_RUN_DEV_URL}" \
   --app-name app \
   --dataset tests/eval/datasets/token-observability-pilot.json \
-  --output artifacts/traces/token-observability/<REVISION>/pilot-c8.json \
+  --output "artifacts/traces/token-observability/${RELEASE_REVISION}/pilot-c8.json" \
   --concurrency 8
 ```
 

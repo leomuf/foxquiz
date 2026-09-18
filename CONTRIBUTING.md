@@ -280,6 +280,89 @@ scripts/deploy.sh \
   --apply
 ```
 
+#### Step 3.1: Final Pre-Release Gate
+
+Use this checklist once the release PR is complete. It connects the
+credential-free checks, affected local evaluations, exact-candidate DEV
+deployment, deployed pilot, merge, tag, and production approval into one
+release decision. Detailed dataset commands and thresholds remain in the
+[FoxQuiz evaluation guide](tests/eval/datasets/README.md).
+
+1. **Freeze the candidate after all planned changes.** Start from the release
+   PR head with a clean worktree, record the exact commit and tree, and do not
+   amend, rebase, or add commits while the gate is running:
+
+   ```bash
+   test -z "$(git status --porcelain)"
+   export RELEASE_CANDIDATE_COMMIT="$(git rev-parse HEAD)"
+   export RELEASE_CANDIDATE_TREE="$(git rev-parse HEAD^{tree})"
+   git show --stat --oneline --summary "${RELEASE_CANDIDATE_COMMIT}"
+   ```
+
+2. **Confirm deterministic checks and affected local evaluations.** Require
+   green PR CI for the recorded commit. Run the complete local suites selected
+   by the evaluation guide for behavior changed since their latest passing
+   result. Local generation must use `INTEGRATION_TEST=TRUE`. Record each
+   generated trace, grade result, threshold decision, and any suite skipped
+   because its behavior did not change. Do not replace per-suite gates with one
+   aggregate average.
+
+3. **Deploy that exact commit to a new temporary DEV campaign.** Verify that
+   `HEAD` is still the frozen candidate, then use the Step 3 DEV preview and
+   apply commands without `--service-name`:
+
+   ```bash
+   test "$(git rev-parse HEAD)" = "${RELEASE_CANDIDATE_COMMIT}"
+   scripts/deploy.sh --environment dev --project "${GCLOUD_PROJECT_ID}"
+   scripts/deploy.sh \
+     --environment dev \
+     --project "${GCLOUD_PROJECT_ID}" \
+     --apply
+   ```
+
+   The deployment script verifies the runtime identity, resource settings,
+   `FIRESTORE_DATABASE_ID=foxquiz-dev`, full `COMMIT_SHA`, version metadata,
+   public access, root page, and `/version` response. Record the random service
+   name and URL in the ignored local `.env` file as described under
+   [Temporary Public DEV Campaigns](#temporary-public-dev-campaigns).
+
+4. **Run and grade the five-case deployed pilot.** Follow the evaluation
+   guide's token-observability pilot commands using the DEV URL and the short
+   form of `RELEASE_CANDIDATE_COMMIT`. All five cases must complete and all
+   deterministic structure scores must be 1. Fulfillment scores of 5 pass
+   automatically; a score of 4 requires documented human review and acceptance;
+   3 or below fails. Confirm there are no dropped cases, HTTP 429 or 5xx
+   responses, timeouts, unexpected persistence or budget failures, or writes to
+   the `(default)` database. The 45-case rollout is not part of the routine
+   release gate.
+
+5. **Invalidate the gate if the candidate changes.** Any later application,
+   prompt, model-configuration, dependency-lock, deployment-configuration, or
+   runtime-environment change requires a new DEV deployment and pilot. Rerun
+   each local suite whose covered behavior changed. Documentation and isolated
+   test changes do not invalidate prior local behavioral grades, but the final
+   pilot must still target the commit that will be merged.
+
+6. **Merge only the tested candidate.** Immediately before merging, confirm
+   that the release PR head is still `RELEASE_CANDIDATE_COMMIT` and that `main`
+   has not gained changes outside the candidate. After merging and updating the
+   local `main` branch, verify its source tree matches the tested tree:
+
+   ```bash
+   test "$(git rev-parse HEAD^{tree})" = "${RELEASE_CANDIDATE_TREE}"
+   ```
+
+   If the tree differs, stop and review the diff. Repeat affected checks and the
+   deployed pilot before production whenever the difference can affect runtime
+   behavior or the deployment artifact.
+
+7. **Tag and deploy production with separate approval.** Create the release tag
+   from the verified `main` commit according to the repository's release
+   convention. Obtain explicit human approval for production, preview the
+   production deployment below, inspect the exact commit and configuration, and
+   only then run its `--apply` form. Verify `/version` and production health
+   after deployment.
+
 Preview and deploy production only after DEV verification and separate
 production approval:
 
