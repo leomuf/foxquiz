@@ -15,6 +15,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 
 from app.app_utils.operational_logging import emit_operational_event
 from app.app_utils.typing import QuizContext, QuizQualityFailure
+from app.domain.difficulty import DifficultyLevel
 from app.domain.quiz_provenance import context_fingerprint, quiz_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ def _validated_quiz_expiration(value: Any) -> datetime.datetime | None:
 
 
 def _public_quiz_copy(quiz_data: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Copy quiz data while removing the internal answer construction field."""
+    """Copy quiz data while removing internal answer fields and canonicalizing difficulty."""
     if quiz_data is None:
         return None
     public_quiz = deepcopy(quiz_data)
@@ -50,6 +51,10 @@ def _public_quiz_copy(quiz_data: dict[str, Any] | None) -> dict[str, Any] | None
         for question in questions:
             if isinstance(question, dict):
                 question.pop("correct_answer", None)
+    if "difficulty" in public_quiz:
+        public_quiz["difficulty"] = DifficultyLevel.from_raw(
+            public_quiz.get("difficulty")
+        ).value
     return public_quiz
 
 
@@ -282,6 +287,8 @@ class FirestoreRepository:
         now = datetime.datetime.now(datetime.UTC)
         expires_at = now + datetime.timedelta(days=ttl_days)
         stored_quiz_data = _public_quiz_copy(quiz_data)
+        if stored_quiz_data is not None and "difficulty" not in stored_quiz_data:
+            stored_quiz_data["difficulty"] = DifficultyLevel.MEDIUM.value
         data = {
             "quiz_id": quiz_id,
             "quiz_data": stored_quiz_data,

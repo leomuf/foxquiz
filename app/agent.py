@@ -39,6 +39,7 @@ from pydantic import (
     Field,
     StrictBool,
     StrictInt,
+    field_validator,
     model_validator,
 )
 
@@ -137,12 +138,18 @@ def _workflow_event(*, route: str | None = None, output: Any = None) -> Event:
     return Event(**kwargs)
 
 
-def _validated_quiz_event(
-    quiz: dict[str, Any], *, validated_quiz_id: str | None = None
-) -> Event:
+def _validated_quiz_event(quiz: Any, *, validated_quiz_id: str | None = None) -> Event:
     """Publish a validated quiz through both workflow and content contracts."""
-    public_output = dict(quiz)
-    if validated_quiz_id:
+    if hasattr(quiz, "model_dump"):
+        public_output = quiz.model_dump(mode="json")
+    else:
+        public_output = dict(quiz)
+        if "difficulty" in public_output:
+            public_output["difficulty"] = DifficultyLevel.from_raw(
+                public_output["difficulty"]
+            ).value
+
+    if validated_quiz_id and isinstance(validated_quiz_id, str):
         public_output["validated_quiz_id"] = validated_quiz_id
     return Event(
         content=types.Content(
@@ -318,12 +325,20 @@ class QuizQuestion(BaseModel):
 
 
 class Quiz(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     title: str = Field(description="A fun and engaging title for the quiz.")
     questions: List[QuizQuestion] = Field(description="List of exactly 10 questions.")
     difficulty: DifficultyLevel = Field(
-        default=DifficultyLevel.MEDIUM,
         description="The semantic difficulty level of the quiz ('easy', 'medium', or 'hard').",
     )
+
+    @field_validator("difficulty", mode="before")
+    @classmethod
+    def _coerce_difficulty(cls, value: Any) -> DifficultyLevel:
+        if value is None:
+            raise ValueError("Difficulty is required and cannot be None.")
+        return DifficultyLevel.from_raw(value)
 
 
 class JudgeIssueCode(StrEnum):
@@ -1887,7 +1902,34 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
         yield _quality_failure_event(ctx)
         return
 
-    validated_quiz_id = _save_validated_quiz_best_effort(ctx, quiz_dict)
+    expected_difficulty = _expected_quiz_difficulty(
+        ctx.state.get("previous_score"),
+        ctx.state.get("selected_difficulty"),
+    )
+    if (
+        not isinstance(quiz_dict, dict)
+        or quiz_dict.get("difficulty") != expected_difficulty.value
+    ):
+        logger.error(
+            "Quiz difficulty mismatch on output boundary: expected %s, got %s",
+            expected_difficulty.value,
+            quiz_dict.get("difficulty") if isinstance(quiz_dict, dict) else None,
+        )
+        ctx.state["quality_failure_type"] = "final_invariant_failed"
+        yield _quality_failure_event(ctx)
+        return
+
+    try:
+        validated_quiz_model = Quiz.model_validate(quiz_dict)
+    except Exception as e:
+        logger.error("Quiz schema validation failed on output boundary: %s", e)
+        ctx.state["quality_failure_type"] = "final_invariant_failed"
+        yield _quality_failure_event(ctx)
+        return
+
+    validated_quiz_id = _save_validated_quiz_best_effort(
+        ctx, validated_quiz_model.model_dump(mode="json")
+    )
 
     _reset_quiz_state(ctx, source_id=validated_quiz_id)
 
@@ -1908,7 +1950,7 @@ async def quiz_output_node(ctx: Context, node_input: Any) -> Event:
 
     # Return structured Quiz object as the workflow's terminal output
     yield _validated_quiz_event(
-        quiz_dict,
+        validated_quiz_model,
         validated_quiz_id=validated_quiz_id,
     )
 

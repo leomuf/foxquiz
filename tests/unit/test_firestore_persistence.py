@@ -181,6 +181,57 @@ def test_malformed_validated_quiz_expiration_is_not_trusted():
     assert repo.get_validated_quiz(validated_id) is None
 
 
+def test_save_shared_quiz_canonicalizes_difficulty_and_strips_internal_fields():
+    repo = FirestoreRepository(force_mock=True)
+
+    # Legacy decorated string
+    repo.save_shared_quiz(
+        "quiz-hard",
+        {
+            "title": "Hard Quiz",
+            "difficulty": "🚀 Hard",
+            "questions": [
+                {
+                    "question": "Q1",
+                    "options": ["A", "B"],
+                    "correct_option_index": 0,
+                    "correct_answer": "A",
+                    "explanation": "E1",
+                }
+            ],
+        },
+    )
+    saved = repo.get_shared_quiz("quiz-hard")
+    assert saved is not None
+    assert saved["difficulty"] == "hard"
+    assert "correct_answer" not in saved["questions"][0]
+
+    # German localized string
+    repo.save_shared_quiz(
+        "quiz-easy",
+        {
+            "title": "Easy Quiz",
+            "difficulty": "🌱 Einfach",
+            "questions": [{"question": "Q2", "options": ["A", "B"]}],
+        },
+    )
+    saved_easy = repo.get_shared_quiz("quiz-easy")
+    assert saved_easy is not None
+    assert saved_easy["difficulty"] == "easy"
+
+    # Missing difficulty defaults to medium
+    repo.save_shared_quiz(
+        "quiz-default",
+        {
+            "title": "Default Quiz",
+            "questions": [{"question": "Q3", "options": ["A", "B"]}],
+        },
+    )
+    saved_default = repo.get_shared_quiz("quiz-default")
+    assert saved_default is not None
+    assert saved_default["difficulty"] == "medium"
+
+
 def test_feedback_failure_is_not_reported_as_saved(real_repo):
     """Feedback write errors must be visible to the API caller."""
     repo, client = real_repo

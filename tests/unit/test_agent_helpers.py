@@ -1358,6 +1358,7 @@ async def test_approved_quiz_is_released_when_provenance_save_fails() -> None:
 async def test_terminal_nodes_record_precise_invocation_outcomes() -> None:
     valid_quiz = {
         "title": "Valid",
+        "difficulty": "medium",
         "questions": [
             {
                 "question": f"Question {number}?",
@@ -1441,6 +1442,7 @@ async def test_deterministic_validation_logs_success_without_candidate(
         "generation_attempts": generation_attempt,
         "temp_quiz": {
             "title": "Valid",
+            "difficulty": "medium",
             "questions": [
                 {
                     "question": f"Question {number}?",
@@ -1650,3 +1652,61 @@ async def test_shared_repair_failure_keeps_source_and_fails_closed(source):
         else "judge_rejected"
     )
     assert context.state["repair_history"][-1]["result"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_quiz_output_node_fails_closed_when_difficulty_mismatches() -> None:
+    quiz = _valid_public_quiz()
+    quiz["difficulty"] = "hard"  # Mismatch: state expects medium
+    context = MagicMock()
+    context.state = {
+        "preferred_language": "en",
+        "temp_quiz": quiz,
+        "difficulty": "medium",
+    }
+    events = [
+        event
+        async for event in quiz_output_node._run_impl(ctx=context, node_input=None)
+    ]
+    assert context.state["quality_failure_type"] == "final_invariant_failed"
+    assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_quiz_output_node_fails_closed_when_quiz_schema_fails() -> None:
+    quiz = _valid_public_quiz()
+    quiz["questions"][0].pop("options")  # Schema violation
+    context = MagicMock()
+    context.state = {
+        "preferred_language": "en",
+        "temp_quiz": quiz,
+        "difficulty": "medium",
+    }
+    events = [
+        event
+        async for event in quiz_output_node._run_impl(ctx=context, node_input=None)
+    ]
+    assert context.state["quality_failure_type"] == "final_invariant_failed"
+    assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_quiz_output_node_releases_valid_quiz_with_quiz_boundary() -> None:
+    quiz = _valid_public_quiz()
+    context = MagicMock()
+    context.state = {
+        "preferred_language": "en",
+        "temp_quiz": quiz,
+        "difficulty": "medium",
+    }
+    with patch("app.agent.FirestoreRepository") as mock_repo:
+        mock_repo.return_value.save_validated_quiz.return_value = "validated-quiz-123"
+        events = [
+            event
+            async for event in quiz_output_node._run_impl(ctx=context, node_input=None)
+        ]
+    assert len(events) == 2
+    terminal_event = events[1]
+    assert terminal_event.output["difficulty"] == "medium"
+    assert terminal_event.output["title"] == "Cells"
+    assert terminal_event.output["validated_quiz_id"] == "validated-quiz-123"

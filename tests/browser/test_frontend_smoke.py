@@ -607,31 +607,189 @@ def test_selected_mascot_is_sent_with_the_quiz_request(
     assert prompt["mascot_id"] == "owl"
 
 
-def test_legacy_shared_quiz_normalizes_difficulty_and_displays_localized_badge(
-    page: Page, frontend_base_url: str
+@pytest.mark.parametrize(
+    (
+        "lang",
+        "difficulty",
+        "expected_badge",
+        "expected_aria",
+        "expected_tooltip_prefix",
+    ),
+    [
+        (
+            "de",
+            "easy",
+            "Stufe: 🌱 Einfach",
+            "Stufe: Einfach",
+            "Einfach: Automatisch aktiv",
+        ),
+        (
+            "de",
+            "⭐ Medium",
+            "Stufe: ⭐ Mittel",
+            "Stufe: Mittel",
+            "Mittel: Standardstufe für diese Klasse.",
+        ),
+        (
+            "de",
+            "hard",
+            "Stufe: 🚀 Schwer",
+            "Stufe: Schwer",
+            "Schwer: Meisterstufe!",
+        ),
+        (
+            "en",
+            "🌱 Easy",
+            "Level: 🌱 Easy",
+            "Level: Easy",
+            "Easy: Activated automatically",
+        ),
+        (
+            "en",
+            "medium",
+            "Level: ⭐ Medium",
+            "Level: Medium",
+            "Medium: Standard level for this grade.",
+        ),
+        (
+            "en",
+            "🚀 Hard",
+            "Level: 🚀 Hard",
+            "Level: Hard",
+            "Hard: Master level!",
+        ),
+        (
+            "pt",
+            "easy",
+            "Nível: 🌱 Fácil",
+            "Nível: Fácil",
+            "Fácil: Ativado automaticamente",
+        ),
+        (
+            "pt",
+            "medium",
+            "Nível: ⭐ Médio",
+            "Nível: Médio",
+            "Médio: Nível padrão para esta série.",
+        ),
+        (
+            "pt",
+            "hard",
+            "Nível: 🚀 Difícil",
+            "Nível: Difícil",
+            "Difícil: Nível mestre!",
+        ),
+    ],
+)
+def test_shared_quiz_normalizes_difficulty_and_displays_localized_badges(
+    page: Page,
+    frontend_base_url: str,
+    lang: str,
+    difficulty: str,
+    expected_badge: str,
+    expected_aria: str,
+    expected_tooltip_prefix: str,
 ) -> None:
-    """Loading a legacy shared quiz with '⭐ Medium' must render localized presentation."""
-    legacy_quiz = _quiz_fixture(
-        title="Legacy Plants",
-        difficulty="⭐ Medium",
+    """Loading shared quizzes must render localized presentation on quiz and summary screens."""
+    quiz = _quiz_fixture(
+        title="Localized Plants",
+        difficulty=difficulty,
         subject="Biology",
     )
+    quiz_slug = f"test-diff-{lang}-{hash(difficulty) % 10000}"
 
     def fulfill_shared_quiz(route) -> None:
         route.fulfill(
             status=200,
             content_type="application/json",
-            body=json.dumps({"status": "success", "quiz_data": legacy_quiz}),
+            body=json.dumps({"status": "success", "quiz_data": quiz}),
         )
 
-    page.route("**/quiz/test-legacy-123", fulfill_shared_quiz)
-    page.goto(f"{frontend_base_url}/?quiz_id=test-legacy-123&lang=de")
+    page.route(f"**/quiz/{quiz_slug}", fulfill_shared_quiz)
+    page.goto(f"{frontend_base_url}/?quiz_id={quiz_slug}&lang={lang}")
 
     expect(page.locator("#quiz-screen")).to_be_visible()
     badge = page.locator("#quiz-difficulty")
-    expect(badge).to_have_text("Stufe: ⭐ Mittel")
-    expect(badge).to_have_attribute("aria-label", "Stufe: Mittel")
-    expect(badge).to_have_attribute(
-        "data-tooltip",
-        "Mittel: Standardstufe für diese Klasse. Aktiv bei 4 bis 7 Punkten, oder per Benutzerauswahl.",
-    )
+    expect(badge).to_have_text(expected_badge)
+    expect(badge).to_have_attribute("aria-label", expected_aria)
+    tooltip = badge.get_attribute("data-tooltip") or ""
+    assert tooltip.startswith(expected_tooltip_prefix)
+
+    # Transition to summary screen and verify summary badge
+    page.evaluate("() => showSummaryScreen()")
+    expect(page.locator("#summary-screen")).to_be_visible()
+    summary_badge = page.locator("#summary-difficulty")
+    expect(summary_badge).to_have_text(expected_badge)
+    expect(summary_badge).to_have_attribute("aria-label", expected_aria)
+    summary_tooltip = summary_badge.get_attribute("data-tooltip") or ""
+    assert summary_tooltip.startswith(expected_tooltip_prefix)
+
+
+def test_offline_export_and_localized_difficulty_presentation(
+    page: Page,
+    frontend_base_url: str,
+) -> None:
+    """Offline quiz export must present localized difficulty for all supported languages."""
+    page.goto(f"{frontend_base_url}/?lang=en")
+
+    eval_script = """() => {
+        const results = [];
+        const languages = ['de', 'en', 'pt'];
+        const difficulties = ['easy', 'medium', 'hard', '🌱 Easy', '⭐ Medium', '🚀 Hard'];
+        for (const l of languages) {
+            setLanguage(l);
+            for (const d of difficulties) {
+                results.push({
+                    lang: l,
+                    diff: d,
+                    localized: getLocalizedDifficulty(d)
+                });
+            }
+        }
+        return results;
+    }"""
+    results = page.evaluate(eval_script)
+
+    expected_labels = {
+        ("de", "easy"): "Stufe: 🌱 Einfach",
+        ("de", "medium"): "Stufe: ⭐ Mittel",
+        ("de", "hard"): "Stufe: 🚀 Schwer",
+        ("de", "🌱 Easy"): "Stufe: 🌱 Einfach",
+        ("de", "⭐ Medium"): "Stufe: ⭐ Mittel",
+        ("de", "🚀 Hard"): "Stufe: 🚀 Schwer",
+        ("en", "easy"): "Level: 🌱 Easy",
+        ("en", "medium"): "Level: ⭐ Medium",
+        ("en", "hard"): "Level: 🚀 Hard",
+        ("en", "🌱 Easy"): "Level: 🌱 Easy",
+        ("en", "⭐ Medium"): "Level: ⭐ Medium",
+        ("en", "🚀 Hard"): "Level: 🚀 Hard",
+        ("pt", "easy"): "Nível: 🌱 Fácil",
+        ("pt", "medium"): "Nível: ⭐ Médio",
+        ("pt", "hard"): "Nível: 🚀 Difícil",
+        ("pt", "🌱 Easy"): "Nível: 🌱 Fácil",
+        ("pt", "⭐ Medium"): "Nível: ⭐ Médio",
+        ("pt", "🚀 Hard"): "Nível: 🚀 Difícil",
+    }
+    for res in results:
+        key = (res["lang"], res["diff"])
+        assert res["localized"] == expected_labels[key], (
+            f"Mismatch for {key}: got {res['localized']}"
+        )
+
+    export_check = """() => {
+        currentQuizData = {
+            title: "Photosynthesis Test",
+            difficulty: "hard",
+            questions: [{
+                question: "What is chlorophyll?",
+                options: ["Pigment", "Gas", "Metal"],
+                correct_option_index: 0,
+                explanation: "Green pigment."
+            }]
+        };
+        setLanguage("de");
+        const t = translations[currentLanguage];
+        return `${t.export_level}: ${t.export_offline_buddy} · ${getLocalizedDifficulty(currentQuizData.difficulty)}`;
+    }"""
+    export_header = page.evaluate(export_check)
+    assert export_header == "Altersgruppe: Erstellt mit FoxQuiz · Stufe: 🚀 Schwer"

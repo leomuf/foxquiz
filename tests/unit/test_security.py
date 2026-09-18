@@ -366,7 +366,7 @@ def test_firestore_repo_quiz(mock_repo):
 
     # Retrieve shared quiz
     retrieved = mock_repo.get_shared_quiz(quiz_id)
-    assert retrieved == quiz_data
+    assert retrieved == {"difficulty": "medium", **quiz_data}
 
     # Save a quiz with a negative TTL (already expired)
     mock_repo.save_shared_quiz("expired_quiz", quiz_data, ttl_days=-1)

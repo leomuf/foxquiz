@@ -2,7 +2,11 @@
 
 ## Status
 
-Implemented. All backend, domain, prompt, persistence, frontend presentation, backward compatibility, and test suites have been updated to use the semantic `DifficultyLevel` contract.
+Implemented in v1.4.0. All backend, domain, prompt, persistence, frontend
+presentation, backward compatibility, and test suites have been updated to use
+the semantic `DifficultyLevel` contract (`easy`, `medium`, `hard`). Presentation
+decorations and localization are isolated in the frontend UI (`app/static/index.html`).
+For current specifications and contracts, consult `specs/my_spec.md`.
 
 ## Problem
 

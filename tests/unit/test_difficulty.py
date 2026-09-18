@@ -5,6 +5,7 @@
 """Unit tests for semantic DifficultyLevel enum, legacy parsing, and schema validation."""
 
 import pytest
+from pydantic import ValidationError
 
 from app.agent import Quiz, QuizQuestion
 from app.domain.difficulty import DifficultyLevel
@@ -89,11 +90,28 @@ def test_quiz_model_difficulty_validation_and_serialization() -> None:
     )
     assert quiz_from_str.difficulty == DifficultyLevel.HARD
 
-    default_quiz = Quiz(
+    # Coerces legacy decorated string
+    quiz_legacy = Quiz(
         title="Sample Quiz",
         questions=sample_questions,
+        difficulty="⭐ Medium",
     )
-    assert default_quiz.difficulty == DifficultyLevel.MEDIUM
+    assert quiz_legacy.difficulty == DifficultyLevel.MEDIUM
+
+    # Omitting difficulty is a validation error (required field)
+    with pytest.raises(ValidationError):
+        Quiz(
+            title="Sample Quiz",
+            questions=sample_questions,
+        )
+
+    # None difficulty is a validation error
+    with pytest.raises(ValidationError):
+        Quiz(
+            title="Sample Quiz",
+            questions=sample_questions,
+            difficulty=None,
+        )
 
 
 def test_generated_quiz_difficulty_normalization() -> None:

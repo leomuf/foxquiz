@@ -35,6 +35,7 @@ from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
 from google.cloud import logging as google_cloud_logging
 
+from app.agent import Quiz
 from app.app_utils import services
 from app.app_utils.a2a import attach_a2a_routes
 from app.app_utils.build_info import get_build_info
@@ -412,16 +413,29 @@ def collect_feedback(feedback: Feedback) -> dict[str, str]:
 def share_quiz(payload: dict) -> dict[str, Any]:
     """Freeze a generated quiz and persist it in the cloud for sharing."""
     quiz_data = payload.get("quiz_data")
-    if not quiz_data:
+    if not quiz_data or not isinstance(quiz_data, dict):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing required quiz_data payload.",
         )
 
+    try:
+        validated_quiz = Quiz.model_validate(quiz_data)
+        canonical_quiz_data = validated_quiz.model_dump(mode="json")
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid quiz payload for sharing: {e}",
+        ) from e
+
+    for extra_field in ("validated_quiz_id", "grade", "subject", "topic"):
+        if extra_field in quiz_data and extra_field not in canonical_quiz_data:
+            canonical_quiz_data[extra_field] = quiz_data[extra_field]
+
     # Generate a secure, unique sharing identifier
     quiz_id = payload.get("quiz_id") or str(uuid.uuid4())
     repo = FirestoreRepository()
-    success = repo.save_shared_quiz(quiz_id, quiz_data)
+    success = repo.save_shared_quiz(quiz_id, canonical_quiz_data)
 
     if not success:
         raise HTTPException(
