@@ -140,7 +140,7 @@ If you need to clear your active session or reset the server output to get a fre
 | `agents-cli install` | Install dependencies using uv |
 | `agents-cli playground` | Launch the local development environment |
 | `agents-cli lint` | Run code quality checks |
-| `agents-cli eval` | Evaluate agent behavior (generate, grade, analyze, and more — see `agents-cli eval --help`) |
+| `agents-cli eval` | Evaluate agent behavior; use the [FoxQuiz evaluation guide](tests/eval/datasets/README.md) to select the relevant suite and protect Firestore |
 | `uv run playwright install chromium` | Install Chromium once for local frontend tests |
 | `uv run pytest tests/unit tests/integration tests/browser -m "not google_cloud"` | Run the credential-free suite used by GitHub Actions |
 | `uv run pytest tests/integration -m google_cloud` | Run real-agent integration tests locally with Google credentials |

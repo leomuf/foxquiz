@@ -18,7 +18,7 @@ Before writing any code, understand the project's requirements, constraints, and
 Implement agent logic in `app/`. Use `agents-cli playground` for interactive testing. Iterate based on user feedback.
 
 ### Phase 3: The Evaluation Loop (Main Iteration Phase)
-Start with 1-2 eval cases, run `agents-cli eval generate`, then `agents-cli eval grade`, iterate by making changes and rerunning both commands until satisfied. Expect 5-10+ iterations. Once you have a baseline, reach for `agents-cli eval compare` (regression diffs), `agents-cli eval analyze` (cluster failure modes), and `agents-cli eval optimize` (auto-tune prompts). See the **Evaluation Guide** for metrics, dataset schema, LLM-as-judge config, and common gotchas.
+Start with 1-2 eval cases, run `agents-cli eval generate`, then `agents-cli eval grade`, iterate by making changes and rerunning both commands until satisfied. Expect 5-10+ iterations. Once you have a baseline, reach for `agents-cli eval compare` (regression diffs), `agents-cli eval analyze` (cluster failure modes), and `agents-cli eval optimize` (auto-tune prompts). See [`tests/eval/datasets/README.md`](tests/eval/datasets/README.md) to select the correct FoxQuiz suite, isolate Firestore, and apply its release gate.
 
 ### Phase 4: Pre-Deployment Tests
 Run `uv run pytest tests/unit tests/integration`. Fix issues until all tests pass.

@@ -170,6 +170,14 @@ Before submitting your changes, please ensure that all tests and code quality ch
   Credentials. They are deliberately excluded from GitHub Actions; never add
   Google credentials or service-account keys to the repository.
 
+* **Run behavioral evaluations when agent behavior changes:**
+
+  Use the [FoxQuiz evaluation guide](tests/eval/datasets/README.md) to select
+  the suite that matches the changed workflow boundary. Local evaluations call
+  live Vertex AI, so follow the guide's Firestore-isolation requirement before
+  generating traces. Remote measurement and request-contract campaigns run
+  only against a temporary DEV deployment.
+
 * **Run the code linter:**
   ```bash
   agents-cli lint
