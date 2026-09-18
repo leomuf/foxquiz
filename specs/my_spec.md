@@ -984,7 +984,9 @@ quality metrics must not decrease by more than 0.05 absolute points.
 Targeted repair must achieve at least 20% lower median token usage than full
 regeneration, while median total latency must remain within 10% above the
 baseline. An invocation may perform at most one academic repair after the
-initial Judge rejection.
+initial Judge rejection. Verified in `docs/reports/targeted-repair-efficiency-v1.4.0.md`
+(achieved 48.6% lower total tokens, 87.3% lower candidate tokens, and 54.7%
+faster turnaround latency).
 
 ---
 
