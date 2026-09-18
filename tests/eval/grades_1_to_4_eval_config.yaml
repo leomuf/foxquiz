@@ -8,6 +8,27 @@ custom_metrics:
     execution: local
 
   - name: primary_grade_quality
+    judge_model_system_instruction: |
+      Return exactly one valid JSON object and nothing else. Do not include
+      Markdown, code fences, headings, or prose before or after the JSON.
+    judge_model_generation_config:
+      temperature: 0
+      max_output_tokens: 1024
+      response_mime_type: application/json
+      response_json_schema:
+        type: object
+        additionalProperties: false
+        required:
+          - score
+          - explanation
+        properties:
+          score:
+            type: integer
+            minimum: 1
+            maximum: 5
+          explanation:
+            type: string
+            minLength: 1
     prompt_template: |
       Evaluate the released FoxQuiz for the requested Grade 1-4 learner.
       Give score 5 only when it contains exactly ten factually correct questions,
