@@ -408,11 +408,13 @@ def test_upfront_curriculum_validation_accepts_a_recognizable_broad_topic(
     subject: str,
     topic: str,
 ) -> None:
-    """Route recognizable broad topics directly to a validated general quiz.
+    """Route recognizable broad topics to a validated quiz or a clarification.
 
     The parameters cover the reported history scenario and the financial-topic
-    eval input. Pytest verifies compatible routing, retained topic state, and
-    the ten-question output contract, not the wording of generated questions.
+    eval input. Broad topics may either generate a balanced general overview
+    quiz directly (compatible) or ask a clarifying question to narrow down
+    broad subtopics (needs_clarification). Pytest verifies compliant routing,
+    retained topic state, and the respective output contract.
     """
     import json
 
@@ -444,14 +446,45 @@ def test_upfront_curriculum_validation_accepts_a_recognizable_broad_topic(
         and isinstance(event.output, dict)
         and "questions" in event.output
     ]
+    clarification_payloads = []
+    for event in events:
+        for part in (event.content.parts or []) if event.content else []:
+            if not part.text:
+                continue
+            try:
+                clarif = json.loads(part.text)
+            except json.JSONDecodeError:
+                continue
+            if clarif.get("status") == "clarification_required":
+                clarification_payloads.append(clarif)
+
     final_session = session_service.get_session_sync(
         user_id="test_user", session_id=session.id, app_name="test"
     )
+    curriculum_status = final_session.state.get("curriculum_status")
 
-    assert len(quiz_outputs) == 1
-    assert len(quiz_outputs[0].get("questions", [])) == 10
-    assert final_session.state.get("curriculum_status") == "compatible"
+    assert curriculum_status in {"compatible", "needs_clarification"}, (
+        f"Broad topic '{topic}' should be compatible or request clarification, got {curriculum_status}"
+    )
     assert final_session.state.get("topic") == topic
+
+    if curriculum_status == "compatible":
+        assert len(quiz_outputs) == 1, "Expected one validated quiz output"
+        assert len(quiz_outputs[0].get("questions", [])) == 10
+        assert len(clarification_payloads) == 0, (
+            "No clarification expected when compatible"
+        )
+    else:
+        assert len(quiz_outputs) == 0, (
+            "No quiz should be exposed when clarification is required"
+        )
+        assert len(clarification_payloads) == 1, (
+            "Expected one structured clarification payload"
+        )
+        assert clarification_payloads[0].get("message"), (
+            "Clarification message must not be empty"
+        )
+        assert final_session.state.get("pending_topic") == topic
 
 
 @pytest.mark.parametrize(
