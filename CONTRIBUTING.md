@@ -201,7 +201,7 @@ changes.
 
 #### Step 1: Initialize Firestore (One-Time Project Prerequisite)
 
-Create the Native Mode Firestore database once for every new Google Cloud
+Create the Native Mode production database once for every new Google Cloud
 project:
 ```bash
 gcloud firestore databases create \
@@ -212,6 +212,19 @@ gcloud firestore databases create \
 
 The `us-east1` location keeps Firestore in the same region as FoxQuiz.
 Skip this command when the `(default)` database already exists.
+
+DEV campaigns use the separate `foxquiz-dev` database configured in
+`scripts/deploy.sh`. Create it once as well:
+
+```bash
+gcloud firestore databases create \
+  --project="${GCLOUD_PROJECT_ID}" \
+  --database=foxquiz-dev \
+  --location=us-east1 \
+  --type=firestore-native
+```
+
+Skip this command when `foxquiz-dev` already exists.
 
 #### Step 2: Provision Runtime Identities (One-Time Prerequisite)
 
@@ -309,22 +322,35 @@ gcloud firestore indexes composite list \
 ```
 
 ##### Step 4.2: Firestore Time To Live (TTL) Policies
+
+The collections below have distinct quiz-storage responsibilities:
+
+| Collection | Write trigger | Purpose | Retention |
+| --- | --- | --- | --- |
+| `quizzes` | The user clicks **Share** | Frozen quiz served by a share link | 30 days |
+| `validated_quizzes` | A generated quiz passes deterministic validation and academic review | Internal, non-shareable provenance for trusted adaptive follow-ups | 1 day |
+
+Configure the policies once in **each** database used by FoxQuiz. Use
+`foxquiz-dev` for DEV campaigns and `(default)` for production:
+
 ```bash
+export FIRESTORE_DATABASE_ID="foxquiz-dev" # Use "(default)" for production.
+
 gcloud firestore fields ttls update expires_at \
   --collection-group=budgets \
-  --database='(default)' \
+  --database="${FIRESTORE_DATABASE_ID}" \
   --enable-ttl \
   --project="${GCLOUD_PROJECT_ID}"
 
 gcloud firestore fields ttls update expires_at \
   --collection-group=quizzes \
-  --database='(default)' \
+  --database="${FIRESTORE_DATABASE_ID}" \
   --enable-ttl \
   --project="${GCLOUD_PROJECT_ID}"
 
 gcloud firestore fields ttls update expires_at \
   --collection-group=validated_quizzes \
-  --database='(default)' \
+  --database="${FIRESTORE_DATABASE_ID}" \
   --enable-ttl \
   --project="${GCLOUD_PROJECT_ID}"
 ```

@@ -11,6 +11,12 @@ only trusted reinforcement may reuse the stored quiz directly. Internal
 decisions are expanded for clarity, including the Judge bypass inside
 `llm_as_a_judge`; they are not additional Workflow nodes.
 
+The workflow's `validated_quizzes` records are distinct from user-created
+shares. Every newly generated and approved quiz gets a best-effort, one-day
+provenance record for trusted adaptive follow-ups. The `quizzes` collection is
+written only when a user clicks **Share** and retains the frozen, shareable quiz
+for 30 days.
+
 ```mermaid
 flowchart TD
     User["Browser: structured quiz request<br/>adaptive requests include validated_quiz_id when available"] --> SSE["POST /run_sse"]

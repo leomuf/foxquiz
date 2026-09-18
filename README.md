@@ -170,6 +170,18 @@ The persistence layer relies on **Cloud Firestore (Native Mode)**, Google's serv
 * **Atomic Satisfaction Counters (No Race Conditions):** For the **aggregated thumbs-up counter**, Firestore's native **atomic increments** are used. If 100 users complete a quiz and click "Thumbs-Up" at the exact same millisecond, Firestore guarantees they are all counted accurately without transaction deadlocks or lost updates.
 * **Independent Documents:** Writing thumbs-down review logs and saving frozen quizzes create unique documents using random UUIDs, allowing parallel creations to execute at maximum cloud speed.
 
+Quiz content is stored in two collections with different triggers and purposes:
+
+| Collection | Created when | Purpose | Retention | Shareable |
+| --- | --- | --- | --- | --- |
+| `quizzes` | A user clicks **Share** | Serve a frozen quiz through its share link without another model call | 30 days | Yes, through its unguessable link |
+| `validated_quizzes` | A newly generated quiz passes deterministic validation and academic review | Provide trusted, server-side provenance for adaptive follow-ups, including safe reinforcement reuse and duplicate-prevention context | 1 day | No; it is an internal workflow record |
+
+Validated-quiz provenance contains the normalized public quiz and context-bound
+fingerprints, but no user IDs, session IDs, raw prompts, or rejected candidates.
+The write is best effort: if it fails, the quiz is still delivered, while later
+adaptive requests fall back to ordinary generation and academic review.
+
 ## 🔗 Zero-Token Frozen Quiz Sharing
 
 FoxQuiz includes an interactive social feature that allows students to freeze and share their generated quizzes with friends, parents, or teachers:

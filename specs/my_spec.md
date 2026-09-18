@@ -1665,6 +1665,11 @@ still requires:
   LLM or logs (Section 10).
 - Shared quiz documents expire logically after 30 days and are physically
   removed by Firestore Time To Live (TTL).
+- Every newly generated and approved quiz receives a best-effort provenance
+  record in `validated_quizzes`. It contains the normalized public quiz and
+  context-bound fingerprints, but no user ID, session ID, raw prompt, or
+  rejected candidate snapshot. It expires logically after one day and is
+  physically removed by Firestore Time To Live (TTL).
 - Transient anonymous budget documents expire after seven days; the global
   budget document does not expire.
 - Negative feedback and quiz-quality/security diagnostics are anonymized.
