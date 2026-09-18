@@ -106,9 +106,11 @@ def test_quiz_model_difficulty_validation_and_serialization() -> None:
 
     # Omitting difficulty is a validation error (required field)
     with pytest.raises(ValidationError):
-        Quiz(
-            title="Sample Quiz",
-            questions=sample_questions,
+        Quiz.model_validate(
+            {
+                "title": "Sample Quiz",
+                "questions": sample_questions,
+            }
         )
 
     # None difficulty is a validation error

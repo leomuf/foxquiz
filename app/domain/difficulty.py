@@ -51,7 +51,7 @@ class DifficultyLevel(StrEnum):
 
     @classmethod
     def from_raw(
-        cls, value: Any, default: "DifficultyLevel" = MEDIUM
+        cls, value: Any, default: "DifficultyLevel | None" = None
     ) -> "DifficultyLevel":
         """Normalize legacy decorated strings or case variants to a canonical level.
 
@@ -60,4 +60,4 @@ class DifficultyLevel(StrEnum):
         try:
             return cls.parse_known(value)
         except ValueError:
-            return default
+            return default if default is not None else cls.MEDIUM
