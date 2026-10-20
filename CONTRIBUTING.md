@@ -363,6 +363,11 @@ release decision. Detailed dataset commands and thresholds remain in the
    only then run its `--apply` form. Verify `/version` and production health
    after deployment.
 
+Before publishing a GitHub release, prepare a draft and let the maintainer
+review the release notes. Publish only after explicit approval.
+
+Approval to deploy PROD will not count as approval to publish the GitHub release.
+
 Preview and deploy production only after DEV verification and separate
 production approval:
 
