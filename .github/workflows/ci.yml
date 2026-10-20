@@ -22,7 +22,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install
+        run: uv python install 3.12
 
       - name: Install dependencies
         run: uv sync --locked
@@ -34,7 +34,7 @@ jobs:
         run: uv run python -m pytest tests/unit tests/integration tests/browser -m "not google_cloud"
 
       - name: Install Google Agents CLI
-        run: uv tool install google-agents-cli
+        run: uv tool install --python 3.12 google-agents-cli
 
       - name: Run Linter
         run: agents-cli lint

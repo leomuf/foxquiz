@@ -1,6 +1,6 @@
 [project]
 name = "foxquiz"
-version = "1.4.0"
+version = "1.4.1"
 description = "FoxQuiz - Adaptive, Curriculum-Aware, and Guardrailed Multi-Agent Quiz Generator"
 authors = [
     {name = "Leonardo Muffato", email = "info@autosoft-engineering.de"},
@@ -20,7 +20,7 @@ dependencies = [
     "google-cloud-aiplatform[evaluation]>=1.163.0",
     "python-multipart>=0.0.20,<1.0.0",
     "sqlalchemy>=2,<3",
-    "uvicorn~=0.52.1",
+    "uvicorn>=0.52.1,<0.54.0",
     "emoji>=2.15.0,<3.0.0",
     "a2a-sdk[http-server]>=1.0,<2",
     "aiohttp>=3.13.4",
@@ -48,6 +48,11 @@ lint = [
     "ty>=0.0.70",
     "codespell>=2.4.3,<3.0.0",
 ]
+
+[tool.uv]
+# The Vertex evaluation extra pins LiteLLM below its first patched release.
+# Keep the security fix until the SDK accepts it (GHSA-3cv6-jpf6-8222).
+override-dependencies = ["litellm==1.88.6"]
 
 [tool.ruff]
 line-length = 88
