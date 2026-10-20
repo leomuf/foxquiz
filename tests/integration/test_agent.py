@@ -54,8 +54,9 @@ pytestmark = pytest.mark.google_cloud
 
 
 @pytest.fixture(autouse=True)
-def mock_wikipedia_requests():
+def mock_wikipedia_requests(monkeypatch):
     """Autouse fixture to mock external Wikipedia HTTP requests to prevent hangs/sandboxing issues."""
+    monkeypatch.setenv("INTEGRATION_TEST", "TRUE")
     with patch("requests.get") as mock_get:
         # Mock responses for both search and extract APIs
         def side_effect(url, params=None, **kwargs):
