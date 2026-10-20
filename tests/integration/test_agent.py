@@ -123,7 +123,7 @@ def test_agent_stream() -> None:
 def test_adaptive_quiz_generation() -> None:
     """
     Integration test for the adaptive quiz generation logic.
-    Verifies reinforcement mode (score <= 4) generates 'easy' difficulty.
+    Verifies reinforcement mode (score <= 3) reuses a valid quiz at 'easy' difficulty.
     """
     import json
 
@@ -136,13 +136,13 @@ def test_adaptive_quiz_generation() -> None:
         "difficulty": "medium",
         "questions": [
             {
-                "question": "What is 1/2 of 10?",
-                "options": ["5", "3", "2"],
+                "question": f"What is 1/2 of {number * 2}?",
+                "options": [str(number), str(number + 1), str(number + 2)],
                 "correct_option_index": 0,
-                "explanation": "1/2 of 10 is 5.",
+                "explanation": f"1/2 of {number * 2} is {number}.",
             }
-        ]
-        * 10,
+            for number in range(1, 11)
+        ],
     }
     provenance_repo = FirestoreRepository(force_mock=True)
     validated_quiz_id = provenance_repo.save_validated_quiz(
@@ -196,9 +196,14 @@ def test_adaptive_quiz_generation() -> None:
     assert quiz_output.get("difficulty") == "easy", (
         f"Expected 'easy', got {quiz_output.get('difficulty')}"
     )
-    assert {question["question"] for question in quiz_output["questions"]} == {
-        "What is 1/2 of 10?"
+    expected_answers = {
+        question["question"]: question["options"][question["correct_option_index"]]
+        for question in mock_previous_quiz["questions"]
     }
+    assert {
+        question["question"]: question["options"][question["correct_option_index"]]
+        for question in quiz_output["questions"]
+    } == expected_answers
 
 
 @pytest.mark.parametrize(
