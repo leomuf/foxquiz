@@ -54,8 +54,9 @@ pytestmark = pytest.mark.google_cloud
 
 
 @pytest.fixture(autouse=True)
-def mock_wikipedia_requests():
+def mock_wikipedia_requests(monkeypatch):
     """Autouse fixture to mock external Wikipedia HTTP requests to prevent hangs/sandboxing issues."""
+    monkeypatch.setenv("INTEGRATION_TEST", "TRUE")
     with patch("requests.get") as mock_get:
         # Mock responses for both search and extract APIs
         def side_effect(url, params=None, **kwargs):
@@ -123,7 +124,7 @@ def test_agent_stream() -> None:
 def test_adaptive_quiz_generation() -> None:
     """
     Integration test for the adaptive quiz generation logic.
-    Verifies reinforcement mode (score <= 4) generates 'easy' difficulty.
+    Verifies reinforcement mode (score <= 3) reuses a valid quiz at 'easy' difficulty.
     """
     import json
 
@@ -148,7 +149,7 @@ def test_adaptive_quiz_generation() -> None:
     validated_quiz_id = provenance_repo.save_validated_quiz(
         mock_previous_quiz,
         QuizContext(
-            grade="Grade 5",
+            grade="Klasse 5",  # Provenance uses the request's canonical grade.
             subject="Math",
             topic="Fractions",
             preferred_language="en",
@@ -157,7 +158,7 @@ def test_adaptive_quiz_generation() -> None:
         service_version="integration-test",
     )
 
-    # 1. Test Reinforcement Mode (score <= 4)
+    # 1. Test Reinforcement Mode (score <= 3)
     payload_reinforce = {
         "grade": "Grade 5",
         "subject": "Math",
