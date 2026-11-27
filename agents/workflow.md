@@ -23,6 +23,38 @@ authenticated GitHub integration or CLI. Record any limits on alert access.
 Review a visible version-update PR on its own evidence. Keep private alert
 details out of public artifacts.
 
+## PR descriptions
+
+Before opening a PR, fill in the template for the recorded task type. Use the
+[feature and bugfix template](../.github/PULL_REQUEST_TEMPLATE/feature-or-bugfix.md)
+for ordinary PRs, modeled on [PR #63](https://github.com/leomuf/foxquiz/pull/63).
+Use the [release template](../.github/PULL_REQUEST_TEMPLATE/release.md) for
+release candidates, modeled on [PR #81](https://github.com/leomuf/foxquiz/pull/81).
+Keep the headings in order and use only evidence for the current candidate.
+Mark release checks and approvals as pending until verified. Use the existing
+body for Dependabot PRs routed directly to review.
+
+The developer fills the template for PRs it opens. The reviewer supplies
+validation evidence, and the release agent supplies deployment and publication
+status. Push the verified head branch before creating the PR. Set `pr_head` to
+that branch for same-repository PRs or `owner:branch` for a contributor's fork.
+Set `pr_title` to the actual title and `body_file` to a temporary file containing
+the completed Markdown. Capture the full PR URL returned by GitHub:
+
+```bash
+pr_url=$(gh pr create --repo leomuf/foxquiz --base main --head "$pr_head" \
+  --title "$pr_title" --body-file "$body_file")
+```
+
+To update an existing PR, use its verified full URL for both reads and writes.
+Start from the current description with `gh pr view "$pr_url" --json body --jq .body`.
+Save that text as a snapshot and edit a copy, changing only the relevant section.
+Immediately before submitting, read the body again. If it differs from the
+snapshot, reapply the section edit to the latest text and check again.
+Submit the complete edited copy with `gh pr edit "$pr_url" --body-file "$body_file"`.
+Use the same explicit target, title, and body when creating through a GitHub
+integration, and the same read-before-edit procedure for updates.
+
 ## PR handoff and merge
 
 1. Record the base repository and branch (`leomuf/foxquiz:main`), fetched base
