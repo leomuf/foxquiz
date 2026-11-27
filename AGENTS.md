@@ -1,5 +1,29 @@
 # Coding Agent Guide
 
+## Recurring FoxQuiz Maintenance
+
+The main chat coordinates the assistant-independent roles defined in
+[`agents/developer.md`](agents/developer.md),
+[`agents/reviewer.md`](agents/reviewer.md), and
+[`agents/release.md`](agents/release.md).
+Follow [the shared workflow](agents/workflow.md) for task assignment,
+handoffs, status reporting, and approval boundaries. Classify the task as an
+ordinary PR or a release candidate. Route existing Dependabot PRs directly to
+review. Use the developer for implementation or compatibility fixes. The reviewer
+owns the test plan and merge recommendation. The release agent operates DEV
+and production for release candidates. Ordinary PRs finish at human merge.
+Keep dependent phases sequential and isolate concurrent work in separate checkouts.
+Use native subagents or separate sessions when available. Otherwise perform the
+roles sequentially and disclose that same-session review has less independence.
+Keep deployment credentials out of contributor work and review sessions.
+Assistant-specific adapters, including `.codex/agents/`, load the shared roles.
+The coordinator reports each agent's task, status, branch/PR, and next action.
+Only ask for approval after preparing the concrete candidate and evidence.
+Require explicit human approval for DEV deployment, PR merge, production
+deployment, and separately for GitHub release publication. No agent may enable
+auto-merge or treat another agent's recommendation as human authorization.
+These roles run when assigned from chat; this configuration creates no schedule.
+
 ## Prerequisites
 
 Install the CLI (one-time):
@@ -24,10 +48,15 @@ Start with 1-2 eval cases, run `agents-cli eval generate`, then `agents-cli eval
 Run `uv run pytest tests/unit tests/integration`. Fix issues until all tests pass.
 
 ### Phase 5: Deploy to Dev
-**Requires explicit human approval.** Run `agents-cli deploy` only after user confirms. See the **Deployment Guide** for details.
+For release candidates, the release agent previews the DEV plan with
+`scripts/deploy.sh` and obtains explicit human approval before applying it.
+Follow the [Final Pre-Release Gate](CONTRIBUTING.md#step-31-final-pre-release-gate).
 
 ### Phase 6: Production Deployment
-Ask the user: Option A (simple single-project) or Option B (full CI/CD pipeline with `agents-cli infra cicd`).
+The release agent previews the production plan for the verified merged commit
+and obtains separate human approval before applying it with `scripts/deploy.sh`.
+When setting up production infrastructure, ask the maintainer to choose a
+single-project deployment or a full CI/CD pipeline with `agents-cli infra cicd`.
 
 ## Development Commands
 
