@@ -7,11 +7,12 @@ The main chat coordinates the assistant-independent roles defined in
 [`agents/reviewer.md`](agents/reviewer.md), and
 [`agents/release.md`](agents/release.md).
 Follow [the shared workflow](agents/workflow.md) for task assignment,
-handoffs, status reporting, and approval boundaries. Classify the task as an
-ordinary PR or a release candidate. Route existing Dependabot PRs directly to
-review. Use the developer for implementation or compatibility fixes. The reviewer
-owns the test plan and merge recommendation. The release agent operates DEV
-and production for release candidates. Ordinary PRs finish at human merge.
+handoffs, status reporting, and approval boundaries. The Developer hands off a
+tested branch before PR creation. The Reviewer assesses deployment impact,
+routes the PR to main or a release integration branch, and recommends the
+version for releases. Batch dependency updates on one branch for evaluation.
+The Release agent operates DEV and production. Merged runtime changes reach
+users after the approved production redeployment.
 Keep dependent phases sequential and isolate concurrent work in separate checkouts.
 Use native subagents or separate sessions when available. Otherwise perform the
 roles sequentially and disclose that same-session review has less independence.

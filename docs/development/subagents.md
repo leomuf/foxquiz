@@ -5,14 +5,25 @@ files contain their responsibilities, quality criteria, and handoffs:
 
 | Role | Definition | Responsibility |
 | --- | --- | --- |
-| Developer | [developer.md](../../agents/developer.md) | Implement features and dependency fixes that need code or constraint changes. Open PRs against `leomuf/foxquiz:main` from a writable branch. |
-| Reviewer | [reviewer.md](../../agents/reviewer.md) | Review features and existing Dependabot PRs, define tests, assess evidence, and recommend a merge or changes. |
+| Developer | [developer.md](../../agents/developer.md) | Implement features and dependency fixes that need code or constraint changes. Hand off the tested branch for review. |
+| Reviewer | [reviewer.md](../../agents/reviewer.md) | Review features and existing Dependabot PRs, route approved branches by deployment impact, open PRs, and assess release evidence. |
 | Release | [release.md](../../agents/release.md) | Operate approved DEV and production deployments, run the release pilot, and draft release notes. |
 
-An ordinary PR ends at human merge. For example, send a Dependabot PR that
-only changes `uv.lock` to the reviewer first. A release candidate goes through
-the full pre-release gate, with the release agent returning DEV evidence to
-the reviewer before the coordinator requests a merge decision.
+The Developer hands new work to the Reviewer before opening a PR. The main
+chat reports each review round. Changes confined to repository tooling or
+documentation normally go directly to main after PR CI and human approval.
+Review existing standalone Dependabot PRs directly. Combine a dependency
+batch on one branch and evaluate the final resolution once.
+
+For a release, the Reviewer recommends the version and the Developer applies
+it before freeze. Use a single reviewed branch directly, or integrate several
+branches via PRs to `release/vX.Y.Z`. Open a draft release PR to main before
+DEV. After CI, local evaluations, and the approved DEV pilot pass, mark the
+PR ready and request human merge.
+
+Merging to `main` leaves runtime changes pending release. The release agent
+deploys the approved revision to production and verifies its version and
+health. GitHub release publication has its own approval.
 
 Read [AGENTS.md](../../AGENTS.md) and the [shared workflow](../../agents/workflow.md)
 for coordination, candidate tracking, status reporting, and approval boundaries.

@@ -2,9 +2,9 @@
 
 Act as an independent software reviewer. Own the test plan, interpretation of
 evidence, and recommendation to the coordinator. Follow `AGENTS.md` and the
-[shared workflow](workflow.md). Work from the recorded PR head and tree.
+[shared workflow](workflow.md). Work from the recorded branch or PR head and tree.
 
-## Review an ordinary PR
+## Review the implementation branch
 
 Inspect correctness, backward compatibility, error paths, and whether the tests
 cover the change. Assess maintainability against project conventions. Check
@@ -13,20 +13,36 @@ Redact secrets in findings. Report each material issue with a file reference,
 impact, and verifiable acceptance criterion. Return implementation work to the
 developer.
 
-Use CI for the current PR head and run the affected checks in an environment
+Use fast local checks during pre-PR review. Once a PR exists, require green
+CI for the current head. Run the affected checks in an environment
 without deployment credentials. The credential-free CI suite covers unit,
 integration, and browser tests with `-m "not google_cloud"`, plus lint. Select
 any behavioral evaluations required by the [evaluation guide](../tests/eval/datasets/README.md).
 Arrange credentialed evaluations with an authorized operator using isolated
 test credentials. Record skipped checks and distinguish missing evidence from a pass.
 
-For an **existing Dependabot PR**, review that PR first. Check the proposed and
+For a **standalone Dependabot PR**, review that PR directly. Check the proposed and
 resolved package versions, affected dependency paths, compatibility, and the
 security overrides in `pyproject.toml`. For a security fix, verify the resolved
 version against the advisory. Accept a valid `uv.lock`-only diff. Run
 `uv sync --locked`, inspect CI, and test affected imports or behavior. If these
-checks pass, recommend the existing PR for human merge. If code or constraint
+checks pass, classify deployment impact before selecting the merge route. If code or constraint
 changes are needed, give the developer the PR link and specific failing check.
+
+For a **combined Dependabot branch**, compare the frozen lockfile with the source
+PR inventory. Confirm the included versions, security fixes, and intentional
+omissions. Check compatibility, CI, and affected behavior for the complete
+resolution. Apply the required evaluation suites once to the combined
+candidate and report one verdict. When reporting source PRs that the batch
+supersedes, distinguish included versions from newer proposals on those PRs.
+
+## Route a reviewed change
+
+Give the coordinator a branch verdict and the reason the change does or does
+not require redeployment. Open the PR using the target and template specified
+in the shared workflow. For releases, recommend the version, review the
+Developer’s version update, and open the release PR to main as a draft. Mark
+it ready only after the full release gate passes.
 
 ## Review a release candidate
 
@@ -39,5 +55,5 @@ issuing a merge recommendation. Invalidate evidence as specified by the gate
 if the candidate changes.
 
 Return `changes_requested`, `awaiting_evidence`, or `ready_for_human_merge`
-with the PR, reviewed SHA/tree, findings, and check results. The coordinator
+with the branch (and PR when available), reviewed SHA/tree, findings, and check results. The coordinator
 owns the human merge decision. Keep deployment credentials out of review sessions.

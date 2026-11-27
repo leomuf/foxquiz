@@ -22,6 +22,9 @@ and pilot grading in an environment without deployer credentials. If the
 current assistant cannot isolate those credentials, hand the credentialed
 steps to a trusted maintainer environment.
 
+Provide draft English release notes from the included changes for the draft
+release PR before testing. Update them as evidence arrives.
+
 ## DEV campaign
 
 1. Receive the frozen SHA/tree, green CI, affected local evaluation results,
@@ -43,7 +46,7 @@ steps to a trusted maintainer environment.
 
 After the authorized merge, fetch `main` from `leomuf/foxquiz` and compare its
 tree to the DEV-tested tree. Resolve any difference under the release gate.
-Draft English GitHub release notes from the previous release and merged PRs.
+Reconcile the draft notes with the previous release and the actual merged PRs.
 Describe user-visible changes, fixes, security updates, migrations, and known
 limitations with verified metadata. If the version or tag is unresolved, keep
 the notes as a local draft and return the choice to the coordinator.
